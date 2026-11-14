@@ -234,6 +234,15 @@ const SEQUENCE: readonly Command[] = [
   hubUnset("contract", { dryRun: true }),
   hubUnset("contract"),
   profileRemove("mmp"),
+  // r3 第 163 轮：改到的岗位此刻有回合在跑（序列开头在审核端造了两个回合目录，一个还没有 result.json；执行端也造了一个，
+  // 执行端不算）：预览列出、要 --yes，不加就拒绝，加了照写；改岗位绑着的 profile 同样牵连
+  hubSet("audit", "plain"),
+  hubSet("audit", "plain", { yes: true }),
+  profileWrite("edit", "plain", { thinking: "low", dryRun: true }),
+  profileWrite("edit", "plain", { thinking: "low" }),
+  hubUnset("audit", { dryRun: true }),
+  hubUnset("audit"),
+  hubUnset("audit", { yes: true }),
   hubShow(),
   hubShow(true),
   profileRemove("qzp"),
@@ -310,6 +319,16 @@ describe("写命令序列", () => {
       }));
       mkdirSync(join(repo, ".agent", "runs", "t3"), { recursive: true });
       writeFileSync(join(repo, ".agent", "runs", "t3", "binding-v1.json"), "{");
+      // r3 第 163 轮：信箱的回合目录（hub 每个回合开始写 inputs.json、结束写 result.json）：审核端一个在跑、一个跑完了；执行端一个在跑（不算）
+      const turn = (agent: string, name: string, done: boolean): void => {
+        const dir = join(repo, ".agent", "mailbox", "turns", agent, name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "inputs.json"), "{}");
+        if (done) writeFileSync(join(dir, "result.json"), "{}");
+      };
+      turn("audit-sonnet", "20261114T000000000000Z-0001", true);
+      turn("audit-sonnet", "20261114T000100000000Z-0002", false);
+      turn("exec-step", "20261114T000200000000Z-0003", false);
       const steps = SEQUENCE.map((command) => ({ command: command.label, ...shown(run(runner, repo, command), repo) }));
       return { steps, state: state(repo) };
     });
@@ -339,6 +358,8 @@ describe("写命令序列", () => {
       "被 roles.execution",
       "← 与方案",
       "相同",
+      "审核端（audit）：1 个回合在跑",
+      "在跑的回合照旧用原来的绑定",
     ]) {
       expect(output, fragment).toContain(fragment);
     }

@@ -895,21 +895,29 @@ def _binding_switch_confirmation(repo: Any, old_config: Dict[str, Any], new_conf
                                  confirm: bool) -> str:
     """运行中切换的确认（D8）：返回审计的 confirmation（flag / none）。
 
-    写入前后两份配置都没有 v3 键时，生效绑定两边都是“由合同决定”，不用比较；有 v3 键的比较在 kit_roles 里。
+    写入前后两份配置都没有 v3 键时，生效绑定两边都是“由合同决定”，不用比较；有 v3 键的比较在 kit_roles 里。改到的岗位
+    此刻有回合在跑时同样要 --yes（模型配置 §3.3，r3 第 163 轮）：在跑的回合照旧用原来的绑定，下一个回合起用新的。
     """
     if not any(key in config for config in (old_config, new_config) for key in V3_KEYS):
         return "none"
     roles = _kit_roles()
     in_flight, unreadable = roles.binding_switch_in_flight(repo, old_config, new_config)
-    if not in_flight and not unreadable:
+    posts = [change["post"] for change in roles.hub_changes(old_config, new_config)]
+    turns, turns_unreadable = roles.hub_running_turns(repo, posts)
+    if not in_flight and not unreadable and not turns and not turns_unreadable:
         return "none"
     if not confirm:
         if in_flight:
             raise ConfigError("有 attempt 在运行，这次写入会改变 execution 或 contract 的生效绑定：%s。"
                               "运行中的 attempt 不受影响（执行模型已固定）；确认要切换就加 --yes" % "、".join(in_flight))
-        # 列不出来就判断不了有没有在运行的：不当作“没有”（闸二第 2 片 S4）
-        raise ConfigError("这次写入会改变 execution 或 contract 的生效绑定，但无法确认有没有在运行的 attempt（列不出来：%s）；"
-                          "确认要切换就加 --yes" % "、".join(unreadable))
+        if unreadable:  # 列不出来就判断不了有没有在运行的：不当作“没有”（闸二第 2 片 S4）
+            raise ConfigError("这次写入会改变 execution 或 contract 的生效绑定，但无法确认有没有在运行的 attempt（列不出来：%s）；"
+                              "确认要切换就加 --yes" % "、".join(unreadable))
+        if turns:
+            raise ConfigError("这次写入会改变有回合在跑的岗位的绑定：%s。在跑的回合照旧用原来的绑定，下一个回合起用新的；"
+                              "确认要切换就加 --yes" % "；".join(turns))
+        raise ConfigError("这次写入会改变岗位的绑定，但无法确认有没有在跑的回合（列不出来：%s）；确认要切换就加 --yes"
+                          % "、".join(turns_unreadable))
     return "flag"
 
 
@@ -918,9 +926,10 @@ BINDING_FIELDS = ("mode", "profile", "runtime", "adapter", "provider", "model", 
 
 
 def _switch_preview(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any]) -> Dict[str, Any]:
-    """预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色与七端各岗位生效绑定的前后（岗位：r3 第 162 轮）。"""
+    """预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），各角色与七端各岗位生效绑定的前后（岗位：r3 第 162 轮），
+    以及改到的岗位此刻在跑的回合（r3 第 163 轮）。"""
     if not any(key in config for config in (old_config, new_config) for key in V3_KEYS):
-        return {"binding_changes": [], "hub_changes": [], "running_attempts": [], "unreadable": []}
+        return {"binding_changes": [], "hub_changes": [], "running_attempts": [], "running_turns": [], "unreadable": []}
     roles = _kit_roles()
     changes = []
     for role in roles.ROLES:
@@ -929,8 +938,10 @@ def _switch_preview(repo: Any, old_config: Dict[str, Any], new_config: Dict[str,
             changes.append({"role": role, "before": dict(zip(BINDING_FIELDS, before)) if before else None,
                             "after": dict(zip(BINDING_FIELDS, after)) if after else None})
     in_flight, unreadable = roles.binding_switch_in_flight(repo, old_config, new_config)
-    return {"binding_changes": changes, "hub_changes": roles.hub_changes(old_config, new_config), "running_attempts": in_flight,
-            "unreadable": unreadable}
+    hub = roles.hub_changes(old_config, new_config)
+    turns, turns_unreadable = roles.hub_running_turns(repo, [change["post"] for change in hub])
+    return {"binding_changes": changes, "hub_changes": hub, "running_attempts": in_flight, "running_turns": turns,
+            "unreadable": unreadable + turns_unreadable}
 
 
 #: 配置 v3 的五个键（3.0 第二轮 D1）：与 kit_roles 共用 PD 的这一份（本模块不在导入时依赖 kit_roles，D12）。
@@ -1598,13 +1609,13 @@ def build_parser() -> argparse.ArgumentParser:
     actions = p.add_subparsers(dest="runtime_action", required=True)
     q = actions.add_parser("list", help="已登记的 runtime、适配器与命令的来源")
     q.add_argument("--json", action="store_true")
-    q = actions.add_parser("scan", help="在 PATH 上找 pi、claude、codex、opencode，只运行 --version；--add 登记找到的")
+    q = actions.add_parser("scan", help="在 PATH 上找 pi、claude、codex、opencode、quizs，只运行 --version；--add 登记找到的")
     q.add_argument("--add", action="store_true")
     q.add_argument("--json", action="store_true")
     q.add_argument("--yes", **yes)
     q = actions.add_parser("add", help="登记 runtime；--command 只写本机文件 .agent/dispatch.local.json")
     q.add_argument("runtime_id")
-    q.add_argument("--adapter", required=True, help="pi、claude-code、codex 或 opencode")
+    q.add_argument("--adapter", required=True, help="pi、claude-code、codex、opencode 或 quizs")
     q.add_argument("--command", help='JSON 字符串数组，路径写绝对路径，例如 ["/usr/local/bin/pi"]')
     q.add_argument("--force", action="store_true", help="改已登记 runtime 的 adapter")
     q.add_argument("--yes", **yes)
@@ -1746,13 +1757,15 @@ def _preview_payload(mode: WriteMode, text: str) -> Dict[str, Any]:
         raise ConfigError("内部错误：这条命令没有进写入事务，给不出预览")
     entries = mode.preview
     running = [name for entry in entries for name in entry.get("running_attempts", [])]
+    turns = [line for entry in entries for line in entry.get("running_turns", [])]
     unreadable = [where for entry in entries for where in entry.get("unreadable", [])]
     return {"dry_run": True, "action": mode.action, "changed": any(entry["changed"] for entry in entries),
             "resources": [{key: entry[key] for key in ("resource", "changed", "changed_keys") if key in entry}
                           for entry in entries],
             "binding_changes": [change for entry in entries for change in entry.get("binding_changes", [])],
             "hub_changes": [change for entry in entries for change in entry.get("hub_changes", [])],
-            "running_attempts": running, "unreadable": unreadable, "needs_yes": bool(running or unreadable),
+            "running_attempts": running, "running_turns": turns, "unreadable": unreadable,
+            "needs_yes": bool(running or turns or unreadable),
             "warnings": [line[len("WARN  "):] for line in text.splitlines() if line.startswith("WARN  ")],
             "notes": mode.notes, "state": state_token(mode.snapshot)}
 

@@ -12,7 +12,7 @@ import { pyEq } from "@themis/base/pyvalue";
 import { TASK_ID_RE } from "@themis/base/secrets";
 import { EXIT_BLOCKED, EXIT_USAGE } from "@themis/dispatcher/repo";
 import { stateInFlight } from "@themis/dispatcher/status";
-import { ADAPTERS, adapterOf, configErrors, shownValue } from "./roles-check.ts";
+import { ADAPTERS, HUB_POST_AGENTS, adapterOf, configErrors, shownValue } from "./roles-check.ts";
 
 /** 没写的角色取的默认值；execution 没写时由合同决定。 */
 const DEFAULT_ROLES: Readonly<Record<string, PyDict | null>> = {
@@ -153,6 +153,40 @@ export function inFlightAttempts(runsDir: string): [string[], string[]] {
 export function bindingSwitchInFlight(runsDir: string, oldConfig: PyDict, newConfig: PyDict): [string[], string[]] {
   if (["execution", "contract"].every((role) => sameBinding(bindingTuple(oldConfig, role), bindingTuple(newConfig, role)))) return [[], []];
   return inFlightAttempts(runsDir);
+}
+
+/**
+ * kit_roles.hub_running_turns：改到的这些岗位此刻在跑的回合（模型配置 §3.3，r3 第 163 轮），返回（每个有回合在跑的岗位一句,
+ * 列不出来的位置）。信箱的回合目录没有 result.json 的就是在跑；执行端不在 HUB_POST_AGENTS 里，不算；列不出来的不当作“没有”。
+ */
+export function hubRunningTurns(agentDir: string, posts: readonly string[]): [string[], string[]] {
+  const found: string[] = [];
+  const problems: string[] = [];
+  for (const post of posts) {
+    const spec = HUB_POST_AGENTS[post];
+    if (spec === undefined) continue;
+    const [agent, label] = spec;
+    const where = join(agentDir, "mailbox", "turns", agent);
+    let turns: string[];
+    try {
+      if (!plainDir(where)) continue;
+      turns = readdirSync(where).sort(pathOrder);
+    } catch (error) {
+      problems.push(unreadable(where, error));
+      continue;
+    }
+    let running = 0;
+    for (const name of turns) {
+      const turn = join(where, name);
+      try {
+        if (plainDir(turn) && lstatOrNull(join(turn, "result.json")) === null) running += 1;
+      } catch (error) {
+        problems.push(unreadable(turn, error));
+      }
+    }
+    if (running > 0) found.push(`${label}（${post}）：${running} 个回合在跑`);
+  }
+  return [found, problems];
 }
 
 export interface RoleExecutorError {

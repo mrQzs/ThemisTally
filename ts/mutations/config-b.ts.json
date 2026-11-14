@@ -78,7 +78,7 @@
     {
       "name": "T12 预览不要 --yes",
       "file": "ts/packages/config/src/transaction.ts",
-      "old": "[\"needs_yes\", running.length > 0 || unreadable.length > 0],",
+      "old": "[\"needs_yes\", running.length > 0 || turns.length > 0 || unreadable.length > 0],",
       "new": "[\"needs_yes\", false],"
     },
     {

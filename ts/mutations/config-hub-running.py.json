@@ -1,0 +1,61 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_roles.py",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "running_turn or the_posts_match_the_roster"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 跑完的回合也算在跑",
+      "file": "scripts/kit_roles.py",
+      "old": "                if _plain_dir(turn) and _lstat(turn / \"result.json\") is None:",
+      "new": "                if _plain_dir(turn):"
+    },
+    {
+      "name": "P02 执行端也查回合",
+      "file": "scripts/kit_roles.py",
+      "old": "    \"audit\": (\"audit-sonnet\", \"审核端\"),\n}",
+      "new": "    \"audit\": (\"audit-sonnet\", \"审核端\"),\n    \"exec\": (\"exec-step\", \"执行端\"),\n}"
+    },
+    {
+      "name": "P03 列不出来的当作没有",
+      "file": "scripts/kit_roles.py",
+      "old": "            problems.append(_unreadable(where, exc))",
+      "new": "            pass"
+    },
+    {
+      "name": "P04 写入不拦在跑的回合",
+      "file": "scripts/kit_config.py",
+      "old": "    if not in_flight and not unreadable and not turns and not turns_unreadable:",
+      "new": "    if not in_flight and not unreadable:"
+    },
+    {
+      "name": "P05 写入时查全部岗位，不只改到的",
+      "file": "scripts/kit_config.py",
+      "old": "    posts = [change[\"post\"] for change in roles.hub_changes(old_config, new_config)]",
+      "new": "    posts = list(roles.HUB_POSTS)"
+    },
+    {
+      "name": "P06 预览不列在跑的回合",
+      "file": "scripts/kit_config.py",
+      "old": "\"running_attempts\": in_flight, \"running_turns\": turns,",
+      "new": "\"running_attempts\": in_flight, \"running_turns\": [],"
+    },
+    {
+      "name": "P07 needs_yes 不看在跑的回合",
+      "file": "scripts/kit_config.py",
+      "old": "            \"needs_yes\": bool(running or turns or unreadable),",
+      "new": "            \"needs_yes\": bool(running or unreadable),"
+    }
+  ]
+}

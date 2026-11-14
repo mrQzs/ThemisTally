@@ -1549,7 +1549,9 @@ class PreviewAndExpectedState(RolesRepo):
         config_bytes = self.config_file.read_bytes()
         # 交给服务、迁移计划第 ③ 步还要与 TS 逐字一致的形状：键集合钉死
         self.assertEqual(sorted(payload), ["action", "binding_changes", "changed", "dry_run", "hub_changes", "needs_yes",
-                                           "notes", "resources", "running_attempts", "state", "unreadable", "warnings"])
+                                           "notes", "resources", "running_attempts", "running_turns", "state",
+                                           "unreadable", "warnings"])
+        self.assertEqual(payload["running_turns"], [])  # 角色的写入不动七端岗位，也就不查回合（r3 第 163 轮）
         self.assertEqual(payload["hub_changes"], [])  # 角色的写入不动七端岗位（r3 第 162 轮）
         self.assertEqual(payload["notes"], [])  # notes 只有 plugins 用（权限差异）
         self.assertEqual(payload["action"], "role.set")
@@ -1950,6 +1952,72 @@ class HubRoles(RolesRepo):
         self.assertNotIn("WARN", run_config(["hub", "set", "audit", "pi-glm"], self.repo)[1])  # 两个岗位分开了
         self.assertIn("WARN  " + same, run_config(["hub", "unset", "audit"], self.repo)[1])  # 审核端回到缺省，又是同一个
         self.assertEqual(self.preview(["hub", "set", "contract", "pi-mm"])["warnings"], [same])
+
+    def turn(self, agent, name, done=False):
+        where = self.repo / ".agent" / "mailbox" / "turns" / agent / name
+        where.mkdir(parents=True)
+        (where / "inputs.json").write_text("{}", encoding="utf-8")
+        if done:
+            (where / "result.json").write_text("{}", encoding="utf-8")
+
+    def test_a_running_turn_on_a_changed_post_needs_yes(self):
+        # 模型配置 §3.3（r3 第 163 轮）：改到的岗位此刻有回合在跑（回合目录里还没有 result.json），预览列出、要 --yes；
+        # 不加就拒绝、什么也不写，加了照写、审计记 flag。跑完的回合不算；改岗位绑着的 profile 同样牵连这个岗位
+        self.write(self.hub())
+        self.turn("audit-sonnet", "20261114T000000000000Z-0001", done=True)
+        self.turn("audit-sonnet", "20261114T000100000000Z-0002")
+        self.turn("audit-sonnet", "20261114T000200000000Z-0003")
+        running = ["审核端（audit）：2 个回合在跑"]
+        preview = self.preview(["hub", "set", "audit", "pi-glm"])
+        self.assertEqual((preview["running_turns"], preview["needs_yes"]), (running, True))
+        self.assertEqual((preview["running_attempts"], preview["unreadable"]), ([], []))
+        code, _out, err = run_config(["hub", "set", "audit", "pi-glm"], self.repo)
+        self.assertEqual(code, 1, err)
+        self.assertIn("这次写入会改变有回合在跑的岗位的绑定：审核端（audit）：2 个回合在跑。在跑的回合照旧用原来的绑定，"
+                      "下一个回合起用新的；确认要切换就加 --yes", err)
+        self.assertEqual(self.cfg()["hub_roles"], {})
+        code, _out, err = run_config(["hub", "set", "audit", "pi-glm", "--yes"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.cfg()["hub_roles"], {"audit": {"profile": "pi-glm"}})
+        records, _ = kit_config.read_audit(pd.Repo.discover(str(self.repo)))
+        self.assertEqual([r for r in records if r["phase"] == "intent"][-1]["confirmation"], "flag")
+        self.assertEqual(self.preview(["profile", "edit", "pi-glm", "--thinking", "low"])["running_turns"], running)
+        self.assertEqual(run_config(["profile", "edit", "pi-glm", "--thinking", "low"], self.repo)[0], 1)
+
+    def test_running_turns_count_only_posts_this_write_changes(self):
+        # 执行端不算（执行模型在合同写出时就定下了，§3.3 的例外）；没改到的岗位有回合在跑也不算；没有信箱的仓库照常写
+        self.write(self.hub())
+        self.assertEqual(self.preview(["hub", "set", "gate", "pi-glm"])["running_turns"], [])
+        self.turn("exec-step", "20261114T000000000000Z-0001")
+        self.turn("audit-sonnet", "20261114T000100000000Z-0002")
+        preview = self.preview(["hub", "set", "exec", "pi-glm"])
+        self.assertEqual((preview["running_turns"], preview["needs_yes"]), ([], False))
+        self.assertEqual(run_config(["hub", "set", "exec", "pi-glm"], self.repo)[0], 0)
+        self.assertEqual(self.preview(["hub", "set", "gate", "pi-glm"])["running_turns"], [])
+        self.assertEqual(run_config(["hub", "set", "gate", "pi-glm"], self.repo)[0], 0)
+        self.assertEqual(self.cfg()["hub_roles"], {"exec": {"profile": "pi-glm"}, "gate": {"profile": "pi-glm"}})
+
+    def test_running_turns_that_cannot_be_listed_are_not_idle(self):
+        # 列不出来的照 D8 不当作“没有”：预览记进 unreadable、要 --yes，写入不加 --yes 就拒绝
+        self.write(self.hub())
+        self.turn("audit-sonnet", "20261114T000000000000Z-0001", done=True)
+        blocked = os.path.normcase(str(self.repo / ".agent" / "mailbox" / "turns" / "audit-sonnet"))
+        real_lstat = os.lstat
+
+        def guard(path, *args, **kwargs):
+            if os.path.normcase(os.fspath(path)) == blocked:
+                raise PermissionError(13, "拒绝访问（替身）", os.fspath(path))
+            return real_lstat(path, *args, **kwargs)
+
+        with mock.patch.object(os, "lstat", guard):
+            preview = self.preview(["hub", "set", "audit", "pi-glm"])
+            code, _out, err = run_config(["hub", "set", "audit", "pi-glm"], self.repo)
+        self.assertEqual((preview["running_turns"], preview["needs_yes"]), ([], True))
+        self.assertEqual(len(preview["unreadable"]), 1)
+        self.assertIn("audit-sonnet（拒绝访问（替身））", preview["unreadable"][0])
+        self.assertEqual(code, 1, err)
+        self.assertIn("这次写入会改变岗位的绑定，但无法确认有没有在跑的回合（列不出来：", err)
+        self.assertEqual(self.cfg()["hub_roles"], {})
 
     def test_a_profile_bound_to_a_post_cannot_be_removed(self):
         self.write(self.hub(coordinator={"profile": "qz-flash", "fallback": "pi-flash"}))

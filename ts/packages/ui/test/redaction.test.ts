@@ -148,3 +148,11 @@ describe("/preview 的白名单：七端岗位的前后（r3 第 162 轮）", ()
     });
   });
 });
+
+describe("/preview 的白名单：改到的岗位此刻在跑的回合（r3 第 163 轮）", () => {
+  it("running_turns 的每一句照预览的自由文字放行，带凭据形状的那一句整句遮掉", () => {
+    // 不登记时只过 redactSecrets，只遮句子里的那一段（「前缀 <redacted> 后缀」）
+    const shown = plain(redactJson(loads(`{"running_turns":["审核端（audit）：2 个回合在跑","前缀 ${TOKEN} 后缀"]}`), PREVIEW_ALLOW));
+    expect(shown).toEqual({ running_turns: ["审核端（audit）：2 个回合在跑", "<redacted>"] });
+  });
+});

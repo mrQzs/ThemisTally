@@ -76,6 +76,17 @@ export const HUB_DEFAULTS: Readonly<Record<string, HubDefault>> = {
   audit: { adapter: "pi", provider: "minimax", model: "MiniMax-M3.1-Flash", thinking: "max", fallback: null },
   exec: { adapter: "pi", provider: "cc-switch-step-fun", model: "step-5-preview", thinking: "high", fallback: null },
 };
+/**
+ * kit_roles.HUB_POST_AGENTS：岗位在 hub 名册里的工人与中文名，改岗位绑定时查这个岗位此刻有没有回合在跑（模型配置 §3.3，
+ * r3 第 163 轮）。执行端不列：执行模型在合同写出时就定下了，改岗位影响不到在途的合同。
+ */
+export const HUB_POST_AGENTS: Readonly<Record<string, readonly [string, string]>> = {
+  coordinator: ["womovie-c8", "协调人"],
+  planner: ["planner-opus", "规划端"],
+  contract: ["contract-glm", "合同端"],
+  gate: ["gate-sonnet", "门禁端"],
+  audit: ["audit-sonnet", "审核端"],
+};
 /** claude 的 --effort 取值（claude --help，2026-11-12 核对）。 */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 /** pi_dispatch.FALLBACK_THINKING_LEVELS。 */

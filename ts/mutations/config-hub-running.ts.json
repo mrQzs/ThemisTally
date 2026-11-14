@@ -1,0 +1,57 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/ui/test/redaction.test.ts",
+    "packages/contracts/test/roles-commands.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T01 跑完的回合也算在跑",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "        if (plainDir(turn) && lstatOrNull(join(turn, \"result.json\")) === null) running += 1;",
+      "new": "        if (plainDir(turn)) running += 1;"
+    },
+    {
+      "name": "T02 执行端也查回合",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "  audit: [\"audit-sonnet\", \"审核端\"],\n};",
+      "new": "  audit: [\"audit-sonnet\", \"审核端\"],\n  exec: [\"exec-step\", \"执行端\"],\n};"
+    },
+    {
+      "name": "T03 写入不拦在跑的回合",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "  if (!inFlight.length && !unreadable.length && !turns.length && !turnsUnreadable.length) return \"none\";",
+      "new": "  if (!inFlight.length && !unreadable.length) return \"none\";"
+    },
+    {
+      "name": "T04 预览不列在跑的回合",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "[\"running_turns\", turns], [\"unreadable\", [...unreadable, ...turnsUnreadable]]",
+      "new": "[\"running_turns\", []], [\"unreadable\", [...unreadable, ...turnsUnreadable]]"
+    },
+    {
+      "name": "T05 needs_yes 不看在跑的回合",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "    [\"needs_yes\", running.length > 0 || turns.length > 0 || unreadable.length > 0],",
+      "new": "    [\"needs_yes\", running.length > 0 || unreadable.length > 0],"
+    },
+    {
+      "name": "T06 拒绝时的说法与 Python 不同",
+      "file": "ts/packages/config/src/transaction.ts",
+      "old": "在跑的回合照旧用原来的绑定，下一个回合起用新的；确认要切换就加 --yes`);",
+      "new": "确认要切换就加 --yes`);"
+    },
+    {
+      "name": "T07 服务的预览白名单不登记 running_turns",
+      "file": "ts/packages/ui/src/redaction.ts",
+      "old": "  [[\"running_turns\", \"*\"], allowPreviewText],\n",
+      "new": ""
+    }
+  ]
+}

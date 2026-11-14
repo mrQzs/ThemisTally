@@ -2477,6 +2477,23 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **检查**：每段都进重活车道：类型检查 0 错；配置的 pytest 4 份 169 条（子测试 157 个）全过；本机服务的单测（遮蔽、遮蔽路由、写路由、hub 路由）4 份 39 条全过；配置的契约 8 份 75 条只红 schemas 一条（见“顺带”），补上之后 schemas、source-hygiene、mutation-specs、roles-commands 4 份 14 条全过；T019、T031 的门禁 40 条全过。
 - **没做**：§3.3“岗位此刻有回合在跑”留到下一轮：要读信箱的阶段状态（assigned 的阶段按阶段名对到岗位；协调人没有阶段，执行端按合同定、不受影响），配置中心现在不读信箱，判定入口放哪、assigned 算不算“在跑”要先量。警告只比 provider 与 model，不比档位（同一个模型、不同档位照样算同一个模型）。
 
+### 第 163 轮：改岗位绑定时，这个岗位此刻有回合在跑就要 --yes；runtime 的帮助写上 quizs
+
+- **起因**：模型配置 §3.3 写明“有回合正在跑的岗位被改绑定：不打断正在跑的回合；预览里列出‘这个岗位此刻有回合在跑’，照 r2 的运行中切换规则要 `--yes`”。第 162 轮给了岗位的前后（`hub_changes`），这一条留到了这一轮（候选 #27）。另有候选 #29：第 154 轮加了 quizs 适配器，`config runtime add --adapter` 与 `runtime scan` 的帮助文字没跟上。
+- **量过的事实**（2026-11-14）：信箱的回合目录 `.agent/mailbox/turns/<工人>/<回合>/` 在回合开始时写 inputs.json、prompt.md、role.md，结束时写 result.json；全部 1054 个回合目录里没有 result.json 的只有当时正在跑的 3 个，中途死掉的回合没有留下空目录，所以“没有 result.json”可以当作“在跑”。inputs.json 里没有阶段名，只能说“审核端此刻有 N 个回合在跑”。账本没有 turn.started，不从账本算。
+- **改法**：
+  - kit_roles 加 `HUB_POST_AGENTS`（岗位 → hub 名册里的工人与中文名；kit_roles 不导入 kit_hub，工人名另放一份，tests/test_kit_hub.py 里核对缺省名册的那条测试一并核对）与 `hub_running_turns(repo, posts)`，返回（每个有回合在跑的岗位一句，如“审核端（audit）：2 个回合在跑”，列不出来的位置）。只查这次写入改到的岗位；执行端不在表里：执行模型在合同写出时就定下了，改岗位影响不到在途的合同（§3.3 的执行端例外）。没有信箱的仓库没有这个目录，也就没有在跑的。
+  - 写入：改到的岗位有回合在跑、不加 `--yes` 就拒绝：“这次写入会改变有回合在跑的岗位的绑定：…。在跑的回合照旧用原来的绑定，下一个回合起用新的；确认要切换就加 --yes”；加了照写，审计记 flag。列不出来的照 D8 不当作“没有”，同样要 `--yes`。原来 attempt 的两种拒绝排在前面，说法一字不改。
+  - 预览加 `running_turns`（与 `running_attempts` 并列，不混进去：界面上 running_attempts 的说法是“有 attempt 正在运行”），`needs_yes` 跟着算；回合扫描列不出来的并进 `unreadable`。本机服务的 `PREVIEW_ALLOW` 加 `running_turns.*`（`allowPreviewText`）。
+  - `config runtime scan`、`runtime add --adapter` 的帮助写上 quizs（scan 本来就照适配器表找，quizs 也在找）。帮助只由 Python 打，TS 不用改。
+  - Python 与 TS 各一份；模型配置文档 §3.3 写明实现位置，第 9 节 M4 一行跟着改。
+- **测试**：Python 新加 3 条（有回合在跑：预览列出、要 --yes、不加就拒绝且不写、加了照写、审计记 flag、跑完的回合不算、改岗位绑着的 profile 同样牵连；执行端与没改到的岗位不算、没有信箱照常写；回合目录列不出来时预览记进 unreadable、要 --yes、写入被拒），改 1 条（预览的键集合加 running_turns，角色的写入它为空），名册核对的那条测试加 HUB_POST_AGENTS。服务的单测加 1 条（running_turns 的句子原样放行，带凭据形状的那一句整句遮掉；不登记时只遮句子里的那一段，去掉这一行单测就红，实测过）。
+- **契约**：roles-commands 的写命令序列开头在三个仓库里各造三个回合目录（审核端一个在跑、一个跑完了，执行端一个在跑），序列加 7 步（审核端改绑：不加 --yes 被拒、加了照写；改它绑着的 profile：预览列出、不加 --yes 被拒；取消：预览、被拒、加 --yes 照写），三种实现逐步与 Python 一致；原有的“审核端改绑的预览”一步现在也列出在跑的回合。
+- **变异**：Python 7 条（`config-hub-running.py.json`）、TS 7 条（`config-hub-running.ts.json`）；`config-b.ts.json` 的 T12（预览永远不要 --yes）锚在 needs_yes 原来那一行上，挪到新写法，单独复跑。全部抓住：Python 7 条、TS 7 条，T12 挪锚点之后单跑也抓住。
+- **检查**：每段都进重活车道：类型检查 0 错；配置的 pytest 173 条（子测试 157 个）全过；本机服务的单测（遮蔽、遮蔽路由、写路由、hub 路由）4 份 40 条全过；配置的契约 7 份 69 条全过；T019、T031 的门禁 40 条全过。这一轮是从第 162 轮补丁之前的那一版切出来的，第 162 轮合入（36babdac）之后变基到新末端，复查 schemas、roles-commands（第 162 轮补的一步加这一轮的 7 步）、mutation-specs、source-hygiene：4 份 14 条全过，变异清单的锚点全部对得上。
+- **没覆盖到的**：回合目录“列不出来”（记进 unreadable、要 --yes）那一支只有 Python 的用例（替身让 lstat 抛 PermissionError）。三边契约在 Windows 上造不出列不出来的目录：文件、联接点都按“不是普通目录”跳过，只有权限被拒才走这一支，要改 ACL，又脆又重，没做；TS 那一支没有对照（错题本第 32 条的检查照出来的）。
+- **又犯的错**：改 transaction.ts 里 needs_yes 那一行之前没有先在 ts/mutations 里搜锚点（错题本第 28 条），mutation-specs 校验照出 config-b.ts.json 的 T12 原文出现 0 次；这次在提交之前、进车道之前就照出来了（第 28 条的做法“改完先跑一次 mutation-specs”起了作用），挪锚点后单独复跑。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

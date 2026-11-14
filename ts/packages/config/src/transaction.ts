@@ -16,7 +16,7 @@ import { secretLikePaths } from "@themis/base/secrets";
 import { git } from "@themis/dispatcher/repo";
 import { joinPath } from "./decisions.ts";
 import { HISTORY_DIR, SECRET_SHOWN, auditPath, keyDiff, readAudit, secretReason } from "./history.ts";
-import { bindingSwitchInFlight, bindingTuple, sameBinding } from "./roles-binding.ts";
+import { bindingSwitchInFlight, bindingTuple, hubRunningTurns, sameBinding } from "./roles-binding.ts";
 import { ROLES, V3_KEYS, hubChanges } from "./roles-check.ts";
 import { ConfigError, type Kit, type RepoLike, parseObject, validateConfig } from "./validate.ts";
 
@@ -238,26 +238,39 @@ function actor(ctx: WriteContext): string {
 
 const hasV3 = (configs: readonly PyDict[]): boolean => configs.some((config) => V3_KEYS.some((key) => config.has(key)));
 
-/** 运行中切换的确认：返回审计的 confirmation（flag / none）。写入前后都没有 v3 键时不用比较。 */
+/** 岗位的前后里改到的岗位名。 */
+const postsOf = (changes: PyValue[]): string[] => changes.map((change) => (change as PyDict).get("post") as string);
+
+/**
+ * 运行中切换的确认：返回审计的 confirmation（flag / none）。写入前后都没有 v3 键时不用比较。改到的岗位此刻有回合在跑时同样要
+ * --yes（模型配置 §3.3，r3 第 163 轮）：在跑的回合照旧用原来的绑定，下一个回合起用新的。
+ */
 function bindingSwitchConfirmation(ctx: WriteContext, oldConfig: PyDict, newConfig: PyDict, confirm: boolean): string {
   if (!hasV3([oldConfig, newConfig])) return "none";
   const [inFlight, unreadable] = bindingSwitchInFlight(ctx.repo.runsDir, oldConfig, newConfig);
-  if (!inFlight.length && !unreadable.length) return "none";
+  const [turns, turnsUnreadable] = hubRunningTurns(ctx.repo.agentDir, postsOf(hubChanges(oldConfig, newConfig)));
+  if (!inFlight.length && !unreadable.length && !turns.length && !turnsUnreadable.length) return "none";
   if (!confirm) {
     if (inFlight.length) {
       throw new ConfigError(
         `有 attempt 在运行，这次写入会改变 execution 或 contract 的生效绑定：${inFlight.join("、")}。运行中的 attempt 不受影响（执行模型已固定）；确认要切换就加 --yes`,
       );
     }
-    // 列不出来就判断不了有没有在运行的：不当作“没有”
-    throw new ConfigError(`这次写入会改变 execution 或 contract 的生效绑定，但无法确认有没有在运行的 attempt（列不出来：${unreadable.join("、")}）；确认要切换就加 --yes`);
+    if (unreadable.length) {
+      // 列不出来就判断不了有没有在运行的：不当作“没有”
+      throw new ConfigError(`这次写入会改变 execution 或 contract 的生效绑定，但无法确认有没有在运行的 attempt（列不出来：${unreadable.join("、")}）；确认要切换就加 --yes`);
+    }
+    if (turns.length) {
+      throw new ConfigError(`这次写入会改变有回合在跑的岗位的绑定：${turns.join("；")}。在跑的回合照旧用原来的绑定，下一个回合起用新的；确认要切换就加 --yes`);
+    }
+    throw new ConfigError(`这次写入会改变岗位的绑定，但无法确认有没有在跑的回合（列不出来：${turnsUnreadable.join("、")}）；确认要切换就加 --yes`);
   }
   return "flag";
 }
 
-/** 预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色与七端各岗位生效绑定的前后（岗位：r3 第 162 轮）。 */
+/** 预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），各角色与七端各岗位生效绑定的前后（岗位：r3 第 162 轮），以及改到的岗位此刻在跑的回合（r3 第 163 轮）。 */
 function switchPreview(ctx: WriteContext, oldConfig: PyDict, newConfig: PyDict): [string, PyValue][] {
-  if (!hasV3([oldConfig, newConfig])) return [["binding_changes", []], ["hub_changes", []], ["running_attempts", []], ["unreadable", []]];
+  if (!hasV3([oldConfig, newConfig])) return [["binding_changes", []], ["hub_changes", []], ["running_attempts", []], ["running_turns", []], ["unreadable", []]];
   const changes: PyValue[] = [];
   for (const role of ROLES) {
     const before = bindingTuple(oldConfig, role);
@@ -268,7 +281,9 @@ function switchPreview(ctx: WriteContext, oldConfig: PyDict, newConfig: PyDict):
     }
   }
   const [inFlight, unreadable] = bindingSwitchInFlight(ctx.repo.runsDir, oldConfig, newConfig);
-  return [["binding_changes", changes], ["hub_changes", hubChanges(oldConfig, newConfig)], ["running_attempts", inFlight], ["unreadable", unreadable]];
+  const hub = hubChanges(oldConfig, newConfig);
+  const [turns, turnsUnreadable] = hubRunningTurns(ctx.repo.agentDir, postsOf(hub));
+  return [["binding_changes", changes], ["hub_changes", hub], ["running_attempts", inFlight], ["running_turns", turns], ["unreadable", [...unreadable, ...turnsUnreadable]]];
 }
 
 // --- 事务 ------------------------------------------------------------------------------------------
@@ -479,6 +494,7 @@ export function previewPayload(mode: WriteMode, captured: string): PyDict {
   const entries = mode.preview;
   const listOf = (key: string): PyValue[] => entries.flatMap((entry) => (entry.get(key) as PyValue[] | undefined) ?? []);
   const running = listOf("running_attempts");
+  const turns = listOf("running_turns");
   const unreadable = listOf("unreadable");
   return new Map<string, PyValue>([
     ["dry_run", true],
@@ -488,8 +504,9 @@ export function previewPayload(mode: WriteMode, captured: string): PyDict {
     ["binding_changes", listOf("binding_changes")],
     ["hub_changes", listOf("hub_changes")],
     ["running_attempts", running],
+    ["running_turns", turns],
     ["unreadable", unreadable],
-    ["needs_yes", running.length > 0 || unreadable.length > 0],
+    ["needs_yes", running.length > 0 || turns.length > 0 || unreadable.length > 0],
     ["warnings", pySplitlines(captured).filter((line) => line.startsWith("WARN  ")).map((line) => line.slice(6))],
     ["notes", [...mode.notes]],
     ["state", stateToken(mode.snapshot)],

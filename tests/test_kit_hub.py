@@ -8670,6 +8670,10 @@ def test_config_defaults_for_the_posts_match_the_roster():
     import kit_roles
     by_post = {spec["role"]: spec for spec in kh.ROSTER.values() if spec.get("role") in kit_roles.HUB_POSTS}
     assert sorted(by_post) == sorted(kit_roles.HUB_POSTS)
+    # 改岗位绑定时查回合用的工人名（r3 第 163 轮）：除了执行端，每个岗位一个，就是名册里这个 role 的工人
+    agents = {spec["role"]: name for name, spec in kh.ROSTER.items() if spec.get("role") in kit_roles.HUB_POSTS}
+    assert {post: agent for post, (agent, _label) in kit_roles.HUB_POST_AGENTS.items()} == {
+        post: agents[post] for post in kit_roles.HUB_POSTS if post != "exec"}
     for post, default in kit_roles.HUB_DEFAULTS.items():
         spec = by_post[post]
         carrier = {"claude": "claude-code", "dispatcher": "pi"}.get(spec["adapter"], spec["adapter"])

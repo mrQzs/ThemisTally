@@ -88,6 +88,16 @@ HUB_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "audit": {"adapter": "pi", "provider": "minimax", "model": "MiniMax-M3.1-Flash", "thinking": "max", "fallback": None},
     "exec": {"adapter": "pi", "provider": "cc-switch-step-fun", "model": "step-5-preview", "thinking": "high", "fallback": None},
 }
+#: 岗位在 hub 名册里的工人与中文名（工人名与 kit_hub.ROSTER 里这个 role 的工人相同，tests/test_kit_hub.py 有一条核对）：
+#: 改岗位绑定时查这个岗位此刻有没有回合在跑（模型配置 §3.3，r3 第 163 轮）。执行端不列：执行模型在合同写出时就定下了，
+#: 改岗位影响不到在途的合同（§3.3 的执行端例外）
+HUB_POST_AGENTS: Dict[str, Tuple[str, str]] = {
+    "coordinator": ("womovie-c8", "协调人"),
+    "planner": ("planner-opus", "规划端"),
+    "contract": ("contract-glm", "合同端"),
+    "gate": ("gate-sonnet", "门禁端"),
+    "audit": ("audit-sonnet", "审核端"),
+}
 #: claude 的 --effort 取值（claude --help，2026-11-12 核对）
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -542,6 +552,37 @@ def binding_switch_in_flight(repo: Any, old_config: Dict[str, Any],
     if all(binding_tuple(old_config, role) == binding_tuple(new_config, role) for role in ("execution", "contract")):
         return [], []
     return in_flight_attempts(repo)
+
+
+def hub_running_turns(repo: Any, posts: List[str]) -> Tuple[List[str], List[str]]:
+    """改到的这些岗位此刻在跑的回合（模型配置 §3.3，r3 第 163 轮）：返回（每个有回合在跑的岗位一句, 列不出来的位置）。
+    信箱的回合目录 .agent/mailbox/turns/<工人>/<回合>/ 开始时写 inputs.json、结束时写 result.json，没有 result.json 的
+    就是在跑（2026-11-14 量过 1054 个回合目录：中途死掉的回合不留下空目录）。没有信箱的仓库没有这个目录，也就没有在跑的；
+    执行端不在 HUB_POST_AGENTS 里，不算。列不出来的照 D8 不当作“没有”。"""
+    found: List[str] = []
+    problems: List[str] = []
+    for post in posts:
+        if post not in HUB_POST_AGENTS:
+            continue
+        agent, label = HUB_POST_AGENTS[post]
+        where = repo.agent_dir / "mailbox" / "turns" / agent
+        try:
+            if not _plain_dir(where):
+                continue
+            turns = sorted(where.iterdir())
+        except OSError as exc:
+            problems.append(_unreadable(where, exc))
+            continue
+        running = 0
+        for turn in turns:
+            try:
+                if _plain_dir(turn) and _lstat(turn / "result.json") is None:
+                    running += 1
+            except OSError as exc:
+                problems.append(_unreadable(turn, exc))
+        if running:
+            found.append("%s（%s）：%d 个回合在跑" % (label, post, running))
+    return found, problems
 
 
 # ---------------------------------------------------------------------------
