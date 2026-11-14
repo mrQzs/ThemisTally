@@ -67,6 +67,7 @@
 .rl-diff__msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }
 
 .rl-hub .tt-table { min-width: 760px; } /* 画布：七端岗位表最小宽 */
+.rl-hub .tt-table__mono { font: var(--tt-mono-sm); } /* Table.css 的 mono 规则只命中 td，来源列的 span 自己也要等宽 */
 .rl-hub-err { padding: var(--tt-space-3) var(--tt-space-4); }
 .rl-hub-errtext { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
 .rl-hub-msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }
