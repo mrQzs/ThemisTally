@@ -114,19 +114,19 @@ _TS_COMMENT = re.compile(r"(?<![:'\"`])//[^\n]*|/\*.*?\*/", re.S)
 # 基线 344b5d0 上一个字不许动的文件（本片 forbidden_paths 里与前端相关的部分；后续片合法改动时按名字退役）
 # 站主 2026-11-13 按名字退掉：App.tsx、shell/PageFrame.tsx、live/transport.ts（T034 连接状态片要改）、live/connection.ts（T036 事件流片）、
 # live/mode.ts（T037 写操作片）
+# 站主 2026-11-14 按名字退掉：shellpages/themisShell.ts、mock/shellpages-scenarios.ts、tests/shellpages-service-status.test.tsx
+# （T039 服务状态页说明片：exited 状态带上“跑起来之后才退出”，补场景与退出码 1 两种情形的用例）
 UNTOUCHED_REL = (
-    f"{SP_REL}/themisShell.ts",
     f"{SP_REL}/shellStub.ts",
     f"{SP_REL}/ShellWindow.tsx",
     f"{SP_REL}/SettingsView.tsx",
     f"{SP_REL}/shellWindowRoute.ts",
-    f"{SRC_REL}/mock/shellpages-scenarios.ts",
     f"{WEB_REL}/vite.config.ts",
     f"{WEB_REL}/scripts/check-live-build.mjs",
     f"{TESTS_REL}/shellpages-static.test.ts",
     f"{TESTS_REL}/cleanup2-static.test.ts",
 ) + tuple(f"{TESTS_REL}/shellpages-{name}" for name in (
-    "stub.test.ts", "route.test.ts", "first-run.test.tsx", "service-status.test.tsx", "settings.test.tsx",
+    "stub.test.ts", "route.test.ts", "first-run.test.tsx", "settings.test.tsx",
     "app.test.tsx", "isolation.test.tsx", "static.test.ts"))
 
 
