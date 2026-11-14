@@ -2462,6 +2462,21 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **检查**：每段都进重活车道：类型检查 0 错；元测试（source-hygiene、mutation-specs 与新加的 sample-floors）3 份 7 条全过；十一份契约分四段，3 份 12 条、2 份 6 条、3 份 5 条、3 份 15 条全过。反向的证据：把 hub-contract-flow 的“最外层调用的次数”与 hub-runexec 的 run_exec 次数各抬高 1（79→80、28→29），两份都红，报出的正是低于下限的那一项（“expected 79 to be greater than or equal to 80”“run_exec 28 < 29”）；两个文件当场改回，工作区干净。
 - **没做**：没把下限改成从采样结果自动生成（候选原来提的另一条路）：生成之后还要人审 diff，第 159 轮那种“这一轮没跑那份契约”的情形照样会漏；下限不用跑也不会因为加用例变红。下限会随着用例增加慢慢变松（比如以后真少了一条用例，只要总数还在下限之上就看不出来）；要收紧时手动把数字调到当时的实际值即可，不设自动提醒。
 
+### 第 162 轮：改岗位绑定的预览给出前后，合同端与审核端同一个模型时提醒
+
+- **起因**：模型配置文档对改岗位绑定的预览有三条要求：§3.4“预览里显示命令与前后对比”（界面上的确认就是用户同意的形式）、§3.3“有回合在跑的岗位被改绑定，预览里列出来、要 `--yes`”、第 8 节第 2 条“合同端与审核端绑到同一个模型，预览里给一条警告，不拦”。第 154 轮做 `config hub` 时三条都没做：预览的 `binding_changes` 只遍历四个角色（kit_config.py `_switch_preview`），岗位的变化只在 resources 的 changed_keys 里露一个 `hub_roles`。T038 的规划报告第 8 节第 1 条把它列为给站主的缺口：B 片的改绑定确认框只能写“改成什么”（候选 #26、#27）。
+- **改法**：
+  - **hub_changes**：预览（`--dry-run --json`）加一个键，这次写入改变了生效绑定的岗位各一项 `{post, before, after}`；两侧是 source（config 或 default）、profile、runtime、adapter、provider、model、thinking 与替补（同样六个字段，没有替补时 null）。没配的一侧取内核缺省，与 `config hub show` 的一行一致（kit_roles `hub_side`、`hub_changes`）。不只 hub set、hub unset：改了岗位绑着的 profile（例如档位），那个岗位也列出来。四个角色的 `binding_changes` 不动（T037 门禁钉着 hub.set 的预览里它恒空）。
+  - **本机服务**：`PREVIEW_ALLOW` 照 binding_changes 的规矩给 hub_changes 登记 27 行（岗位名，两侧的 source、六个字段与替补的六个字段，一律 `allowPreviewName`）。不登记时这些值只过 redactSecrets，像名字也好不像也好都原样放过；登记之后只有名字形状的才放行。
+  - **警告**：hub set、hub unset 改的是合同端或审核端、而且两边落到同一个 provider/model 时打一行 `WARN  合同端与审核端用的是同一个模型（…）：审核少一层独立性；照样生效`，预览里进 warnings。现在的缺省就是同一个模型（MiniMax-M3.1-Flash），所以只在改这两个岗位时说，改别的岗位不说。
+  - Python 与 TS 各一份；模型配置文档第 9 节 M0、M4 两行跟着改。
+  - **顺带**：第 154 轮把 `config hub show`、`set`、`unset` 加进了转交名单，pyargs-v1 的 Schema 没有给它们加分支，schemas.test.ts 也没有样例，“命令路径盖满转交名单”这条契约从 dbe0dad 起一直红着。这一轮的契约检查照出来，补了三个分支与三条样例。
+- **测试**：Python 新加 2 条（每个变了的岗位的前后，含替补、取消、没有变化、改 profile 带动岗位；同一个模型的警告：设、分开、取消回缺省、预览里的 warnings），改 1 条（预览的键集合加 hub_changes，角色的写入 hub_changes 为空）。服务的单测加 1 条（放行的字段原样，有空格的值与令牌形状遮掉：有空格的那一个只有登记之后才遮，去掉这 27 行它就原样留下，实测过）。
+- **契约**：roles-commands 的写命令序列加 10 步（加一个与审核端缺省同模型的 profile，合同端设上、设上之前与之后各预览一次，审核端改绑的预览，取消协调人绑定的预览，改这个 profile 档位的预览，取消合同端绑定的预览与执行，删掉 profile），三种实现逐步与 Python 一致。
+- **变异**：Python 8 条（`config-hub-preview.py.json`）、TS 8 条（`config-hub-preview.ts.json`）。Python 全部抓住。TS 第一遍漏 1 条（R03：预览里不填替补）：契约预览到的岗位没有一个带替补，两侧的替补恒为 null，TS 不填也对得上，是场景的错。契约补了“取消协调人绑定的预览”一步（配的是 qzp、替补 plain，缺省是 quizs、替补 pi，前后两侧都有替补），单跑 R03 抓住。
+- **检查**：每段都进重活车道：类型检查 0 错；配置的 pytest 4 份 169 条（子测试 157 个）全过；本机服务的单测（遮蔽、遮蔽路由、写路由、hub 路由）4 份 39 条全过；配置的契约 8 份 75 条只红 schemas 一条（见“顺带”），补上之后 schemas、source-hygiene、mutation-specs、roles-commands 4 份 14 条全过；T019、T031 的门禁 40 条全过。
+- **没做**：§3.3“岗位此刻有回合在跑”留到下一轮：要读信箱的阶段状态（assigned 的阶段按阶段名对到岗位；协调人没有阶段，执行端按合同定、不受影响），配置中心现在不读信箱，判定入口放哪、assigned 算不算“在跑”要先量。警告只比 provider 与 model，不比档位（同一个模型、不同档位照样算同一个模型）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

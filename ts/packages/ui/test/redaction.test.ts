@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { dumps, loads, type PyValue } from "@themis/base/pyjson";
 import { redactJson } from "@themis/base/secrets";
-import { CONFIG_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW, usedByShape } from "../src/redaction.ts";
+import { CONFIG_ALLOW, PREVIEW_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW, usedByShape } from "../src/redaction.ts";
 
 const TOKEN = "sk-abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -124,5 +124,27 @@ describe("/secrets/<name> 的白名单", () => {
     expect(shown.get("store_mode")).toBe("off");
     expect(shown.get("system_backend")).toBe(null);
     expect(shown.get("file_dir")).toBe("C:/secret/dir"); // 顶层且不在白名单：服务不把它放进 data（见 readroutes）
+  });
+});
+
+describe("/preview 的白名单：七端岗位的前后（r3 第 162 轮）", () => {
+  it("岗位名、两侧的 source、六个绑定字段与替补的字段放行；不像名字的值与令牌形状遮掉", () => {
+    const before = `{"source":"default","profile":null,"runtime":null,"adapter":"pi","provider":"minimax","model":"MiniMax-M3.1-Flash",`
+      + `"thinking":"high","fallback":null}`;
+    const after = `{"source":"config","profile":"qz-mm","runtime":"qz","adapter":"quizs","provider":"minimax","model":"two words",`
+      + `"thinking":"high","fallback":{"profile":"pi-mm","runtime":"pi","adapter":"pi","provider":"${TOKEN}","model":"MiniMax-M3.1-Flash",`
+      + `"thinking":"max"}}`;
+    const shown = plain(redactJson(loads(`{"hub_changes":[{"post":"contract","before":${before},"after":${after}}]}`), PREVIEW_ALLOW));
+    expect(shown).toEqual({
+      hub_changes: [{
+        post: "contract",
+        before: { source: "default", profile: null, runtime: null, adapter: "pi", provider: "minimax", model: "MiniMax-M3.1-Flash", thinking: "high", fallback: null },
+        // 有空格的值不是名字的形状：过 allowPreviewName 才会被遮（不登记时只过 redactSecrets，会原样留下）
+        after: {
+          source: "config", profile: "qz-mm", runtime: "qz", adapter: "quizs", provider: "minimax", model: "<redacted>", thinking: "high",
+          fallback: { profile: "pi-mm", runtime: "pi", adapter: "pi", provider: "<redacted>", model: "MiniMax-M3.1-Flash", thinking: "max" },
+        },
+      }],
+    });
   });
 });

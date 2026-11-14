@@ -1548,8 +1548,9 @@ class PreviewAndExpectedState(RolesRepo):
         payload = self.preview(["role", "set", "execution", "exec-low"])
         config_bytes = self.config_file.read_bytes()
         # 交给服务、迁移计划第 ③ 步还要与 TS 逐字一致的形状：键集合钉死
-        self.assertEqual(sorted(payload), ["action", "binding_changes", "changed", "dry_run", "needs_yes", "notes",
-                                           "resources", "running_attempts", "state", "unreadable", "warnings"])
+        self.assertEqual(sorted(payload), ["action", "binding_changes", "changed", "dry_run", "hub_changes", "needs_yes",
+                                           "notes", "resources", "running_attempts", "state", "unreadable", "warnings"])
+        self.assertEqual(payload["hub_changes"], [])  # 角色的写入不动七端岗位（r3 第 162 轮）
         self.assertEqual(payload["notes"], [])  # notes 只有 plugins 用（权限差异）
         self.assertEqual(payload["action"], "role.set")
         self.assertTrue(payload["changed"])
@@ -1798,6 +1799,11 @@ class HubRoles(RolesRepo):
     def cfg(self):
         return json.loads(self.config_file.read_bytes().decode("utf-8"))
 
+    def preview(self, argv):
+        code, out, err = run_config(argv + ["--dry-run", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        return json.loads(out)
+
     def test_shapes_posts_and_allowed_adapters(self):
         self.assertEqual(self.errors(self.hub(coordinator={"profile": "qz-flash", "fallback": "pi-flash"},
                                               planner={"profile": "cc-opus"}, gate={"profile": "pi-glm"})), [])
@@ -1904,6 +1910,46 @@ class HubRoles(RolesRepo):
         code, _out, err = run_config(["hub", "set", "gate", "pi-flash", "--expect-state", preview["state"]], self.repo)
         self.assertEqual(code, 4, err)  # 预览之后配置变了：锁内比对不过，什么也不写
         self.assertEqual(self.cfg()["hub_roles"], {"gate": {"profile": "pi-glm"}})
+
+    def test_the_preview_shows_each_changed_post_before_and_after(self):
+        # 模型配置 §3.4（r3 第 162 轮）：预览列出生效绑定前后不同的岗位，没配的一侧取内核缺省；改岗位绑着的 profile 也算
+        self.write(self.hub())
+        default_gate = {"source": "default", "profile": None, "runtime": None, "adapter": "pi", "provider": "cc-switch-zhipu-glm",
+                        "model": "glm-5.3", "thinking": "high", "fallback": None}
+        bound_gate = {"source": "config", "profile": "pi-glm", "runtime": "pi", "adapter": "pi", "provider": "zhipu",
+                      "model": "glm-5.3", "thinking": "high", "fallback": None}
+        preview = self.preview(["hub", "set", "gate", "pi-glm"])
+        self.assertEqual(preview["hub_changes"], [{"post": "gate", "before": default_gate, "after": bound_gate}])
+        self.assertEqual(preview["binding_changes"], [])  # 四个角色那一段不动
+        coordinator = self.preview(["hub", "set", "coordinator", "qz-flash", "--fallback", "pi-flash"])["hub_changes"]
+        self.assertEqual([change["post"] for change in coordinator], ["coordinator"])
+        self.assertEqual(coordinator[0]["before"]["fallback"], {"profile": None, "runtime": None, "adapter": "pi", "provider": "dsf",
+                                                                "model": "deepseek-flash", "thinking": "high"})
+        self.assertEqual(coordinator[0]["after"]["fallback"], {"profile": "pi-flash", "runtime": "pi", "adapter": "pi",
+                                                               "provider": "dsf", "model": "deepseek-flash", "thinking": "high"})
+        self.assertEqual((coordinator[0]["after"]["source"], coordinator[0]["after"]["adapter"],
+                          coordinator[0]["after"]["thinking"]), ("config", "quizs", "low"))
+        self.write(self.hub(gate={"profile": "pi-glm"}))
+        self.assertEqual(self.preview(["hub", "set", "gate", "pi-glm"])["hub_changes"], [])  # 没有变化
+        self.assertEqual(self.preview(["hub", "unset", "gate"])["hub_changes"],
+                         [{"post": "gate", "before": bound_gate, "after": default_gate}])
+        self.assertEqual(self.preview(["profile", "edit", "pi-glm", "--thinking", "low"])["hub_changes"],
+                         [{"post": "gate", "before": bound_gate, "after": dict(bound_gate, thinking="low")}])
+
+    def test_contract_and_audit_on_one_model_get_a_warning(self):
+        # 模型配置第 8 节第 2 条（r3 第 162 轮）：合同端与审核端用同一个模型时给一条警告，照样写入；只在改这两个岗位时说
+        config = self.hub()
+        config["profiles"]["pi-mm"] = {"runtime": "pi", "model": {"provider": "minimax", "id": "MiniMax-M3.1-Flash"}}
+        self.write(config)
+        same = "合同端与审核端用的是同一个模型（minimax/MiniMax-M3.1-Flash）：审核少一层独立性；照样生效"
+        code, out, err = run_config(["hub", "set", "contract", "pi-mm"], self.repo)  # 审核端没配，内核缺省也是这个模型
+        self.assertEqual(code, 0, err)
+        self.assertIn("WARN  " + same, out)
+        self.assertEqual(self.cfg()["hub_roles"], {"contract": {"profile": "pi-mm"}})
+        self.assertNotIn("WARN", run_config(["hub", "set", "gate", "pi-glm"], self.repo)[1])  # 改的不是这两个岗位
+        self.assertNotIn("WARN", run_config(["hub", "set", "audit", "pi-glm"], self.repo)[1])  # 两个岗位分开了
+        self.assertIn("WARN  " + same, run_config(["hub", "unset", "audit"], self.repo)[1])  # 审核端回到缺省，又是同一个
+        self.assertEqual(self.preview(["hub", "set", "contract", "pi-mm"])["warnings"], [same])
 
     def test_a_profile_bound_to_a_post_cannot_be_removed(self):
         self.write(self.hub(coordinator={"profile": "qz-flash", "fallback": "pi-flash"}))

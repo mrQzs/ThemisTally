@@ -222,6 +222,18 @@ const SEQUENCE: readonly Command[] = [
   hubSet("gate", "plain", { dryRun: true }),
   hubSet("gate", "plain", { expectState: STALE }),
   hubSet("exec", "exec"),
+  // r3 第 162 轮：预览里岗位的前后（改岗位、改岗位绑着的 profile），合同端与审核端用同一个模型时的警告（审核端没配：内核缺省也是这个模型）
+  profileWrite("add", "mmp", { runtime: "pi", model: "minimax/MiniMax-M3.1-Flash" }),
+  hubSet("contract", "mmp", { dryRun: true }),
+  hubSet("contract", "mmp"),
+  hubSet("contract", "mmp", { dryRun: true }),
+  hubSet("audit", "plain", { dryRun: true }),
+  // 取消协调人的绑定（配的是 qzp、替补 plain；缺省是 quizs 加 pi 替补）：预览的前后两侧都有替补，TS 少了替补这一步就对不上（变异 R03 第一遍没抓住）
+  hubUnset("coordinator", { dryRun: true }),
+  profileWrite("edit", "mmp", { thinking: "low", dryRun: true }),
+  hubUnset("contract", { dryRun: true }),
+  hubUnset("contract"),
+  profileRemove("mmp"),
   hubShow(),
   hubShow(true),
   profileRemove("qzp"),

@@ -14,7 +14,7 @@ import { DEFAULT_THINKING, allowedExecutorCheck, executorClass, loadBindingRecor
 import { DispatchError, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from "@themis/dispatcher/repo";
 import { joinPath } from "./decisions.ts";
 import { bindingTuple, effectiveBinding } from "./roles-binding.ts";
-import { ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, ROLES, adapterOf, entries, hubBinding, idOk, shownValue } from "./roles-check.ts";
+import { ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, ROLES, adapterOf, entries, hubBinding, hubSide, idOk, shownValue } from "./roles-check.ts";
 import { LOCAL_NAME, LOCAL_REL, type LocalRepo, checkLocal, lexists, localErrors, readLocal, runtimeCommand, shownCommand } from "./roles-local.ts";
 import { type ConfigTransaction, type WriteContext, withConfigTransaction, withConfigTransactions } from "./transaction.ts";
 import { ConfigError, loadConfig, validateConfig } from "./validate.ts";
@@ -552,20 +552,32 @@ function hubPost(args: RolesArgs): string {
   return post;
 }
 
+/** kit_roles._hub_warnings：合同端与审核端用同一个模型时给一条警告，不拦（模型配置第 8 节第 2 条）；只在改的是这两个岗位之一时说。 */
+function hubWarnings(config: PyDict, post: string): string[] {
+  if (post !== "contract" && post !== "audit") return [];
+  const contract = hubSide(config, "contract");
+  const audit = hubSide(config, "audit");
+  if (contract.get("provider") !== audit.get("provider") || contract.get("model") !== audit.get("model")) return [];
+  return [`合同端与审核端用的是同一个模型（${text(contract.get("provider"))}/${text(contract.get("model"))}）：审核少一层独立性；照样生效`];
+}
+
 function hubSet(env: RolesEnv): number {
   const { args, out } = env;
   const post = hubPost(args);
   const binding: PyDict = new Map<string, PyValue>([["profile", args.profile as string]]);
   if (args.fallback != null) binding.set("fallback", args.fallback);
   const ctx = env.open();
+  let after: PyDict = new Map();
   const changed = withConfigTransaction(ctx, "hub.set", post, { confirm: Boolean(args.yes) }, (txn) => {
     const config = txn.config;
+    after = config;
     const hubRoles = new Map(mapping(config, "hub_roles"));
     hubRoles.set(post, binding);
     config.set("hub_roles", hubRoles);
     return txn.publish(config); // profile 是否登记、适配器许不许、替补合不合规都在整份校验里
   });
   out.print(`${changed ? "已设置" : "没有变化："} hub_roles.${post} = ${json(binding)}`);
+  for (const warning of hubWarnings(after, post)) out.print(`WARN  ${warning}`);
   return EXIT_OK;
 }
 
@@ -573,8 +585,10 @@ function hubUnset(env: RolesEnv): number {
   const { args, out } = env;
   const post = hubPost(args);
   const ctx = env.open();
+  let after: PyDict = new Map();
   const changed = withConfigTransaction(ctx, "hub.unset", post, { confirm: Boolean(args.yes) }, (txn) => {
     const config = txn.config;
+    after = config;
     const hubRoles = new Map(mapping(config, "hub_roles"));
     hubRoles.delete(post);
     if (hubRoles.size) config.set("hub_roles", hubRoles);
@@ -582,6 +596,7 @@ function hubUnset(env: RolesEnv): number {
     return txn.publish(config);
   });
   out.print(`${changed ? "已取消" : "没有变化"}：hub_roles.${post} 回到内核缺省`);
+  for (const warning of hubWarnings(after, post)) out.print(`WARN  ${warning}`);
   return EXIT_OK;
 }
 

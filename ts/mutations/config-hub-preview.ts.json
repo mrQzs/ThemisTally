@@ -1,0 +1,63 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/ui/test/redaction.test.ts",
+  "packages/contracts/test/roles-commands.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1200,
+ "mutations": [
+  {
+   "name": "R01 岗位的前后不比（预览里永远没有岗位）",
+   "file": "ts/packages/config/src/roles-check.ts",
+   "old": "    if (!pyEq(before, after)) changes.push(",
+   "new": "    if (false) changes.push("
+  },
+  {
+   "name": "R02 没配的一侧丢了模型",
+   "file": "ts/packages/config/src/roles-check.ts",
+   "old": "    [\"model\", preset?.model ?? null],",
+   "new": "    [\"model\", null],"
+  },
+  {
+   "name": "R03 替补不进预览",
+   "file": "ts/packages/config/src/roles-check.ts",
+   "old": "  side.set(\"fallback\", isDict(fallback) ? new Map<string, PyValue>(HUB_SIDE_FIELDS.map((field) => [field, fallback.get(field) ?? null])) : null);",
+   "new": "  side.set(\"fallback\", null);"
+  },
+  {
+   "name": "R04 source 写反",
+   "file": "ts/packages/config/src/roles-check.ts",
+   "old": "  const side = new Map<string, PyValue>([[\"source\", binding === null ? \"default\" : \"config\"]]);",
+   "new": "  const side = new Map<string, PyValue>([[\"source\", binding === null ? \"config\" : \"default\"]]);"
+  },
+  {
+   "name": "R05 预览不汇总岗位",
+   "file": "ts/packages/config/src/transaction.ts",
+   "old": "    [\"hub_changes\", listOf(\"hub_changes\")],",
+   "new": "    [\"hub_changes\", []],"
+  },
+  {
+   "name": "R06 改哪个岗位都警告",
+   "file": "ts/packages/config/src/roles-commands.ts",
+   "old": "  if (post !== \"contract\" && post !== \"audit\") return [];",
+   "new": "  if (false) return [];"
+  },
+  {
+   "name": "R07 hub unset 不警告",
+   "file": "ts/packages/config/src/roles-commands.ts",
+   "old": "  out.print(`${changed ? \"已取消\" : \"没有变化\"}：hub_roles.${post} 回到内核缺省`);\n  for (const warning of hubWarnings(after, post)) out.print(`WARN  ${warning}`);",
+   "new": "  out.print(`${changed ? \"已取消\" : \"没有变化\"}：hub_roles.${post} 回到内核缺省`);"
+  },
+  {
+   "name": "R08 白名单漏了模型那一行",
+   "file": "ts/packages/ui/src/redaction.ts",
+   "old": "  [[\"hub_changes\", \"*\", \"after\", \"model\"], allowPreviewName],\n",
+   "new": ""
+  }
+ ]
+}

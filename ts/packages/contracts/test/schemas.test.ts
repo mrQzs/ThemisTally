@@ -53,6 +53,8 @@ describe("pyargs-v1 与第 ③ 步的切换", () => {
     ["config", "profile", "show"], ["config", "profile", "add", "p", "--runtime", "pi", "--model", "a/b", "--thinking", "high", "--credential-env", "K"],
     ["config", "profile", "edit", "p", "--model", "a/c"], ["config", "profile", "remove", "p"], ["config", "role", "show", "--json"],
     ["config", "role", "set", "scheduler_agent", "p", "--cadence-seconds", "60"], ["config", "preset", "list"], ["config", "preset", "show", "day"],
+    ["config", "hub", "show", "--json"], ["config", "hub", "set", "contract", "p", "--fallback", "q", "--yes"],
+    ["config", "hub", "unset", "audit", "--dry-run", "--json"],
     ["config", "preset", "save", "day", "--description", "d", "--roles", "execution"], ["config", "preset", "use", "day", "--expect-state=v1;config=x"],
     ["config", "preset", "diff", "a", "b"], ["config", "preset", "remove", "day", "--dry-run", "--json"], ["config", "doctor", "--record", "t.v1"],
     ["plugins", "list", "--json"], ["plugins", "show", "x"], ["plugins", "verify"], ["plugins", "enable", "x", "--allow-permission", "a"],

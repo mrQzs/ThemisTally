@@ -119,6 +119,7 @@ export const HUB_ROLES_ALLOW: AllowList = [
 /**
  * /preview 的白名单（内核预览 JSON，state 令牌在进白名单之前就被拿掉）：只放 binding_changes.*.before|after 的六个绑定
  * 字段（profile/runtime/adapter/provider/model/thinking；mode 是枚举，不进白名单，照 redactSecrets 处理）、
+ * hub_changes.*（岗位名，两侧的 source、六个绑定字段与替补的六个字段；r3 第 162 轮）、
  * resources.*.changed_keys.*、notes.*、warnings.*、running_attempts.*。白名单不为任何凭据值开口子；unreadable 不进
  * 白名单（内核的报错文字，照 messages 逐项过 redactSecrets）。放行的值原样保留，该遮的位置（凭据形状、敏感键下的值）
  * 一律变成 <redacted>。
@@ -136,6 +137,33 @@ export const PREVIEW_ALLOW: AllowList = [
   [["binding_changes", "*", "after", "provider"], allowPreviewName],
   [["binding_changes", "*", "after", "model"], allowPreviewName],
   [["binding_changes", "*", "after", "thinking"], allowPreviewName],
+  [["hub_changes", "*", "post"], allowPreviewName],
+  [["hub_changes", "*", "before", "source"], allowPreviewName],
+  [["hub_changes", "*", "after", "source"], allowPreviewName],
+  [["hub_changes", "*", "before", "profile"], allowPreviewName],
+  [["hub_changes", "*", "before", "runtime"], allowPreviewName],
+  [["hub_changes", "*", "before", "adapter"], allowPreviewName],
+  [["hub_changes", "*", "before", "provider"], allowPreviewName],
+  [["hub_changes", "*", "before", "model"], allowPreviewName],
+  [["hub_changes", "*", "before", "thinking"], allowPreviewName],
+  [["hub_changes", "*", "after", "profile"], allowPreviewName],
+  [["hub_changes", "*", "after", "runtime"], allowPreviewName],
+  [["hub_changes", "*", "after", "adapter"], allowPreviewName],
+  [["hub_changes", "*", "after", "provider"], allowPreviewName],
+  [["hub_changes", "*", "after", "model"], allowPreviewName],
+  [["hub_changes", "*", "after", "thinking"], allowPreviewName],
+  [["hub_changes", "*", "before", "fallback", "profile"], allowPreviewName],
+  [["hub_changes", "*", "before", "fallback", "runtime"], allowPreviewName],
+  [["hub_changes", "*", "before", "fallback", "adapter"], allowPreviewName],
+  [["hub_changes", "*", "before", "fallback", "provider"], allowPreviewName],
+  [["hub_changes", "*", "before", "fallback", "model"], allowPreviewName],
+  [["hub_changes", "*", "before", "fallback", "thinking"], allowPreviewName],
+  [["hub_changes", "*", "after", "fallback", "profile"], allowPreviewName],
+  [["hub_changes", "*", "after", "fallback", "runtime"], allowPreviewName],
+  [["hub_changes", "*", "after", "fallback", "adapter"], allowPreviewName],
+  [["hub_changes", "*", "after", "fallback", "provider"], allowPreviewName],
+  [["hub_changes", "*", "after", "fallback", "model"], allowPreviewName],
+  [["hub_changes", "*", "after", "fallback", "thinking"], allowPreviewName],
   [["resources", "*", "changed_keys", "*"], allowPreviewName],
   [["notes", "*"], allowPreviewText],
   [["warnings", "*"], allowPreviewText],

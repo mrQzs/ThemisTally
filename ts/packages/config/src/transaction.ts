@@ -17,7 +17,7 @@ import { git } from "@themis/dispatcher/repo";
 import { joinPath } from "./decisions.ts";
 import { HISTORY_DIR, SECRET_SHOWN, auditPath, keyDiff, readAudit, secretReason } from "./history.ts";
 import { bindingSwitchInFlight, bindingTuple, sameBinding } from "./roles-binding.ts";
-import { ROLES, V3_KEYS } from "./roles-check.ts";
+import { ROLES, V3_KEYS, hubChanges } from "./roles-check.ts";
 import { ConfigError, type Kit, type RepoLike, parseObject, validateConfig } from "./validate.ts";
 
 export const RESOURCES: Readonly<Record<string, string>> = { config: "dispatch.config.json", local: "dispatch.local.json" };
@@ -255,9 +255,9 @@ function bindingSwitchConfirmation(ctx: WriteContext, oldConfig: PyDict, newConf
   return "flag";
 }
 
-/** 预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色生效绑定的前后。 */
+/** 预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色与七端各岗位生效绑定的前后（岗位：r3 第 162 轮）。 */
 function switchPreview(ctx: WriteContext, oldConfig: PyDict, newConfig: PyDict): [string, PyValue][] {
-  if (!hasV3([oldConfig, newConfig])) return [["binding_changes", []], ["running_attempts", []], ["unreadable", []]];
+  if (!hasV3([oldConfig, newConfig])) return [["binding_changes", []], ["hub_changes", []], ["running_attempts", []], ["unreadable", []]];
   const changes: PyValue[] = [];
   for (const role of ROLES) {
     const before = bindingTuple(oldConfig, role);
@@ -268,7 +268,7 @@ function switchPreview(ctx: WriteContext, oldConfig: PyDict, newConfig: PyDict):
     }
   }
   const [inFlight, unreadable] = bindingSwitchInFlight(ctx.repo.runsDir, oldConfig, newConfig);
-  return [["binding_changes", changes], ["running_attempts", inFlight], ["unreadable", unreadable]];
+  return [["binding_changes", changes], ["hub_changes", hubChanges(oldConfig, newConfig)], ["running_attempts", inFlight], ["unreadable", unreadable]];
 }
 
 // --- 事务 ------------------------------------------------------------------------------------------
@@ -486,6 +486,7 @@ export function previewPayload(mode: WriteMode, captured: string): PyDict {
     ["changed", entries.some((entry) => entry.get("changed") === true)],
     ["resources", entries.map((entry) => new Map([...entry].filter(([key]) => ["resource", "changed", "changed_keys"].includes(key as string))))],
     ["binding_changes", listOf("binding_changes")],
+    ["hub_changes", listOf("hub_changes")],
     ["running_attempts", running],
     ["unreadable", unreadable],
     ["needs_yes", running.length > 0 || unreadable.length > 0],

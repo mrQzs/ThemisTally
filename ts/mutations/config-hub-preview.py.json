@@ -1,0 +1,66 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_roles.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "changed_post or one_model"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "P01 岗位的前后不比（预览里永远没有岗位）",
+   "file": "scripts/kit_roles.py",
+   "old": "        if before != after:\n            changes.append({\"post\": post, \"before\": before, \"after\": after})",
+   "new": "        if False:\n            changes.append({\"post\": post, \"before\": before, \"after\": after})"
+  },
+  {
+   "name": "P02 没配的一侧不取内核缺省",
+   "file": "scripts/kit_roles.py",
+   "old": "    spec = dict(HUB_DEFAULTS[post], profile=None, runtime=None) if binding is None else binding",
+   "new": "    spec = {} if binding is None else binding"
+  },
+  {
+   "name": "P03 替补不进预览",
+   "file": "scripts/kit_roles.py",
+   "old": "    side[\"fallback\"] = {field: fallback.get(field) for field in HUB_SIDE_FIELDS} if isinstance(fallback, dict) else None",
+   "new": "    side[\"fallback\"] = None"
+  },
+  {
+   "name": "P04 source 写反",
+   "file": "scripts/kit_roles.py",
+   "old": "    side: Dict[str, Any] = {\"source\": \"default\" if binding is None else \"config\"}",
+   "new": "    side: Dict[str, Any] = {\"source\": \"config\" if binding is None else \"default\"}"
+  },
+  {
+   "name": "P05 绑定字段不进预览",
+   "file": "scripts/kit_roles.py",
+   "old": "    side.update((field, spec.get(field)) for field in HUB_SIDE_FIELDS)",
+   "new": "    side.update((field, None) for field in HUB_SIDE_FIELDS)"
+  },
+  {
+   "name": "P06 预览不汇总岗位",
+   "file": "scripts/kit_config.py",
+   "old": "            \"hub_changes\": [change for entry in entries for change in entry.get(\"hub_changes\", [])],",
+   "new": "            \"hub_changes\": [],"
+  },
+  {
+   "name": "P07 改哪个岗位都警告",
+   "file": "scripts/kit_roles.py",
+   "old": "    if post not in (\"contract\", \"audit\"):\n        return []",
+   "new": "    if False:\n        return []"
+  },
+  {
+   "name": "P08 hub unset 不警告",
+   "file": "scripts/kit_roles.py",
+   "old": "    print(\"%s：hub_roles.%s 回到内核缺省\" % (\"已取消\" if changed else \"没有变化\", post))\n    for warning in _hub_warnings(config, post):\n        print(\"WARN  %s\" % warning)",
+   "new": "    print(\"%s：hub_roles.%s 回到内核缺省\" % (\"已取消\" if changed else \"没有变化\", post))"
+  }
+ ]
+}

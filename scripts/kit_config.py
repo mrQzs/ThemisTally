@@ -918,9 +918,9 @@ BINDING_FIELDS = ("mode", "profile", "runtime", "adapter", "provider", "model", 
 
 
 def _switch_preview(repo: Any, old_config: Dict[str, Any], new_config: Dict[str, Any]) -> Dict[str, Any]:
-    """预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色生效绑定的前后。"""
+    """预览里的运行中切换（与 D8 同一个判定，只扫描、不拒绝），以及各角色与七端各岗位生效绑定的前后（岗位：r3 第 162 轮）。"""
     if not any(key in config for config in (old_config, new_config) for key in V3_KEYS):
-        return {"binding_changes": [], "running_attempts": [], "unreadable": []}
+        return {"binding_changes": [], "hub_changes": [], "running_attempts": [], "unreadable": []}
     roles = _kit_roles()
     changes = []
     for role in roles.ROLES:
@@ -929,7 +929,8 @@ def _switch_preview(repo: Any, old_config: Dict[str, Any], new_config: Dict[str,
             changes.append({"role": role, "before": dict(zip(BINDING_FIELDS, before)) if before else None,
                             "after": dict(zip(BINDING_FIELDS, after)) if after else None})
     in_flight, unreadable = roles.binding_switch_in_flight(repo, old_config, new_config)
-    return {"binding_changes": changes, "running_attempts": in_flight, "unreadable": unreadable}
+    return {"binding_changes": changes, "hub_changes": roles.hub_changes(old_config, new_config), "running_attempts": in_flight,
+            "unreadable": unreadable}
 
 
 #: 配置 v3 的五个键（3.0 第二轮 D1）：与 kit_roles 共用 PD 的这一份（本模块不在导入时依赖 kit_roles，D12）。
@@ -1750,6 +1751,7 @@ def _preview_payload(mode: WriteMode, text: str) -> Dict[str, Any]:
             "resources": [{key: entry[key] for key in ("resource", "changed", "changed_keys") if key in entry}
                           for entry in entries],
             "binding_changes": [change for entry in entries for change in entry.get("binding_changes", [])],
+            "hub_changes": [change for entry in entries for change in entry.get("hub_changes", [])],
             "running_attempts": running, "unreadable": unreadable, "needs_yes": bool(running or unreadable),
             "warnings": [line[len("WARN  "):] for line in text.splitlines() if line.startswith("WARN  ")],
             "notes": mode.notes, "state": state_token(mode.snapshot)}

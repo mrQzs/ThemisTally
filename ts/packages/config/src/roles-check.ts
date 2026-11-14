@@ -3,6 +3,7 @@
 import { pyReprValue } from "@themis/base/pyfmt";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { cmpCodePoints } from "@themis/base/pyre";
+import { pyEq } from "@themis/base/pyvalue";
 import { ENV_NAME_RE, TASK_ID_RE, secretLikePaths } from "@themis/base/secrets";
 import { secretConfigError } from "./secret-config.ts";
 
@@ -52,6 +53,8 @@ export const HUB_POST_ADAPTERS: Readonly<Record<string, readonly string[]>> = {
 };
 export const HUB_POSTS = Object.keys(HUB_POST_ADAPTERS);
 export const HUB_BINDING_KEYS = ["profile", "fallback"];
+/** kit_roles.HUB_SIDE_FIELDS：预览里岗位一侧的字段（模型配置 §3.4，r3 第 162 轮），另加 source 与替补。 */
+export const HUB_SIDE_FIELDS = ["profile", "runtime", "adapter", "provider", "model", "thinking"];
 
 export interface HubDefault {
   readonly adapter: string;
@@ -327,6 +330,35 @@ export function hubBinding(config: PyDict, post: string): PyDict | null {
   if (primary === null) return null;
   primary.set("fallback", binding.has("fallback") ? resolved(binding.get("fallback")) : null);
   return primary;
+}
+
+/** kit_roles.hub_side：预览里一个岗位生效绑定的一侧；没配这个岗位时取内核缺省，与 config hub show 的一行一致。 */
+export function hubSide(config: PyDict, post: string): PyDict {
+  const binding = hubBinding(config, post);
+  const preset = HUB_DEFAULTS[post];
+  const spec: PyDict = binding ?? new Map<string, PyValue>([
+    ["adapter", preset?.adapter ?? null],
+    ["provider", preset?.provider ?? null],
+    ["model", preset?.model ?? null],
+    ["thinking", preset?.thinking ?? null],
+    ["fallback", preset?.fallback ? new Map<string, PyValue>(Object.entries(preset.fallback)) : null],
+  ]);
+  const fallback = spec.get("fallback");
+  const side = new Map<string, PyValue>([["source", binding === null ? "default" : "config"]]);
+  for (const field of HUB_SIDE_FIELDS) side.set(field, spec.get(field) ?? null);
+  side.set("fallback", isDict(fallback) ? new Map<string, PyValue>(HUB_SIDE_FIELDS.map((field) => [field, fallback.get(field) ?? null])) : null);
+  return side;
+}
+
+/** kit_roles.hub_changes：这次写入改变了哪些岗位的生效绑定，前后不同的岗位各一项 {post, before, after}。 */
+export function hubChanges(oldConfig: PyDict, newConfig: PyDict): PyValue[] {
+  const changes: PyValue[] = [];
+  for (const post of HUB_POSTS) {
+    const before = hubSide(oldConfig, post);
+    const after = hubSide(newConfig, post);
+    if (!pyEq(before, after)) changes.push(new Map<string, PyValue>([["post", post], ["before", before], ["after", after]]));
+  }
+  return changes;
 }
 
 const CHECKS: Readonly<Record<string, (config: PyDict) => string[]>> = {

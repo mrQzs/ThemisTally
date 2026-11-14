@@ -1771,6 +1771,211 @@
         "command": {
           "const": [
             "config",
+            "hub",
+            "show"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "post",
+        "profile",
+        "fallback",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "hub",
+            "set"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "post": {
+          "type": "string"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "fallback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "post",
+        "yes",
+        "dry_run",
+        "json",
+        "expect_state",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "hub",
+            "unset"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "post": {
+          "type": "string"
+        },
+        "yes": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "expect_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
             "preset",
             "list"
           ]

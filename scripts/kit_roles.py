@@ -75,6 +75,8 @@ HUB_POST_ADAPTERS: Dict[str, Tuple[str, ...]] = {
 }
 HUB_POSTS = tuple(HUB_POST_ADAPTERS)
 HUB_BINDING_KEYS = ("profile", "fallback")
+#: 预览里岗位一侧的字段（模型配置 §3.4，r3 第 162 轮）：与 config hub show 一行里的同名字段相同，另加 source 与替补
+HUB_SIDE_FIELDS = ("profile", "runtime", "adapter", "provider", "model", "thinking")
 #: 各岗位没配时 hub 用的缺省（与 kit_hub.ROSTER 的同名字段逐项相同，tests/test_kit_hub.py 有一条核对）：config hub show
 #: 要在没装 kit_hub.py 的仓库里也能显示，所以这里另放一份
 HUB_DEFAULTS: Dict[str, Dict[str, Any]] = {
@@ -391,6 +393,29 @@ def hub_binding(config: Dict[str, Any], post: str) -> Optional[Dict[str, Any]]:
         return None
     primary["fallback"] = resolved(binding.get("fallback")) if "fallback" in binding else None
     return primary
+
+
+def hub_side(config: Dict[str, Any], post: str) -> Dict[str, Any]:
+    """预览里一个岗位生效绑定的一侧：source（config 或 default）、六个字段与替补（同样六个字段；没有替补时 None）。
+    没配这个岗位时取内核缺省，与 config hub show 的一行一致。"""
+    binding = hub_binding(config, post)
+    spec = dict(HUB_DEFAULTS[post], profile=None, runtime=None) if binding is None else binding
+    fallback = spec.get("fallback")
+    side: Dict[str, Any] = {"source": "default" if binding is None else "config"}
+    side.update((field, spec.get(field)) for field in HUB_SIDE_FIELDS)
+    side["fallback"] = {field: fallback.get(field) for field in HUB_SIDE_FIELDS} if isinstance(fallback, dict) else None
+    return side
+
+
+def hub_changes(old_config: Dict[str, Any], new_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """这次写入改变了哪些岗位的生效绑定（模型配置 §3.4）：前后不同的岗位各一项 {post, before, after}。不只 hub set、
+    hub unset：改了岗位绑着的 profile，那个岗位也在这里。"""
+    changes = []
+    for post in HUB_POSTS:
+        before, after = hub_side(old_config, post), hub_side(new_config, post)
+        if before != after:
+            changes.append({"post": post, "before": before, "after": after})
+    return changes
 
 
 def resolve_role_executor(config: Dict[str, Any], role: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
@@ -1207,6 +1232,16 @@ def _hub_post(args: Any) -> str:
     return args.post
 
 
+def _hub_warnings(config: Dict[str, Any], post: str) -> List[str]:
+    """合同端与审核端用同一个模型时给一条警告，不拦（模型配置第 8 节第 2 条）；只在改的是这两个岗位之一时说。"""
+    if post not in ("contract", "audit"):
+        return []
+    contract, audit = hub_side(config, "contract"), hub_side(config, "audit")
+    if (contract["provider"], contract["model"]) != (audit["provider"], audit["model"]):
+        return []
+    return ["合同端与审核端用的是同一个模型（%s/%s）：审核少一层独立性；照样生效" % (contract["provider"], contract["model"])]
+
+
 def _hub_set(args: Any) -> int:
     post = _hub_post(args)
     binding: Dict[str, Any] = {"profile": args.profile}
@@ -1221,6 +1256,8 @@ def _hub_set(args: Any) -> int:
         config["hub_roles"] = hub_roles
         changed = txn.publish(config)  # profile 是否登记、适配器许不许、替补合不合规都在整份校验里
     print("%s hub_roles.%s = %s" % ("已设置" if changed else "没有变化：", post, json.dumps(binding, ensure_ascii=False)))
+    for warning in _hub_warnings(config, post):
+        print("WARN  %s" % warning)
     return EXIT_OK
 
 
@@ -1238,6 +1275,8 @@ def _hub_unset(args: Any) -> int:
             config.pop("hub_roles", None)
         changed = txn.publish(config)
     print("%s：hub_roles.%s 回到内核缺省" % ("已取消" if changed else "没有变化", post))
+    for warning in _hub_warnings(config, post):
+        print("WARN  %s" % warning)
     return EXIT_OK
 
 
