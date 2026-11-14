@@ -259,7 +259,8 @@ export class Engine implements Landing {
     ts = pyItem(current.tasks(), main) as PyDict;
     if (pyTruthy(pyGet(turn, "rate_limited_until")) && !pyTruthy(pyItem(turn, "violations"))) {
       popKey(ts, "coordinator_turn");
-      await holdLetters(this.hub, ts, COORDINATOR, names, Number(pyItem(turn, "rate_limited_until")), null, pyStrValue(pyItem(turn, "turn_id")));
+      await holdLetters(this.hub, ts, COORDINATOR, names, Number(pyItem(turn, "rate_limited_until")), null, pyStrValue(pyItem(turn, "turn_id")),
+        problemText(pyGet(turn, "hold_reason")));
       await this.hub.saveState(current);
       return;
     }
@@ -522,7 +523,7 @@ export class Engine implements Landing {
       ts = pyItem(tasksOf(current), main as string) as PyDict;
       if (pyTruthy(pyGet(turn, "rate_limited_until")) && !pyTruthy(pyItem(turn, "violations")) && retried === null) {
         await holdLetters(this.hub, ts, agent, taken.map((path) => purePathName(path)), Number(pyItem(turn, "rate_limited_until")), suffix,
-          pyStrValue(pyItem(turn, "turn_id")));
+          pyStrValue(pyItem(turn, "turn_id")), problemText(pyGet(turn, "hold_reason")));
         await this.hub.saveState(current);
         return;
       }

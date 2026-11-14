@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
 import { boundSpec, hubBindings } from "./bindings.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
@@ -40,6 +40,8 @@ const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
 /** 第 38 轮：pi 的模型接口限流（429、throttling、rate limit……）。 */
 const THROTTLE = compilePy(`${BS}b429${BS}b|throttl|rate[ _-]?limit|too many requests|quota`, FLAG_IGNORECASE);
+/** 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、过载、连接断开）；quizs 不认。 */
+const TRANSIENT = compilePy(`timed ?out|timeout|attention required|cloudflare|${BS}b50[0234]${BS}b|overloaded|econnreset|socket hang up|fetch failed`, FLAG_IGNORECASE);
 const THROTTLE_RESET = /([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})/u;
 
 /**
@@ -143,7 +145,9 @@ export class TurnRunner {
       [session, generation] = [null, generation + 1n]; // 返工重开，或工作目录变了（claude 按目录找会话）
     }
     // 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）
-    const throttles = quizs || fallback !== null ? pyGet(session ?? new Map(), "throttles") : null;
+    // 第 158 轮：临时报错的次数也带上
+    const carried = quizs || fallback !== null ? ["throttles", "transients"].filter((key) => pyTruthy(pyGet(session ?? new Map(), key)))
+      .map((key) => [key, pyGet(session as PyDict, key)] as const) : [];
     if (quizs || fallback !== null) session = null; // 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
     const cut = session !== null && sessionCutShort(this.hub.root, agent, spec.adapter, pyStrValue(pyItem(session, "id"))) ? pyStrValue(pyItem(session, "id")) : null;
     if (cut !== null) {
@@ -163,7 +167,7 @@ export class TurnRunner {
     if (first) {
       session = new Map<string, PyValue>([["id", claude ? this.sources.uuid4() : quizs ? `${sessionKey}-${turnId}` : `${sessionKey}-g${generation}`], ["cwd", where], ["turns", 0n],
         ["created_at", utcNow()], ["generation", generation]]);
-      if (pyTruthy(throttles)) session.set("throttles", throttles as PyValue);
+      for (const [key, value] of carried) session.set(key, value as PyValue);
     }
     const current = session as PyDict;
     const id = pyStrValue(pyItem(current, "id"));
@@ -230,6 +234,19 @@ export class TurnRunner {
     } else {
       current.delete("throttles");
     }
+    const transient = !quizs && pyGet(audit, "rate_limited_until") === null && TRANSIENT.search(pyTruthy(apiError) ? pyStrValue(apiError) : "") !== null;
+    if (transient) {
+      const transients = pyIntOf(pyGet(current, "transients", 0n)) + 1n;
+      current.set("transients", transients);
+      if (transients <= BigInt(TRANSIENT_MAX_HOLDS)) {
+        audit.set("rate_limited_until", BigInt(this.sources.seconds() + THROTTLE_BACKOFF_SECONDS * 2 ** Number(transients - 1n)));
+        audit.set("hold_reason", TRANSIENT_HOLD_REASON);
+      } else {
+        audit.set("api_error", `${pyStrValue(pyItem(audit, "api_error"))}（临时报错，内核已经连着扣信重试过 ${TRANSIENT_MAX_HOLDS} 次）`);
+      }
+    } else {
+      current.delete("transients");
+    }
     if (pyTruthy(pyGet(audit, "api_error"))) outputError = `模型接口报错（环境问题，不是工人的输出问题）：${pyStrValue(pyItem(audit, "api_error"))}`;
     else if (!pyTruthy(pyItem(audit, "violations"))) {
       [output, outputError] = pyTruthy(pyGet(audit, "delivery_error")) ? [null, pyStrValue(pyGet(audit, "delivery_error"))]
@@ -277,6 +294,7 @@ export class TurnRunner {
     summary.set("output", output);
     summary.set("turn_dir", turnDir);
     summary.set("rate_limited_until", pyGet(audit, "rate_limited_until"));
+    if (pyTruthy(pyGet(audit, "hold_reason"))) summary.set("hold_reason", pyItem(audit, "hold_reason"));
     if (down) summary.set("quizs_down", true);
     return summary;
   }

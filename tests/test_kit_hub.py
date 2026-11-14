@@ -1611,10 +1611,11 @@ class FakeRunner:
         api_error = rest[0] if rest else None
         timed_out = rest[1] if len(rest) > 1 else False
         rate_limited_until = rest[2] if len(rest) > 2 else None
+        extra = {"hold_reason": rest[3]} if len(rest) > 3 else {}  # 第 158 轮：内核自己扣信等一会儿的原因
         return {"turn_id": "t%d" % len(self.calls), "turn_dir": "turns/x", "output": output, "retry_of": retry_of,
                 "violations": violations, "api_error": api_error, "timed_out": timed_out,
                 "rate_limited_until": rate_limited_until,
-                "output_error": None if output is not None else ("接口报错" if api_error else "没有代码块")}
+                "output_error": None if output is not None else ("接口报错" if api_error else "没有代码块"), **extra}
 
 
 @pytest.fixture
@@ -2374,6 +2375,42 @@ def test_a_rate_limited_coordinator_turn_is_held_and_resumed(engine_env):
     owner_letter = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
     assert hub.unread(kh.COORDINATOR) == [] and "额度限制" in owner_letter
     assert kh.PI_THROTTLE_EVIDENCE in owner_letter and "rate_limit_event" not in owner_letter  # 协调人走 pi：认的是接口报错
+    make_held_due(hub)
+    assert engine.step() and runner.calls[1][0] == kh.COORDINATOR
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
+
+
+def test_a_transient_interface_error_is_held_without_a_letter_to_the_owner(engine_env):
+    # 第 158 轮：临时报错照限流扣信，到点接着做；扣信不写信给站主（阶段的备注与账本照记），连着 3 次还不好才找站主
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([({"letters": [start_planner()]}, []),
+                         (None, [], "Request timed out.", False, int(time.time()) + 300, kh.TRANSIENT_HOLD_REASON),
+                         (planner_delivery(), [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    stage = ts["stages"]["1-plan"]
+    assert stage["status"] == "paused" and stage["note"].startswith(kh.TRANSIENT_HOLD_REASON + "：")
+    assert ts["held"][0]["agent"] == "planner-opus" and hub.unread(kh.OWNER) == []
+    make_held_due(hub)
+    assert kh.release_held(hub) == ["T001"]
+    assert engine.step() and runner.calls[2][0] == "planner-opus"
+    assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "delivered"
+    held = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines() if '"letters.held"' in line]
+    assert [event["reason"] for event in held] == [kh.TRANSIENT_HOLD_REASON]
+
+
+def test_a_transient_coordinator_turn_is_held_without_a_letter_to_the_owner(engine_env):
+    hub = engine_env
+    owner_task(hub)
+    runner = FakeRunner([(None, [], "503 Service Unavailable", False, int(time.time()) + 300, kh.TRANSIENT_HOLD_REASON),
+                         ({"letters": [start_planner()]}, [])])
+    engine = kh.Engine(hub, runner)
+    engine.step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["held"][0]["agent"] == kh.COORDINATOR and hub.unread(kh.OWNER) == []
     make_held_due(hub)
     assert engine.step() and runner.calls[1][0] == kh.COORDINATOR
     assert hub.load_state()["tasks"]["T001"]["stages"]["1-plan"]["status"] == "assigned"
@@ -6150,7 +6187,7 @@ def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path, monkeypatc
     runner = kh.TurnRunner(hub, launcher=launcher)
     throttle = '429 {"error":{"code":"throttling","message":"usage allocated quota exceeded. please try again later."}}'
     waits = []
-    for error in [throttle, throttle, None, throttle] + [throttle] * 5 + [None, "500 internal error"]:
+    for error in [throttle, throttle, None, throttle] + [throttle] * 5 + [None, "400 invalid request"]:
         answers.append(error)
         before = int(time.time())
         turn = runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
@@ -6158,6 +6195,7 @@ def test_a_throttled_pi_turn_is_held_with_a_growing_backoff(tmp_path, monkeypatc
         assert (turn["output"] is None) == bool(error)
     assert [w if w is None else round(w / 300) * 300 for w in waits] == [
         300, 600, None, 300, 600, 1200, 2400, 3600, None, None, None]  # 成功一回清零；连着 5 次之后交给站主；别的报错不扣
+    # （超时、5xx 这类临时报错第 158 轮起另扣，见 test_transient_interface_errors_are_held_three_times_then_go_to_the_owner）
     assert kh.ROSTER["planner-opus"]["adapter"] == "claude"  # claude 有自己的 rate_limit_event（第 33 轮），不走这里
 
 
@@ -6191,6 +6229,66 @@ def test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error(tmp_path):
     assert [round(w / 300) * 300 for w in waits[1:]] == [600, 1200]  # 认不了的照旧加倍退避，次数接着上一回合算
     assert kh.throttle_reset("将在 2026-02-30 10:00:00 重置", 0) is None  # 不是真日期
     assert kh.throttle_reset("429 too many requests", 0) is None
+
+
+def test_transient_interface_errors_are_held_three_times_then_go_to_the_owner(tmp_path):
+    # 第 158 轮：2026-11-13 T034 的审核端连着三个回合 MiniMax 超时（10:55–11:18Z）、T036 的规划端撞上 Claude 接口的 Cloudflare 403，
+    # 每次都是阶段标成 failed、写信给站主。照限流扣信：从 5 分钟起加倍，连着 3 次还不好才交给站主；成功一回就清零
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER["contract-glm"]
+    answers = []
+    good = {"letter": dict(planner_delivery()["letter"], 摘要="合同"), "report": "# 合同说明", "state": "",
+            "contract_md": "# TASK: t001-doc" + chr(10) + "正文"}
+
+    def message(error):
+        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [],
+                "stopReason": "error" if error else "toolUse"}
+        if error:
+            body["errorMessage"] = error
+        return {"type": "message_end", "message": body}
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        error = answers.pop(0)
+        events = [message(error)] + ([] if error else deliver_events((good, False)))
+        out.write((chr(10).join(json.dumps(event, ensure_ascii=False) for event in events) + chr(10)).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    timeout = "Request timed out."
+    seen, turns = [], []
+    for error in [timeout] * 4 + [None, "500 internal error", "503 Service Unavailable", "400 invalid request",
+                                  "429 Too Many Requests", timeout]:
+        answers.append(error)
+        before = int(time.time())
+        turn = runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
+        wait = turn["rate_limited_until"]
+        seen.append((None if wait is None else round((wait - before) / 300) * 300, turn.get("hold_reason")))
+        turns.append(turn)
+        assert (turn["output"] is None) == bool(error)
+    hold = kh.TRANSIENT_HOLD_REASON
+    assert seen == [(300, hold), (600, hold), (1200, hold), (None, None), (None, None), (300, hold), (600, hold),
+                    (None, None), (300, None), (300, hold)]  # 400 不算；429 照旧走限流（写信给站主的那种扣信）
+    assert turns[0]["api_error"] == timeout
+    assert turns[3]["api_error"] == timeout + "（临时报错，内核已经连着扣信重试过 3 次）"
+    session = hub.agent_record("contract-glm")["sessions"]["T001-2-contract"]
+    assert session.get("transients") == 1 and "throttles" not in session
+
+    def claude_launcher(cmd, cwd, env, out, err, timeout):
+        events = [dict(INIT, tools=["Read", "Grep", "Glob"], model="claude-opus-5-5"), claude_errors.pop(0),
+                  {"type": "result", "result": "API Error", "terminal_reason": "api_error"}]
+        out.write((chr(10).join(json.dumps(event) for event in events) + chr(10)).encode("utf-8"))
+        return {"exit_code": 1, "timed_out": False, "wall_seconds": 1.0}
+
+    cloudflare = dict(API_ERROR, error="authentication_failed", api_error_code="authentication_failed",
+                      message={"model": "<synthetic>", "content": [
+                          {"type": "text", "text": "Failed to authenticate. API Error: 403 Attention Required! | Cloudflare"}]})
+    claude_errors = [cloudflare, API_ERROR]
+    planner = kh.TurnRunner(hub, launcher=claude_launcher)
+    first = planner.run("planner-opus", "T001-1-plan", tmp_path, "角色", "输入")
+    second = planner.run("planner-opus", "T001-1-plan", tmp_path, "角色", "输入")
+    assert "Cloudflare" in first["api_error"] and first.get("hold_reason") == hold and first["rate_limited_until"] is not None
+    assert second.get("hold_reason") is None and second["rate_limited_until"] is None  # 别的 403（组织不许用）照旧交给站主
 
 
 def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path, monkeypatch):

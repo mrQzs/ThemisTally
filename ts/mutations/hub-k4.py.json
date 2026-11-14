@@ -1,0 +1,78 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "transient or throttled or rate_limited or quizs_turn_reads"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "P01 临时报错一概不认",
+   "file": "scripts/kit_hub.py",
+   "old": "                     and bool(TRANSIENT_RE.search(str(audit.get(\"api_error\") or \"\"))))",
+   "new": "                     and False)"
+  },
+  {
+   "name": "P02 quizs 也认",
+   "file": "scripts/kit_hub.py",
+   "old": "        transient = (not quizs and audit.get(\"rate_limited_until\") is None",
+   "new": "        transient = (audit.get(\"rate_limited_until\") is None"
+  },
+  {
+   "name": "P03 扣满的次数差一",
+   "file": "scripts/kit_hub.py",
+   "old": "            if session[\"transients\"] <= TRANSIENT_MAX_HOLDS:",
+   "new": "            if session[\"transients\"] < TRANSIENT_MAX_HOLDS:"
+  },
+  {
+   "name": "P04 成功一回不清零",
+   "file": "scripts/kit_hub.py",
+   "old": "            session.pop(\"transients\", None)",
+   "new": "            session.get(\"transients\")"
+  },
+  {
+   "name": "P05 扣信不写原因",
+   "file": "scripts/kit_hub.py",
+   "old": "                audit[\"hold_reason\"] = TRANSIENT_HOLD_REASON",
+   "new": "                pass"
+  },
+  {
+   "name": "P06 回合结果不带原因",
+   "file": "scripts/kit_hub.py",
+   "old": "        if audit.get(\"hold_reason\"):\n            summary[\"hold_reason\"] = audit[\"hold_reason\"]\n",
+   "new": ""
+  },
+  {
+   "name": "P07 工人那一处扣信照旧写信给站主",
+   "file": "scripts/kit_hub.py",
+   "old": "suffix,\n                             turn[\"turn_id\"], turn.get(\"hold_reason\"))",
+   "new": "suffix,\n                             turn[\"turn_id\"])"
+  },
+  {
+   "name": "P08 协调人那一处扣信照旧写信给站主",
+   "file": "scripts/kit_hub.py",
+   "old": "None,\n                         turn[\"turn_id\"], turn.get(\"hold_reason\"))",
+   "new": "None,\n                         turn[\"turn_id\"])"
+  },
+  {
+   "name": "P09 扣满之后交给站主时不说已经重试过",
+   "file": "scripts/kit_hub.py",
+   "old": "                audit[\"api_error\"] = \"%s（临时报错，内核已经连着扣信重试过 %d 次）\" % (audit[\"api_error\"], TRANSIENT_MAX_HOLDS)",
+   "new": "                pass"
+  },
+  {
+   "name": "P10 退避不加倍",
+   "file": "scripts/kit_hub.py",
+   "old": "                audit[\"rate_limited_until\"] = int(time.time()) + THROTTLE_BACKOFF_SECONDS * 2 ** (session[\"transients\"] - 1)",
+   "new": "                audit[\"rate_limited_until\"] = int(time.time()) + THROTTLE_BACKOFF_SECONDS"
+  }
+ ]
+}

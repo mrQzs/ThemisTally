@@ -1,0 +1,27 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-engine.contract.test.ts",
+  "packages/contracts/test/hub-step.contract.test.ts",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "E01 工人那一处扣信照旧写信给站主",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "pyStrValue(pyItem(turn, \"turn_id\")), problemText(pyGet(turn, \"hold_reason\")));",
+   "new": "pyStrValue(pyItem(turn, \"turn_id\")));"
+  },
+  {
+   "name": "E02 协调人那一处扣信照旧写信给站主",
+   "file": "ts/packages/hub/src/engine.ts",
+   "old": "pyStrValue(pyItem(turn, \"turn_id\")),\n        problemText(pyGet(turn, \"hold_reason\")));",
+   "new": "pyStrValue(pyItem(turn, \"turn_id\")));"
+  }
+ ]
+}

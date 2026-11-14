@@ -540,6 +540,12 @@ SHARING_RETRIES, SHARING_PAUSE = 40, 0.05
 #: pi 的模型接口限流（第 38 轮）：认得出的报错、第一次扣多久、最长扣多久、连着扣几次之后交给站主
 THROTTLE_RE = re.compile(r"\b429\b|throttl|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
 THROTTLE_BACKOFF_SECONDS, THROTTLE_BACKOFF_MAX, THROTTLE_MAX_HOLDS = 300, 3600, 5
+#: 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、过载、连接断开）照限流扣信退避：从 5 分钟起加倍，连着 3 次还不好才交给
+#: 站主，扣信时不写信给站主。2026-11-13 上午 T036 的规划端撞上 Claude 接口的 Cloudflare 403，T034 的审核端连着三个回合 MiniMax 超时
+#: （10:55–11:18Z），每次都是阶段标成 failed、写信给站主，站主只能回“照原样重发”。claude 也认；quizs 不认（它自己分错误类别、在 Quizs
+#: 里排队重试，QUIZS_PERMIT_HELD 这类说明里也带着 500）。内核自己写的说明（起回合之前挡下的配置问题、读不到交差参数）里没有这几类字样
+TRANSIENT_RE = re.compile(r"timed ?out|timeout|attention required|cloudflare|\b50[0234]\b|overloaded|econnreset|socket hang up|fetch failed", re.IGNORECASE)
+TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON = 3, "模型接口临时报错"
 #: 限流报错里写着重置时刻（智谱的 1308：“…将在 2026-11-06 18:44:51 重置”）时扣到那之后一会儿，不再加倍试探。这个时刻不带时区，
 #: 是北京时间：T026 的门禁端 08:42Z 撞上、报 18:44:51，10:59Z 的扣信到点接着做成了；按 UTC 读要到 18:44Z 才解除。
 #: 换算出来已经过去、或在 24 小时以外的不认，照旧退避（时区读错了也只是早醒一次，下一回合照旧退避）。
@@ -2395,8 +2401,9 @@ class TurnRunner:
                            "generation": generation}
         elif session and (fresh or session.get("cwd") != str(workspace)):
             session, generation = None, generation + 1  # 返工重开，或工作目录变了（claude 按目录找会话）
-        # 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）
-        throttles = (session or {}).get("throttles") if quizs or fallback is not None else None
+        # 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）；第 158 轮：临时报错的次数也带上
+        carried = ({key: session[key] for key in ("throttles", "transients") if (session or {}).get(key)}
+                   if quizs or fallback is not None else {})
         if quizs or fallback is not None:
             session = None  # 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
         cut = session["id"] if session is not None and session_cut_short(
@@ -2420,8 +2427,7 @@ class TurnRunner:
             session = {"id": str(uuid.uuid4()) if spec["adapter"] == "claude" else "%s-%s" % (session_key, turn_id) if quizs
                        else "%s-g%d" % (session_key, generation),
                        "cwd": str(workspace), "turns": 0, "created_at": utc_now(), "generation": generation}
-            if throttles:
-                session["throttles"] = throttles
+            session.update(carried)
         long_prompt = turn_dir / "prompt.md"
         if inputs is not None and len(prompt) > MAX_INLINE_PROMPT:
             long_prompt = inputs / ("prompt-%s.md" % turn_id)  # 第 88 轮：回合目录在主工作区里，工人读不到
@@ -2548,6 +2554,17 @@ class TurnRunner:
                     THROTTLE_BACKOFF_SECONDS * 2 ** (session["throttles"] - 1), THROTTLE_BACKOFF_MAX)
         else:
             session.pop("throttles", None)
+        transient = (not quizs and audit.get("rate_limited_until") is None
+                     and bool(TRANSIENT_RE.search(str(audit.get("api_error") or ""))))
+        if transient:
+            session["transients"] = int(session.get("transients", 0)) + 1
+            if session["transients"] <= TRANSIENT_MAX_HOLDS:
+                audit["rate_limited_until"] = int(time.time()) + THROTTLE_BACKOFF_SECONDS * 2 ** (session["transients"] - 1)
+                audit["hold_reason"] = TRANSIENT_HOLD_REASON
+            else:
+                audit["api_error"] = "%s（临时报错，内核已经连着扣信重试过 %d 次）" % (audit["api_error"], TRANSIENT_MAX_HOLDS)
+        else:
+            session.pop("transients", None)
         if audit.get("api_error"):
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
         elif not audit["violations"]:
@@ -2600,6 +2617,8 @@ class TurnRunner:
         summary["output"] = output
         summary["turn_dir"] = str(turn_dir)
         summary["rate_limited_until"] = audit.get("rate_limited_until")
+        if audit.get("hold_reason"):
+            summary["hold_reason"] = audit["hold_reason"]
         if down:
             summary["quizs_down"] = True
         return summary
@@ -5821,7 +5840,7 @@ class Engine:
         if turn.get("rate_limited_until") and not turn["violations"]:
             ts.pop("coordinator_turn", None)
             hold_letters(self.hub, ts, COORDINATOR, [p.name for p in paths], turn["rate_limited_until"], None,
-                         turn["turn_id"])
+                         turn["turn_id"], turn.get("hold_reason"))
             self.hub.save_state(state)
             return
         if turn["violations"] or turn["output"] is None:
@@ -6032,7 +6051,7 @@ class Engine:
             ts = state["tasks"][main]
             if turn.get("rate_limited_until") and not turn["violations"] and retried is None:
                 hold_letters(self.hub, ts, agent, [p.name for p in taken], turn["rate_limited_until"], suffix,
-                             turn["turn_id"])
+                             turn["turn_id"], turn.get("hold_reason"))
                 self.hub.save_state(state)
                 return
             if turn["violations"] or error or turn.get("rate_limited_until"):

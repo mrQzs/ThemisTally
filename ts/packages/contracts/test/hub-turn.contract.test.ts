@@ -167,6 +167,32 @@ describe("第 ⑤d2 片：TurnRunner 的手写场景", () => {
         agent: COORDINATOR, script: { stdout: b64(stream(...delivers([{ letters: [], state: "三" }, false]), piDone(COORDINATOR))) },
         prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, throttles: 2 } })),
       },
+      // 第 158 轮：临时报错照限流扣信。会话里记着 2 次，这是第 3 次：扣 1200 秒、写明原因；记满 3 次的下一次交给站主；没出错就清掉次数
+      "pi-transient": {
+        agent: COORDINATOR,
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "Request timed out." } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, transients: 2 } })),
+      },
+      "pi-transient-spent": {
+        agent: COORDINATOR,
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "502 Bad Gateway" } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, transients: 3 } })),
+      },
+      "pi-transient-cleared": {
+        agent: COORDINATOR, script: { stdout: b64(stream(...delivers([{ letters: [], state: "四" }, false]), piDone(COORDINATOR))) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, transients: 2 } })),
+      },
+      // 第 158 轮：替补每回合开新会话（协调人的名册是 quizs，没设 QUIZS_CMD 就退回 pi）。限流（第 145 轮）与临时报错的次数要带到新会话，不然退避永远是 5 分钟、也永远到不了站主
+      "fallback-throttle": {
+        agent: COORDINATOR, roster: { [COORDINATOR]: ROSTER[COORDINATOR] },
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "429 Too Many Requests" } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, throttles: 2 } })),
+      },
+      "fallback-transient": {
+        agent: COORDINATOR, roster: { [COORDINATOR]: ROSTER[COORDINATOR] },
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "Request timed out." } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, transients: 2 } })),
+      },
       "pi-blocked-missing": { agent: COORDINATOR, mode: "missing", script: { stdout: b64(stream(piDone(COORDINATOR))) } },
       "pi-blocked-fail": { agent: COORDINATOR, mode: "fail" },
     });
@@ -177,6 +203,15 @@ describe("第 ⑤d2 片：TurnRunner 的手写场景", () => {
     expect(of("pi-unreadable").summary).toContain("交差工具报了成功，内核读不到参数");
     expect(of("pi-exit").summary).toContain("pi 一条回复都没有就以退出码 1 结束");
     expect(of("pi-throttle").summary).toContain('["rate_limited_until","1800001200n"]');
+    expect(of("pi-transient").summary).toContain('["rate_limited_until","1800001200n"]');
+    expect(of("pi-transient").summary).toContain('["hold_reason","模型接口临时报错"]');
+    expect(of("pi-transient-spent").summary).toContain("502 Bad Gateway（临时报错，内核已经连着扣信重试过 3 次）");
+    expect(of("pi-transient-spent").summary).toContain('["rate_limited_until",null]');
+    expect((shownCases["pi-transient-cleared"] as { agent: string }).agent).not.toContain("transients");
+    for (const name of ["fallback-throttle", "fallback-transient"]) {
+      expect(of(name).summary, name).toContain('["quizs_fallback","没有设 QUIZS_CMD"]');
+      expect(of(name).summary, name).toContain('["rate_limited_until","1800001200n"]');
+    }
     for (const name of ["pi-blocked-missing", "pi-blocked-fail"]) expect(of(name).calls, name).toBe("[]");
     expect(of("pi-blocked-missing").summary).toContain("本机 pi 不认识 hub 传给工人的参数：--session-dir");
   }, 300_000);
@@ -373,6 +408,7 @@ const TURN_TESTS = [
   "test_pi_workers_load_the_guard_with_the_kernel_roots",
   "test_a_throttled_pi_turn_is_held_with_a_growing_backoff",
   "test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error",
+  "test_transient_interface_errors_are_held_three_times_then_go_to_the_owner", // 第 158 轮：超时、5xx、Cloudflare 的 403 扣信退避，第 4 次交给站主
   "test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block",
   "test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out",
   "test_quizs_repository_view_for_reading_posts", // 第 156 轮：合同端在 quizs 上读工作目录冻成的整棵树（三边算出的树要一样）
@@ -440,7 +476,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(value.get("skipped")).toEqual([]);
     const calls = value.get("calls") as PyDict[];
     const testOf = (item: PyDict): string => String(item.get("test"));
-    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(29);
+    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(30); // 第 158 轮：加了临时报错扣信那一条
     expect([...new Set(calls.filter((item) => item.get("fn") === "stage_inputs").map(testOf))].sort(), "记到 stage_inputs 的用例").toEqual(STAGE_TESTS);
     const replayed = calls.filter((item) => item.get("fn") === "stage_inputs" || item.has("script"));
     // 记下的 pi 命令都以假 pi 开头（采样当时设了 PI_DISPATCH_PI_CMD）：以后改了采样，也不会悄悄又起本机的 pi
@@ -457,7 +493,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       return (value.get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
     });
     // 第 145 轮：退回 pi 的协调人回合也算（证书退回的用例多 3 条）；第 148 轮：live plan 读不出又多 1 条；第 150 轮：quizs 刚才没起来、歇着时又多 1 条
-    expect(piHeads.length, "记下的 pi 命令").toBe(48); // 第 156 轮：绑在配置里的合同端退回替补又多 1 条
+    expect(piHeads.length, "记下的 pi 命令").toBe(58); // 第 156 轮：绑在配置里的合同端退回替补又多 1 条；第 158 轮：临时报错那一条跑 10 个 pi 回合
     expect(piHeads.filter((head) => head !== JSON.stringify(fake)), "不以假 pi 开头的 pi 命令").toEqual([]);
     const label = (item: PyDict, at: number): string => `${testOf(item)}（第 ${at} 条记录，${String(item.get("fn"))}）`;
     const [python, ...others] = IMPLS.map((impl) => runBatch(impl, replayed.map(sampled)).map((result, at) => view(replayed[at] as PyDict, result)));
