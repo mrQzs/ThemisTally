@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "task_id": "t035-desktop-shell-service-b",
+  "plan_version": 5,
+  "title": "桌面端外壳第 6 片：服务意外退出回服务状态页、重启服务、第二次起服务的接线（D3 之九）",
+  "repository": "ThemisTally",
+  "base_sha": "b5cb4c5d54193974250a693d56100e356df0dee7",
+  "risk_level": "high",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/src/serviceflow.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/src/shellprotocol.js",
+      "desktop/shell/main.js",
+      "desktop/shell/tests/serviceflow.test.js",
+      "desktop/shell/tests/shellapi.test.js",
+      "desktop/shell/tests/shellprotocol.test.js",
+      "desktop/shell/package.json",
+      "desktop/shell/README.md",
+      "desktop/shell/src/hostrelay.js",
+      "desktop/shell/tests/hostrelay.test.js"
+    ],
+    "allowed_new_files": [
+      "desktop/shell/src/hostrelay.js",
+      "desktop/shell/tests/hostrelay.test.js"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/**",
+      "tests/test_gate_t035_*.py",
+      "desktop/web/**",
+      "ts/**",
+      "scripts/**",
+      "desktop/shell/preload.js",
+      "desktop/shell/shell-preload.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/core.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/src/shellipc.js",
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/detect.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/src/launch.js",
+      "desktop/shell/src/hostcheck.js",
+      "desktop/shell/src/control.js",
+      "desktop/shell/src/args.js",
+      "desktop/shell/src/handshake.js",
+      "desktop/shell/src/python.js",
+      "desktop/shell/package-lock.json",
+      "desktop/shell/tests/fixtures/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass \\d+",
+        "# fail 0"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t035_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "serviceflow 按 run 记状态——exited 之后能再 start（starting → running）；旧 run 的 exit/stop/abort 回调只在仍是当前 run 时改状态；`byShell` 按 run 算（上一 run 被 stop 过，下一 run 意外退出仍是 false）；starting/running 时再 start 仍回 busy 且不起第二个进程。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "真把「第二次起服务」的状态机前提做实，而不是靠 main.js 绕"
+    },
+    {
+      "id": "D02",
+      "text": "`restartService()` 按 Behavior contract 二工作——idle 或没控制器 → `no-previous` 且不起进程；starting/running → `{ok:true, value:null}` 且不起进程；exited → 走 `startService(state.repo)` 同一条路、按当前设置拼命令，失败 reason 与 startService 一致（`unknown-repo`/`python-missing`/`kit-missing`/`no-service`/控制器原样回传）。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "让页面上「重启服务」真的能按当前设置重启，而不是回一个占位 reason"
+    },
+    {
+      "id": "D03",
+      "text": "宿主 IPC 只注册一次、调用转给当前 host——`registerHostIpc(ipcMain, relay.host, relay.senderAllowed)` 在整个外壳分支只调一次；没有当前 host 时 `senderAllowed` 为 false、调用回 `forbidden`；重入用例里注册次数仍是 5、第二次 start 成功、调用进第二个 host。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "Electron 44.9.0 里同一通道第二次 `ipcMain.handle` 会抛错，第二次起服务因此失败——这是本片风险最高的一处，必须有独立证据"
+    },
+    {
+      "id": "D04",
+      "text": "外壳 IPC 与选择框读当前外壳窗口——`registerShellIpc` 只调一次，来源检查读当前 `shellWin`（非空、未销毁、`shellSenderAllowed`）；选择框与外部链接确认框挂在当前外壳窗口上。",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "重开外壳窗口后，旧窗口的 webContents 不再能调外壳接口"
+    },
+    {
+      "id": "D05",
+      "text": "重开的外壳窗口每次取新分区，并在该 session 的 `protocol` 上注册一次 `themis-shell` handler；同一个 session 绝不注册第二次；`main.js` 里 `.protocol.handle(` 只有一个调用点，且它前 160 字以内有 `fromPartition`。",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "站主实测在同一个 session 上第二次注册会抛错（`Failed to register protocol: themis-shell`），而新分区新 session 连开三次都成功"
+    },
+    {
+      "id": "D06",
+      "text": "意外退出（`exited` 且 `!byShell`）先开服务状态页、开好之后才关服务窗口；已经有外壳窗口开着时不另开窗口；服务状态页开不出来时才写一行 `ERROR: 服务意外退出（退出码 N）` 并以 1 退出；用户关窗的收尾（`abort()`/`stop()`/退出码）保持不变。",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "Electron 在最后一个窗口关掉时会退出应用，窗口次序错了就会带着服务一起退出"
+    },
+    {
+      "id": "D07",
+      "text": "README 写清新的退出码表、`restartService` 的真行为与 reason 词表、意外退出回服务状态页，以及手工冒烟（选仓库 → 启动 → 主窗口 → 结束服务进程 → 回服务状态页显示退出码 → 重启 → 关主窗口 → 以 0 退出），并写明要先构建前端、`T032` 已落地；各片门禁钉住的 needle 一个不删（清单见 Behavior contract 第七节）。",
+      "evidence": [
+        "G01",
+        "R01",
+        "review"
+      ],
+      "intent": "真窗口行为只能靠人工冒烟，README 是唯一的验收凭据"
+    },
+    {
+      "id": "D08",
+      "text": "所有修改都在允许集合内（`allowed_modified_files` / `allowed_new_files`），没有碰仓库根的 `tests/`、`desktop/web/**`、`preload.js`、`shell-preload.js`、`src/ipc.js`、`src/host.js`、夹具与锁文件。",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D09",
+      "text": "没有删除、跳过或弱化既有测试——`desktop/shell/tests/` 下既有 21 个测试文件一条不删，既有断言照留（只改 `tests/shellapi.test.js:585` 的标题与 `:750-754` 的占位断言、`tests/serviceflow.test.js:254` 的标题），`package.json` 的 `scripts.test` 仍列出每一个 `tests/*.test.js`；不许 xfail/skip。",
+      "evidence": [
+        "V01",
+        "scope",
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 6,
+    "max_wall_seconds_per_attempt": 2400,
+    "max_wall_seconds_total": 12027,
+    "cost_budget": null
+  }
+}
