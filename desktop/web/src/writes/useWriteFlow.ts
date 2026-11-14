@@ -23,6 +23,7 @@ import {
   type WriteArgs,
 } from '../api';
 import { dispatchCommand } from '../components';
+import { liveClient } from '../live/mode';
 import { writeScenario } from '../mock/writes';
 import {
   pluginSnapshot,
@@ -119,8 +120,12 @@ function isTerminalState(state: string): boolean {
 type SnapResult = { ok: true; snapshot: unknown } | { ok: false };
 
 // 预览阶段与重读阶段各读一次快照；reread-fail / reread-fail-exit1 让重读按读失败处理（不靠 ?mock=）。
+// 判据用 liveClient() 而不是 liveModeIsReal()：后者只看构建期常量、不认测试注入的假客户端，
+// 而真实模式的门必须跟着 api.ts 的取数分支走（那边也是以 liveClient() 非空为准）。
+// 演示情景只在夹具模式（liveClient() === null）认：真实模式的重读失败只由真的读失败造成，
+// 不能让 URL 里的演示参数在真服务上造出一次假的「重新读取失败」。
 async function readSnapshot(action: WriteAction, isReread: boolean): Promise<SnapResult> {
-  if (isReread && (writeScenario() === 'reread-fail' || writeScenario() === 'reread-fail-exit1')) {
+  if (isReread && liveClient() === null && (writeScenario() === 'reread-fail' || writeScenario() === 'reread-fail-exit1')) {
     return { ok: false };
   }
   try {
@@ -413,6 +418,11 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
       const data = r.body.data;
       snapRef.current = snapRes.s.snapshot;
       confirmRef.current = data.confirmation;
+      // needs_yes 为真且没有正在运行的 attempt：内核的意思是「状态读不出来，不能当作没有在运行的」，
+      // 但预览正文里只有一串原样的路径，用户看不出这次为什么要他确认；这句加在 notes 最前面（wf-note）。
+      const notes = data.needs_yes === true && data.running_attempts.length === 0
+        ? ['有状态读不出来，不能确定没有正在运行的 attempt；这次改动需要你确认。', ...data.notes]
+        : data.notes;
       const content = {
         // 预览命令带 --dry-run --json（第二节）；「将运行的命令」要的是真正会跑的写命令，去掉这两个开关。
         command: dispatchCommand(data.command.filter((a) => a !== '--dry-run' && a !== '--json')),
@@ -420,7 +430,7 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
         summary: changeSummaryOf(spec.action, spec.args) ?? undefined,
         warnings: data.warnings,
         running: data.running_attempts,
-        notes: data.notes,
+        notes,
       };
       contentRef.current = content;
       setView({ phase: 'confirmable', content });

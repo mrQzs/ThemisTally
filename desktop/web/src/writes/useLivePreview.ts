@@ -1,5 +1,5 @@
 // 表单底部的实时内核预览（合同第三节）：表单合法才在 300ms 防抖后调 preview；迟到的回应按序号丢弃。
-// 只读演示数据，不联网。
+// 夹具模式下读演示数据，真实模式下走服务的预览。
 import { useEffect, useRef, useState } from 'react';
 import { preview, type HttpReply, type PreviewData, type WriteAction, type WriteArgs } from '../api';
 

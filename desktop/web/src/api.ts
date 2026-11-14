@@ -243,7 +243,7 @@ function toPreviewData(preview: Record<string, unknown>, command: string[], conf
 }
 
 // 预览成功（200、ok、data 带 preview 与 confirmation）时映射成 PreviewData，信封其余字段原样保留；
-// 缺任何一样（含 data 缺 preview）就原样透传，不签发确认号、不改写成 501。
+// 缺任何一样（含 data 缺 preview）就原样透传：不签发确认号，状态码与信封都不改。
 function mappedPreview(reply: HttpReply<PreviewData>): HttpReply<PreviewData> {
   const data: unknown = reply.body.data;
   if (reply.status !== 200 || !reply.body.ok || typeof data !== 'object' || data === null) return reply;
