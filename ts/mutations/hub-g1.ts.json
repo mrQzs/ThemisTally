@@ -61,10 +61,10 @@
       "new": ""
     },
     {
-      "name": "E07 rework_source 空补丁也算",
+      "name": "E07 rework_source 没有候选记录也算（第 159 轮起空补丁本来就算）",
       "file": "ts/packages/hub/src/exec.ts",
-      "old": "  return isFile(patch) && statSync(patch).size ? path : null;",
-      "new": "  return isFile(patch) ? path : null;"
+      "old": "  return isFile(patch) ? path : null;",
+      "new": "  return path;"
     },
     {
       "name": "E08 RETURN_TARGETS.get 不先散列",

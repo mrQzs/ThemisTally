@@ -3499,12 +3499,15 @@ def attempts_left(hub: Hub, ts: Dict[str, Any]) -> Optional[int]:
 
 
 def rework_source(ts: Dict[str, Any]) -> Optional[Path]:
-    """终审退回执行端时，上一轮有候选补丁的 attempt：返工从它接着改。"""
+    """终审退回执行端时，上一轮有候选记录的 attempt：返工从它接着改。
+    第 159 轮：候选是空的（零改动）也算。原来要求补丁非空，空的就照原合同重派，终审的阻塞项进不了合同：T035 的
+    attempt-002 是门禁热修补之后的零改动重跑，终审查出 D06 退回执行端，attempt-003、004 都照 v3 重派，合同的 Rework 段
+    还是热修补那条路写的“终审没有退回执行端”，两次零改动交差、用完了预算。空的照样出返工版本、写进阻塞项，基线沿用
+    上一轮的（start_rework 认得出空的返工提交）。"""
     audit, run_dir = ts["audit_post"], ts["exec"].get("run_dir")
     if audit.get("verdict") != "返工" or RETURN_TARGETS.get(audit.get("target", "")) != "5-exec" or not run_dir:
         return None
-    patch = Path(run_dir) / "candidate.patch"
-    return Path(run_dir) if patch.is_file() and patch.stat().st_size else None
+    return Path(run_dir) if (Path(run_dir) / "candidate.patch").is_file() else None
 
 
 def latest_checks(run_dir: Path) -> List[Dict[str, Any]]:

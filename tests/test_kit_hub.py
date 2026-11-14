@@ -2904,12 +2904,22 @@ def test_exec_rework_continues_from_the_reviewed_candidate(tmp_path, monkeypatch
     ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {"verdict": "返工", "target": "战后门禁"}
     kh.run_exec(hub, ts)
     assert calls == ["prepare t001-doc.v3"]
-    # 上一轮没有候选补丁：没有可接着改的东西，照原合同重派
+    # 第 159 轮：上一轮候选是空的（零改动）也出返工版本、写进终审的阻塞项（T035 的 attempt-003、004 照原合同重派，
+    # 没见到终审的 D06）；没有候选记录的才照原合同重派
     (previous / "candidate.patch").write_text("", encoding="utf-8")
+    (plans / "t001-doc.v3.json").write_text((plans / "t001-doc.v1.json").read_text(encoding="utf-8"),
+                                            encoding="utf-8")
     calls.clear()
     ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {"verdict": "返工", "target": "执行端"}
     kh.run_exec(hub, ts)
-    assert calls == ["prepare t001-doc.v3"]
+    assert calls == ["branch", "derive-json", "validate", "prepare t001-doc.v4"]
+    v4 = (plans / "t001-doc.v4.md").read_text(encoding="utf-8")
+    assert "## Rework（返工第 3 轮，内核追加）" in v4 and v4.rstrip().endswith("B1 StatusTag 遇到 constructor 崩溃")
+    (previous / "candidate.patch").unlink()
+    calls.clear()
+    ts["exec"], ts["audit_post"] = {"run_dir": str(previous)}, {"verdict": "返工", "target": "执行端"}
+    kh.run_exec(hub, ts)
+    assert calls == ["prepare t001-doc.v4"]
 
 
 def test_exec_rework_reports_when_the_rework_base_cannot_be_built(tmp_path, monkeypatch):

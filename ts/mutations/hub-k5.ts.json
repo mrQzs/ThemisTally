@@ -1,0 +1,22 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-exec-scenes.contract.test.ts",
+  "-t",
+  "carry_source",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "L01 空补丁照旧不算",
+   "file": "ts/packages/hub/src/exec.ts",
+   "old": "  return isFile(patch) ? path : null;",
+   "new": "  return isFile(patch) && statSync(patch).size ? path : null;"
+  }
+ ]
+}

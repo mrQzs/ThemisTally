@@ -81,7 +81,7 @@ describe("第 ⑤g1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     const counts = Object.fromEntries([...SNAPSHOT, ...PURE].map((fn) => [fn, calls.filter((item) => item.fn === fn).length]));
     // rework_source、latest_checks、carryable、checks_passed、unfinished_why、carry_back、rework_commits 没有顶层调用（都在 carry_source 等里面），在 hub-exec-scenes 手写
     expect(counts, "各函数的顶层调用次数").toEqual({
-      interrupted_attempt: 6, attempts_left: 56, rework_source: 0, latest_checks: 13, cut_off: 5, carryable: 0, checks_passed: 0, unfinished_why: 0, carry_back: 0, carry_source: 51, returned_blockers: 3, failed_attempt: 15, retry_section: 2, failed_checks_brief: 13, failure_lines: 5, report_leftovers: 2, rework_section: 13, unreported_gate_claims: 5, empty_commit: 44, rework_commits: 0, add_modified_files: 6, gate_claims: 16, jev_flag: 6,
+      interrupted_attempt: 6, attempts_left: 57, rework_source: 0, latest_checks: 13, cut_off: 5, carryable: 0, checks_passed: 0, unfinished_why: 0, carry_back: 0, carry_source: 52, returned_blockers: 3, failed_attempt: 15, retry_section: 2, failed_checks_brief: 13, failure_lines: 5, report_leftovers: 2, rework_section: 14, unreported_gate_claims: 5, empty_commit: 45, rework_commits: 0, add_modified_files: 6, gate_claims: 16, jev_flag: 6,
     });
     const requests = calls.map((item) => item.request);
     for (const impl of IMPLS) {

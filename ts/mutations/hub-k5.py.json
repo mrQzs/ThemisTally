@@ -1,0 +1,30 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "exec_rework_continues_from_the_reviewed_candidate"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "K01 空补丁照旧不算",
+   "file": "scripts/kit_hub.py",
+   "old": "    return Path(run_dir) if (Path(run_dir) / \"candidate.patch\").is_file() else None",
+   "new": "    patch = Path(run_dir) / \"candidate.patch\"\n    return Path(run_dir) if patch.is_file() and patch.stat().st_size else None"
+  },
+  {
+   "name": "K02 没有候选记录也算",
+   "file": "scripts/kit_hub.py",
+   "old": "    return Path(run_dir) if (Path(run_dir) / \"candidate.patch\").is_file() else None",
+   "new": "    return Path(run_dir)"
+  }
+ ]
+}

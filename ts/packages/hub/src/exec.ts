@@ -157,14 +157,14 @@ export function attemptsLeft(hub: Hub, ts: PyDict): bigint | null {
   }
 }
 
-/** 终审退回执行端时，上一轮有候选补丁的 attempt：返工从它接着改。 */
+/** 终审退回执行端时，上一轮有候选记录的 attempt：返工从它接着改。第 159 轮：候选是空的也算（阻塞项照样进返工版本）。 */
 export function reworkSource(ts: PyDict): string | null {
   const audit = pyItem(ts, "audit_post");
   const runDir = pyGet(pyItem(ts, "exec"), "run_dir");
   if (pyGet(audit, "verdict") !== "返工" || returnTarget(pyGet(audit, "target", "")) !== "5-exec" || !pyTruthy(runDir)) return null;
   const path = purePathStr(pyStrValue(runDir));
   const patch = purePathStr(path, "candidate.patch");
-  return isFile(patch) && statSync(patch).size ? path : null;
+  return isFile(patch) ? path : null;
 }
 
 /** RETURN_TARGETS.get(value)：先散列（照 ⑤f 的 inDict）。 */

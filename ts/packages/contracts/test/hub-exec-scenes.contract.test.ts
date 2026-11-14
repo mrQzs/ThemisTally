@@ -160,6 +160,8 @@ describe("第 ⑤g1 片：接着改从哪儿来（手写，三边逐字比）", 
       call("carry_back", [repo, taskState({ contract: { key: "k", written_version: 2 } }), "upstream"]),
       call("rework_source", [taskState({ exec: { run_dir: at("attempt-003") }, audit_post: audit("执行端") })]),
       call("rework_source", [taskState({ exec: {}, audit_post: audit("执行端") })]),
+      // 第 159 轮：候选补丁是空的也接（阻塞项照样进返工版本）；没有候选记录的（上面的 attempt-003）不接
+      call("rework_source", [taskState({ exec: { run_dir: join(blank, ".agent", "runs", "t001-doc", "attempt-001") }, audit_post: audit("执行端") })]),
       // 补丁为空、meta 没有 base_sha：返工链里没有 commit 的条目不进集合，None 不在里面，不接
       call("carry_source", [blank, taskState({ exec: { run_dir: join(blank, ".agent", "runs", "t001-doc", "attempt-001") }, rework_chain: [{ from: "x" }, { commit: "" }] })]),
     ]);
@@ -167,7 +169,7 @@ describe("第 ⑤g1 片：接着改从哪儿来（手写，三边逐字比）", 
     // 站主停掉的往前找：先碰到的是截断了的 attempt-006
     expect(shown.slice(0, 8)).toEqual([[at("attempt-002"), "audit"], [at("attempt-002"), "timeout"], "TypeError: unhashable type: 'list'", [at("attempt-006"), "cutoff"],
       [at("attempt-004"), "failed"], null, [at("attempt-006"), "cutoff"], [at("attempt-006"), "upstream"]]);
-    expect(shown.slice(8)).toEqual([[at("attempt-006"), "cutoff"], null, null, null, null]);
+    expect(shown.slice(8)).toEqual([[at("attempt-006"), "cutoff"], null, null, null, join(blank, ".agent", "runs", "t001-doc", "attempt-001"), null]);
   });
 
   it("interrupted_attempt、failed_attempt：没有 attempt、还在办、已有结论、名字的大小写与 Unicode 数字；check_ok 只认 False、写过重派说明的不算", () => {
