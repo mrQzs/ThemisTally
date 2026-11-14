@@ -6,6 +6,7 @@ import { PageFrame } from '../shell/PageFrame';
 import { useAppNavigate } from '../shell/router';
 import { useShellConnection } from '../shell/useShellConnection';
 import { getHistory, getMeta, getMetaNow, getStatus, type Envelope, type HistoryData, type StatusData } from '../api';
+import { useLiveStatus } from '../live/useLiveStatus';
 import { OverviewView, type OverviewData } from './readonly1/overview-OverviewView';
 
 const loadOverview = (): Promise<Envelope<OverviewData>> =>
@@ -23,6 +24,12 @@ const loadOverview = (): Promise<Envelope<OverviewData>> =>
   });
 
 const isOverviewEmpty = (d: OverviewData) => d.status.length === 0;
+
+/** 实时覆盖：首屏读到的 status 作种子，收到推送后换成事件流的最新值（history 仍用首屏读的）。 */
+function OverviewLive({ data, navigate }: { data: OverviewData; navigate: (path: string) => void }) {
+  const status = useLiveStatus(data.status);
+  return <OverviewView status={status} history={data.history} navigate={navigate} />;
+}
 
 export default function OverviewPage() {
   const navigate = useAppNavigate();
@@ -46,7 +53,7 @@ export default function OverviewPage() {
       isEmpty={isOverviewEmpty}
       empty={{ title: '还没有 attempt', description: '在规划端用 /dispatch-pi 派遣第一个任务' }}
     >
-      {(data) => <OverviewView status={data.status} history={data.history} navigate={navigate} />}
+      {(data) => <OverviewLive data={data} navigate={navigate} />}
     </PageFrame>
   );
 }

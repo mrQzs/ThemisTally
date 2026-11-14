@@ -1,13 +1,15 @@
 // 任务页（合同第 1、3 节）：按地址分派列表页与 attempt 详情页，两页五态都由 PageFrame 承担。
 // 页面组件拿不到路由（App.tsx :63-67），所以挂载时用 parseHash 读 window.location.hash 得出视图，
 // 自己再监听 hashchange 作为后退、前进与手改地址的兜底（Q2-A）；页内变化用 history.replaceState。
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PageFrame } from '../shell/PageFrame';
 import { useAppNavigate } from '../shell/router';
 import { getStatus, type Envelope, type StatusData } from '../api';
+import { useLiveStatus } from '../live/useLiveStatus';
 import { AttemptDetailView } from './tasks/AttemptDetailView';
 import { TaskListView } from './tasks/TaskListView';
 import { isAttemptMissing, loadAttemptDetail, type AttemptDetailData } from './tasks/tasks-data';
+import { attemptSeg } from './tasks/tasks-model';
 import {
   detailPath,
   replaceInPage,
@@ -32,6 +34,73 @@ interface InPagePatch {
 interface Loaded {
   task: string;
   attempt: string;
+}
+
+/** 列表页实时覆盖：rows 用事件流的最新 status 整份替换。 */
+function TaskListLive({
+  rows,
+  view,
+  patchAddress,
+  navigate,
+}: {
+  rows: StatusData;
+  view: TasksView;
+  patchAddress: (path: string, patch: InPagePatch, next: Partial<TasksView>) => void;
+  navigate: (path: string) => void;
+}) {
+  const status = useLiveStatus(rows);
+  return (
+    <TaskListView
+      rows={status}
+      selectedTask={view.task}
+      groups={view.groups}
+      onSelectTask={(picked) =>
+        patchAddress(`/tasks/${encodeURIComponent(picked)}`, {}, { task: picked })
+      }
+      onGroupsChange={(groups) =>
+        patchAddress(
+          view.task == null ? '/tasks' : `/tasks/${encodeURIComponent(view.task)}`,
+          { groups },
+          { groups },
+        )
+      }
+      onOpenAttempt={(pickedTask, pickedAttempt) => navigate(detailPath(pickedTask, pickedAttempt))}
+      mock={view.mock}
+      navigate={navigate}
+    />
+  );
+}
+
+/** 详情页实时覆盖：实时 status 里有同 attempt 的行时用它，否则保留首屏读到的行。 */
+function AttemptDetailLive({
+  data,
+  view,
+  detailUrl,
+  patchAddress,
+  navigate,
+}: {
+  data: AttemptDetailData;
+  view: TasksView;
+  detailUrl: string;
+  patchAddress: (path: string, patch: InPagePatch, next: Partial<TasksView>) => void;
+  navigate: (path: string) => void;
+}) {
+  // 种子只放这一行：钩子还没拿到推送时按首屏行渲染，种子必须稳定，否则每次渲染都是新数组。
+  const seed = useMemo<StatusData>(() => (data.row == null ? [] : [data.row]), [data.row]);
+  const status = useLiveStatus(seed);
+  const row = status.find((r) => r.task_id === data.task && attemptSeg(r.attempt) === data.attempt) ?? data.row;
+  return (
+    <AttemptDetailView
+      task={data.task}
+      attempt={data.attempt}
+      row={row}
+      attemptEnv={data.attemptEnv}
+      tab={view.tab}
+      onTabChange={(tab) => patchAddress(detailUrl, { tab }, { tab })}
+      mock={view.mock}
+      navigate={navigate}
+    />
+  );
 }
 
 export default function TasksPage() {
@@ -93,14 +162,11 @@ export default function TasksPage() {
         }}
       >
         {(data) => (
-          <AttemptDetailView
-            task={data.task}
-            attempt={data.attempt}
-            row={data.row}
-            attemptEnv={data.attemptEnv}
-            tab={view.tab}
-            onTabChange={(tab) => patchAddress(detailUrl, { tab }, { tab })}
-            mock={view.mock}
+          <AttemptDetailLive
+            data={data}
+            view={view}
+            detailUrl={detailUrl}
+            patchAddress={patchAddress}
             navigate={navigate}
           />
         )}
@@ -117,24 +183,7 @@ export default function TasksPage() {
       empty={{ title: '还没有 attempt', description: '在规划端用 /dispatch-pi 派遣第一个任务' }}
     >
       {(rows) => (
-        <TaskListView
-          rows={rows}
-          selectedTask={view.task}
-          groups={view.groups}
-          onSelectTask={(picked) =>
-            patchAddress(`/tasks/${encodeURIComponent(picked)}`, {}, { task: picked })
-          }
-          onGroupsChange={(groups) =>
-            patchAddress(
-              view.task == null ? '/tasks' : `/tasks/${encodeURIComponent(view.task)}`,
-              { groups },
-              { groups },
-            )
-          }
-          onOpenAttempt={(pickedTask, pickedAttempt) => navigate(detailPath(pickedTask, pickedAttempt))}
-          mock={view.mock}
-          navigate={navigate}
-        />
+        <TaskListLive rows={rows} view={view} patchAddress={patchAddress} navigate={navigate} />
       )}
     </PageFrame>
   );
