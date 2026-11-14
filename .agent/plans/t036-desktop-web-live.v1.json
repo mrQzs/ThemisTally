@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "task_id": "t036-desktop-web-live",
+  "plan_version": 1,
+  "title": "桌面端前端第 3 片：实时状态、作业与日志跟随（D7）",
+  "repository": "ThemisTally",
+  "base_sha": "6088bcdb4dcebbd6cda421916d60fe6cf1676875",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/live/connection.ts",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/TasksPage.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/live/events.ts",
+      "desktop/web/src/live/useLiveStatus.ts",
+      "desktop/web/tests/live-events.test.ts",
+      "desktop/web/tests/live-events-hook.test.tsx",
+      "desktop/web/tests/live-pages-live.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t036_*.py",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/shell/useShellConnection.ts",
+      "desktop/web/src/shell/TitleBar.tsx",
+      "desktop/web/src/shell/TabBar.tsx",
+      "desktop/web/src/live/mode.ts",
+      "desktop/web/src/live/transport.ts",
+      "desktop/web/src/components/**",
+      "desktop/web/src/pages/tasks/**",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/vite.config.ts",
+      "desktop/web/scripts/check-live-build.mjs",
+      "desktop/web/package.json",
+      "ts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t036_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "$"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "事件流只由 `liveModeIsReal()` 决定开不开；夹具模式下订阅不建流、不排计时器；模块加载时无副作用。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "门禁探针与夹具模式下绝不发请求（T011 :2094 的卸载后计时器为 0 仍成立）"
+    },
+    {
+      "id": "D02",
+      "text": "第一个订阅者到来才建流，最后一个订阅者离开就关流，多订阅者只有一条流。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务端的订阅数上限（全局 16、每会话 4）不被前端自己撞破"
+    },
+    {
+      "id": "D03",
+      "text": "`snapshot` 整份替换并重置序号基线；`update` 序号不大于基线就丢弃；服务重启后序号变小照样整份替换。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "重复与过期推送不把界面带回旧数据"
+    },
+    {
+      "id": "D04",
+      "text": "`ok:false` 的推送不覆盖已显示的数据，序号照常推进。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务一次读不到 status 时界面不闪空"
+    },
+    {
+      "id": "D05",
+      "text": "出错后自己排重连，等待不小于 3000ms、抖动只往后加、上限 31000ms；等待期间连接状态为 `'reconnecting'`、重连次数为 n；收到 `snapshot` 后清零并写 `'connected'`。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不给服务端补 Retry-After 解析也能退避，且界面能说出在重连"
+    },
+    {
+      "id": "D06",
+      "text": "重连后靠 `snapshot` 重建（整份替换，不合并旧数据）。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "重连期间错过的事件不会造成两份数据混在一起"
+    },
+    {
+      "id": "D07",
+      "text": "`connection.ts` 的 `ConnectionState` 是三取值且 `'reconnecting'` 写在同一行末尾；四个原有导出与 `useSyncExternalStore` 保留；`useConnectionState()` 仍返回字符串、值没变不通知；新增重连次数的读取导出。",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "不推翻 T027 S05 / T034 s13 的无尾锚正则，也不改坏既有连接状态语义"
+    },
+    {
+      "id": "D08",
+      "text": "`useLiveStatus` 在夹具模式原样返回 `initial` 且不订阅；真实模式有推送时返回推送的 status。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "夹具模式与首屏行为完全照旧"
+    },
+    {
+      "id": "D09",
+      "text": "总览页首屏仍一次性读，收到推送后视图里的数字跟着变；`load` / `isEmpty` 仍是模块级命名函数；api 导入仍在白名单内；T034 s08 的记号（`'—'`、`· kit `、`getMetaNow`、`useShellConnection(`、`const loadOverview`、`const isOverviewEmpty`）保留。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "接实时不拆掉 T034 已落地的接线"
+    },
+    {
+      "id": "D10",
+      "text": "任务页列表的 `rows` 与详情页的 `row` 按实时 `status` 覆盖；`PageFrame`、`from './tasks/'`、默认导出保留；`src/pages/tasks/` 仍恰好 17 个文件；不多加 section。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "任务页的运行中进度也是实时的，页结构与文件数不动"
+    },
+    {
+      "id": "D11",
+      "text": "禁改清单里的文件一个都没动；现有测试文件一个都没改。",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "不越权、不削弱别人的门禁"
+    },
+    {
+      "id": "D12",
+      "text": "两个页面文件与两个新 `src/live/` 文件里没有四个浏览器网络接口名（连注释）、没有注入词、没有 `role=status`、没有内联 `style`、没有十六进制颜色；`src/live/` 新文件的注释里不写网络接口名。",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "不让事件流的实现从页面上漏出去，也不引入注入面"
+    },
+    {
+      "id": "D13",
+      "text": "三份新测试没有 `skip` / `only` / `todo`；既有测试一个都没删改。",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "不靠削弱测试换绿"
+    },
+    {
+      "id": "D14",
+      "text": "`npm test`、`npm run typecheck`、门禁 G01、回归 R01 全绿。",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01",
+        "R01"
+      ],
+      "intent": "改动不破坏既有前端行为与既有门禁"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 5400,
+    "cost_budget": null
+  }
+}
