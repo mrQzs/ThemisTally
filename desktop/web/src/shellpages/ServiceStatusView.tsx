@@ -61,7 +61,7 @@ export function ServiceStatusView({ shell, navigate }: ServiceStatusViewProps) {
   const exited = service.kind === 'exited';
   const code = exited ? String(service.exitCode) : '—';
   const at = exited ? service.at : Date.now();
-  const note = noteError ?? stoppedNote(exited ? service.exitCode : 0);
+  const note = noteError ?? stoppedNote(exited ? service.exitCode : 0, exited && service.afterRunning === true);
 
   return (
     <section className="tt-ss">

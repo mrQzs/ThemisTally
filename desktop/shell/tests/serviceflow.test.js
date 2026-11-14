@@ -360,3 +360,176 @@ test("旧 run 的子进程退出不许把新 run 改成 exited", async () => {
   await flow.stop();
   await waitFor("run2 exited", () => flow.state().kind === "exited", 8000);
 });
+
+test("跑起来之后服务自己退出（退出码 1）→ exited 带 afterRunning: true、byShell 为假", async () => {
+  const seen = collect();
+  const flow = createServiceFlow({});
+  seen.subscribe(flow);
+  assert.deepEqual(
+    await flow.start({
+      repo: "r-self-1",
+      command: [process.execPath, FAKE_EXIT],
+      env: envWith({ FAKE_SERVICE_EXIT_CODE: "1" }),
+    }),
+    { ok: true, value: null },
+  );
+  assert.equal("afterRunning" in seen.states[0], false, "starting 不带键");
+  assert.equal("afterRunning" in seen.states[1], false, "running 不带键");
+  await waitFor("服务自己退出", () => seen.states.length >= 3 && seen.states[2].kind === "exited", 8000);
+  assert.equal(seen.states[2].exitCode, 1, "跑起来之后的退出码 1 也原样给出");
+  assert.equal(seen.states[2].afterRunning, true, "跑起来之后的退出带 afterRunning: true（与退出码无关）");
+  assert.equal(seen.infos[2].byShell, false, "服务自己退出的 byShell 照旧为假");
+  assert.equal(flow.state().afterRunning, true, "getState 与事件负载是同一个对象");
+});
+
+test("跑起来之后外壳 stop() → exited 带 afterRunning: true、byShell 为真", async () => {
+  const seen = collect();
+  const flow = createServiceFlow({});
+  seen.subscribe(flow);
+  assert.deepEqual(
+    await flow.start({
+      repo: "r-stop-key",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+    }),
+    { ok: true, value: null },
+  );
+  const stop = await flow.stop();
+  assert.equal(stop.exited, true, JSON.stringify(stop));
+  await waitFor("stop 之后的 exited", () => seen.states.length >= 3 && seen.states[2].kind === "exited");
+  assert.equal(seen.states[2].afterRunning, true, "跑起来之后被外壳停掉也带 afterRunning: true");
+  assert.equal(seen.infos[2].byShell, true, "外壳停服务触发的 exited，byShell 照旧为真");
+});
+
+test("onRunning 抛错 → 收服务（stop 语义）之后的 exited 带 afterRunning: true", async () => {
+  const seen = collect();
+  const flow = createServiceFlow({
+    onRunning: () => {
+      throw new Error("窗口开不了");
+    },
+  });
+  seen.subscribe(flow);
+  assert.deepEqual(
+    await flow.start({
+      repo: "r-onrun-key",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+    }),
+    { ok: false, reason: "start-failed" },
+  );
+  assert.equal(seen.states[1].kind, "running", "running 先发，onRunning 之后才轮到失败处理");
+  await waitFor("收服务之后的 exited", () => seen.states.length >= 3 && seen.states[2].kind === "exited", 8000);
+  assert.equal(seen.states[2].exitCode, 0, "收服务走 stop 的语义（stdin EOF），假服务以 0 退出");
+  assert.equal(seen.states[2].afterRunning, true, "跑起来之后的收服务也带 afterRunning: true");
+});
+
+test("启动阶段的 exited 一律不带 afterRunning 键（exit2、坏握手、握手超时、spawn 失败）", async () => {
+  {
+    const seen = collect();
+    const flow = createServiceFlow({});
+    seen.subscribe(flow);
+    const envelope = await flow.start({
+      repo: "r-exit2-key",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "exit2" }),
+    });
+    assert.deepEqual(envelope, { ok: false, reason: "handshake-failed" });
+    assert.equal(seen.states[1].kind, "exited");
+    assert.equal(seen.states[1].exitCode, 2);
+    assert.equal("afterRunning" in seen.states[1], false, "握手前退出（启动阶段）不带键");
+    assert.equal(seen.infos[1].byShell, false);
+    assert.deepEqual(flow.state(), { kind: "exited", repo: "r-exit2-key", exitCode: 2, at: seen.states[1].at }, "启动失败的 exited 仍只认 4 个键");
+  }
+  {
+    const seen = collect();
+    const flow = createServiceFlow({});
+    seen.subscribe(flow);
+    const envelope = await flow.start({
+      repo: "r-bad-key",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "bad" }),
+    });
+    assert.deepEqual(envelope, { ok: false, reason: "handshake-failed" });
+    assert.equal(seen.states[1].exitCode, -1, "被外壳杀掉的进程没有数字码 → -1");
+    assert.equal("afterRunning" in seen.states[1], false, "坏握手（启动阶段）不带键");
+  }
+  {
+    const seen = collect();
+    const flow = createServiceFlow({ timeoutMs: 700 });
+    seen.subscribe(flow);
+    const envelope = await flow.start({
+      repo: "r-silent-key",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "silent" }),
+    });
+    assert.deepEqual(envelope, { ok: false, reason: "handshake-failed" });
+    assert.equal(seen.states[1].exitCode, -1);
+    assert.equal("afterRunning" in seen.states[1], false, "握手超时（启动阶段）不带键");
+  }
+  {
+    const seen = collect();
+    const flow = createServiceFlow({});
+    seen.subscribe(flow);
+    const envelope = await flow.start({ repo: "r-enoent-key", command: ["themistally-no-such-bin-xyz", "arg"] });
+    assert.deepEqual(envelope, { ok: false, reason: "start-failed" });
+    assert.equal(seen.states[1].exitCode, -1);
+    assert.equal("afterRunning" in seen.states[1], false, "spawn 失败（启动阶段）不带键");
+  }
+});
+
+test("starting 期间 abort() 的 exited 不带 afterRunning 键（此刻还不是 running）", async () => {
+  const rec = recordingSpawn();
+  const seen = collect();
+  const flow = createServiceFlow({ spawn: rec.fn, timeoutMs: 8000 });
+  seen.subscribe(flow);
+  const startPromise = flow.start({
+    repo: "r-abort-key",
+    command: [process.execPath, FAKE],
+    env: envWith({ FAKE_SERVICE_MODE: "silent" }),
+  });
+  await waitFor("starting 状态", () => seen.states.length >= 1 && seen.states[0].kind === "starting");
+  await flow.abort();
+  await waitFor("abort 之后的 exited", () => seen.states.length >= 2 && seen.states[1].kind === "exited", 5000);
+  assert.equal(seen.states[1].exitCode, -1);
+  assert.equal("afterRunning" in seen.states[1], false, "starting 期间 abort（启动阶段）不带键");
+  assert.equal(seen.infos[1].byShell, true, "外壳中止的退出 byShell 照旧为真");
+  let late;
+  const settled = await Promise.race([
+    startPromise,
+    new Promise((_, reject) => {
+      late = setTimeout(() => reject(new Error("abort 之后 start 的信封没有兑现")), 8000);
+    }),
+  ]);
+  clearTimeout(late);
+  assert.equal(typeof settled.ok, "boolean", "start 的信封要兑现，不 reject");
+});
+
+test("afterRunning 按 run 算：run1 跑起来之后退出（带键），run2 启动阶段失败（不带键）", async () => {
+  const seen = collect();
+  const flow = createServiceFlow({});
+  seen.subscribe(flow);
+  assert.deepEqual(
+    await flow.start({
+      repo: "key-run-1",
+      command: [process.execPath, FAKE_EXIT],
+      env: envWith({ FAKE_SERVICE_EXIT_CODE: "1" }),
+    }),
+    { ok: true, value: null },
+  );
+  await waitFor("run1 退出", () => seen.states.length >= 3 && seen.states[2].kind === "exited", 8000);
+  assert.equal(seen.states[2].exitCode, 1);
+  assert.equal(seen.states[2].afterRunning, true, "run1 是跑起来之后退出的，要带键");
+  assert.equal(seen.states.length, 3, JSON.stringify(seen.states.map((s) => s.kind)));
+  const envelope2 = await flow.start({
+    repo: "key-run-2",
+    command: [process.execPath, FAKE],
+    env: envWith({ FAKE_SERVICE_MODE: "exit2" }),
+  });
+  assert.deepEqual(envelope2, { ok: false, reason: "handshake-failed" });
+  const run2 = seen.states.slice(3);
+  assert.equal(run2.length, 2, JSON.stringify(seen.states.map((s) => s.kind)));
+  assert.equal(run2[0].kind, "starting", "新 run 先进 starting");
+  assert.equal(run2[1].kind, "exited");
+  assert.equal(run2[1].exitCode, 2);
+  assert.equal("afterRunning" in run2[1], false, "run2 是启动阶段的失败，不继承上一 run 的键");
+});

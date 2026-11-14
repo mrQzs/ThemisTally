@@ -28,12 +28,12 @@ export interface TranscriptDirEntry {
   path: string;
 }
 
-/** 本机服务的四种状态。starting 带 repo；running 带 repo/pid/startedAt；exited 带 repo/exitCode/at。 */
+/** 本机服务的四种状态。starting 带 repo；running 带 repo/pid/startedAt；exited 带 repo/exitCode/at，跑起来之后才退出的另带 afterRunning。 */
 export type ServiceState =
   | { kind: 'idle' }
   | { kind: 'starting'; repo: string }
   | { kind: 'running'; repo: string; pid: number; startedAt: string }
-  | { kind: 'exited'; repo: string; exitCode: number; at: number };
+  | { kind: 'exited'; repo: string; exitCode: number; at: number; afterRunning?: boolean };
 
 export interface ShellSettings {
   repos: RepoEntry[];

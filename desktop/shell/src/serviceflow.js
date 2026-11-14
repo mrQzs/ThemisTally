@@ -66,7 +66,10 @@ function createServiceFlow(options) {
   // 唯一的例外是新 run 的 starting：exited 之后要能再 start
   function moveTo(next, newRun) {
     if (current.kind === "exited" && newRun !== true) return;
-    current = next;
+    // 只有「进过 running 之后的退出」才带 afterRunning: true：服务自己退出、跑起来之后外壳自己 stop、
+    // onRunning 失败后的收服务。判据是赋值前那一刻的 current.kind——启动阶段的失败此刻还是 starting，
+    // 所以不带这个键（也不是 false）；新 run 先 starting，键天然按 run 算。
+    current = next.kind === "exited" && current.kind === "running" ? { ...next, afterRunning: true } : next;
     const info = { byShell: next.kind === "exited" ? stopping || aborting : false };
     for (const listener of [...listeners]) listener(current, info);
   }

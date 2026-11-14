@@ -1,4 +1,4 @@
-// 外壳页的示意夹具（src/mock/shellpages-scenarios.ts）：11 个场景的初始状态、pick 队列与 start/restart 结果。
+// 外壳页的示意夹具（src/mock/shellpages-scenarios.ts）：12 个场景的初始状态、pick 队列与 start/restart 结果。
 // 本文件是「示意」数据，取值固定，供内存桩演示各状态；路径用正斜杠，反斜杠不写进 TS 字符串。
 // 接真实外壳那一片会把这些换成真实取值（过渡断言）。
 import { SHELL_PID, SHELL_STARTED_AT } from './shell';
@@ -124,8 +124,16 @@ export const SHELLPAGE_SCENARIOS: Record<string, ScenarioConfig> = {
     transcriptDir: ALL_SAVED,
     start: { kind: 'exited', exitCode: 2 },
   },
+  'crash-1': {
+    base: base({ service: { kind: 'exited', repo: 'demo-repo', exitCode: 1, at: Date.parse('2026-10-18T09:41:07'), afterRunning: true } }),
+    repo: ALL_SAVED,
+    python: ALL_SAVED,
+    kit: ALL_SAVED,
+    transcriptDir: ALL_SAVED,
+    start: { kind: 'exited', exitCode: 1 },
+  },
   'crash': {
-    base: base({ service: { kind: 'exited', repo: 'demo-repo', exitCode: 3, at: Date.parse('2026-10-18T09:41:07') } }),
+    base: base({ service: { kind: 'exited', repo: 'demo-repo', exitCode: 3, at: Date.parse('2026-10-18T09:41:07'), afterRunning: true } }),
     repo: ALL_SAVED,
     python: ALL_SAVED,
     kit: ALL_SAVED,

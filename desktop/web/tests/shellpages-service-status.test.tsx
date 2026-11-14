@@ -155,3 +155,46 @@ describe('D06 重启与跳转', () => {
     expect(h1s()).toEqual(['设置']);
   });
 });
+
+describe('D06 afterRunning：退出码 1 的两种含义', () => {
+  it('crash-1（跑起来之后才退出的退出码 1）：说明是「本机服务意外退出」那一句，不是「已经在另一个窗口里打开了」', async () => {
+    const { shell, unmount } = await openService('crash-1');
+    expect(kindOf(await shell.getState())).toBe('exited');
+    expect(h1s()).toEqual(['本机服务已停止']);
+    expect(textOf(exitCodeEl())).toBe('1');
+    expect(exitCodeEl().tagName.toLowerCase()).toBe('code');
+    expect(body()).toMatch(/退出码 1 · \d\d:\d\d:\d\d。重启后会重新读取数据。/);
+    expect(body()).toContain('本机服务意外退出。重启服务；反复出现时打开设置检查 Python 与 kit。');
+    expect(body(), '跑起来之后的退出码 1 不许再按码套「已经打开」').not.toContain('这个仓库已经在另一个窗口里打开了。');
+    expect(btn(document, '重启服务')).toBeTruthy();
+    expect(btn(document, '打开设置')).toBeTruthy();
+    expect(document.querySelectorAll('[role="alert"]').length).toBe(0);
+    expect(document.title).toBe('本机服务已停止 · Themis Tally');
+    unmount();
+  });
+
+  it('exit-1（启动阶段的退出码 1）：说明仍是「这个仓库已经在另一个窗口里打开了。」', async () => {
+    await openService('exit-1');
+    expect(textOf(exitCodeEl())).toBe('1');
+    expect(body()).toContain('这个仓库已经在另一个窗口里打开了。');
+    expect(body(), '启动阶段的退出码 1 不许被 afterRunning 误伤').not.toContain('本机服务意外退出。重启服务；反复出现时打开设置检查 Python 与 kit。');
+  });
+
+  it('crash-1 点「重启服务」：1500ms 之后换成「已经在另一个窗口里打开了」，退出码仍是 1、留在本页、按钮恢复', async () => {
+    const { spies } = await openService('crash-1');
+    expect(body()).toContain('本机服务意外退出。重启服务；反复出现时打开设置检查 Python 与 kit。');
+    fireEvent.click(btn(document, '重启服务'));
+    expect(spies.restartService.mock.calls.length).toBe(1);
+    await settle();
+    advance(1499);
+    await settle();
+    expect(body(), '1499ms 时还没收到桩的 exited，说明不换').not.toContain('这个仓库已经在另一个窗口里打开了。');
+    advance(1);
+    await settle();
+    expect(body(), '桩在重启之后发的 exited 不带 afterRunning：说明换成「已经打开」').toContain('这个仓库已经在另一个窗口里打开了。');
+    expect(body()).not.toContain('本机服务意外退出。重启服务；反复出现时打开设置检查 Python 与 kit。');
+    expect(textOf(exitCodeEl())).toBe('1');
+    expect(window.location.hash.startsWith('#/service-status'), '没收到 running 不跳走').toBe(true);
+    expect(btn(document, '重启服务').disabled).toBe(false);
+  });
+});
