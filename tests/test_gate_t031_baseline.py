@@ -83,7 +83,7 @@ REAL_GROUP_RELS = (
 
 # 六个岗位（scripts/kit_roles.py 的 HUB_POST_ADAPTERS，合同第一节/第二节）
 HUB_POSTS = ("coordinator", "planner", "contract", "gate", "audit", "exec")
-# 五个适配器（kit_roles.py 的 ADAPTERS/HUB_POST_ADAPTERS；quizs 只进读路由白名单，不进 runtime.add 的四值表）
+# 五个适配器（kit_roles.py 的 ADAPTERS/HUB_POST_ADAPTERS；T041 起 runtime.add 也认 quizs）
 HUB_ADAPTERS = ("pi", "claude-code", "codex", "opencode", "quizs")
 # thinking 七档（writeroutes.ts 既有的 THINKING_LEVELS）
 THINKING_ENUM = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
@@ -517,7 +517,7 @@ def test_static_write_actions_registry():
 
 def test_static_valid_value_hub_keys():
     """D04（M4/M5）：validValue 加 post（六个岗位名之一）与 fallback（与 profile 同一规则，过 TASK_ID_RE）；
-    quizs 只进读路由白名单，runtime.add 的四值 ADAPTERS 不动。"""
+    runtime.add 的 ADAPTERS 至少有原来这四个值（站主按 T041 规划报告 §4.1 R4 退役“不许加 quizs”：T041 起它也认 quizs）。"""
     code = strip_ts_comments(need_file(WRITEROUTES_REL))
     problems = []
     block = _block(code, "function validValue", "\n}")
@@ -533,14 +533,12 @@ def test_static_valid_value_hub_keys():
             problems.append("validValue 应处理键「fallback」")
         elif not any("TASK_ID_RE" in line for line in fb_lines):
             problems.append("validValue 的 fallback 分支应过 TASK_ID_RE（与 profile 同一规则）")
-    # runtime.add 的四值 ADAPTERS 不动（quizs 不进这张表）
+    # runtime.add 的 ADAPTERS 至少有原来这四个值（T041 起也认 quizs）
     adapters = _block(code, "const ADAPTERS", "\n")
     if adapters:
-        if '"quizs"' in adapters:
-            problems.append("runtime.add 的四值 ADAPTERS 不许加 quizs（T020 门禁查这四个值）")
         for name in ("pi", "claude-code", "codex", "opencode"):
             if f'"{name}"' not in adapters:
-                problems.append(f"四值 ADAPTERS 应保留「{name}」")
+                problems.append(f"runtime.add 的 ADAPTERS 应保留「{name}」")
     fail_if(problems, "validValue 的 hub 键（D04）")
 
 

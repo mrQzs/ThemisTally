@@ -2876,12 +2876,12 @@ describe('D10 CLI 运行时表', () => {
     })();
   });
 
-  it('页头 actions：[扫描 PATH]（SearchIcon）、[手动登记…]（PlusIcon，primary）都禁用，排在刷新钮之前', async () => {
+  it('页头 actions：[扫描 PATH]（SearchIcon）禁用、[手动登记…]（PlusIcon，primary），排在刷新钮之前', async () => {
     await mountRuntimes();
     const buttons = qa(document.querySelector('.tt-page__actions'), 'button');
     expect(buttons.map(textOf)).toEqual(['扫描 PATH', '手动登记…', '刷新']);
     expect(buttons[0].disabled).toBe(true);
-    expect(buttons[1].disabled).toBe(true);
+    // [手动登记…] 由 T041 接上（站主按 T041 规划报告 §4.1 R1 放宽，2026-11-14）：可点与否这里不钉
     expect(buttons[0].querySelector('svg'), '[扫描 PATH] 带 SearchIcon').not.toBeNull();
     expect(buttons[1].querySelector('svg'), '[手动登记…] 带 PlusIcon').not.toBeNull();
     expect(buttons[1].getAttribute('data-variant')).toBe('primary');
@@ -2914,7 +2914,7 @@ describe('D10 就绪检查区与空态', () => {
     await mountRuntimes(env({ runtimes: [] }, ['config', 'runtime', 'show']));
     expect(frame().getAttribute('data-page-state')).toBe('empty');
     expect(pageText()).toContain('还没有登记的 runtime');
-    expect(pageText()).toContain('在命令行里用 config runtime scan --add 登记；界面上的登记入口在第二阶段接入');
+    // 空态说明随 T041 接上 [手动登记…] 改写（站主按 T041 规划报告 §4.1 R3 放宽，2026-11-14）：只钉标题
     expect(root('runtimes')).toBeNull();
   });
 
@@ -2971,11 +2971,11 @@ describe('D11 写入口全部禁用', () => {
     tips.forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });
 
-  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新与 T022 接上的 [删除…]', async () => {
+  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…] 与 T041 接上的 [手动登记…]', async () => {
     set('getRuntimes', runtimesMain());
     await mountApp('#/runtimes');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist(['删除…'])).toEqual([]);
+    expect(outsideWhitelist(['删除…', '手动登记…'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）
     expect(disabledButtons().length).toBeGreaterThan(0);
     tooltipTexts().forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });
