@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir, shortOf } from "./harness.ts";
 import { removeCreated } from "./repo-fixtures.ts";
 
 const ROOT = scratchDir("runexec");
@@ -84,7 +84,7 @@ describe("第 ⑤g2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
   it("改状态的五个函数：放回调用当时的快照、照记录注入后三边重放，交回值、ts、文件、账本、git 状态都与当时的结果相同；只跳落地锁被占的那一条", () => {
     const all = samples();
     const counts = Object.fromEntries(FLOW.map((fn) => [fn, all.filter((item) => item.fn === fn).length]));
-    expect(counts, "各函数的顶层调用次数").toEqual({ run_exec: 28, finish_exec: 25, write_review: 9, run_jev: 1, ensure_rework_scope: 1 });
+    expect(shortOf(counts, { run_exec: 28, finish_exec: 25, write_review: 9, run_jev: 1, ensure_rework_scope: 1 }), "各函数的顶层调用次数：低于下限的").toEqual([]);
     expect(all.filter((item) => item.skip !== null).map((item) => [item.test, item.fn, item.skip]), "不重放的").toEqual([
       ["test_exec_waits_for_the_landing_lock_by_holding_its_letter", "run_exec", "EXEC_LAND_WAIT_SECONDS=0.2"],
     ]);
@@ -92,9 +92,9 @@ describe("第 ⑤g2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     // 注入确实走到了：各内层调用记下的次数，新建 worktree 的次数
     const inner = calls.flatMap((item) => item.request["inner"] as { fn: string }[]);
     const injected = Object.fromEntries([...new Set(inner.map((entry) => entry.fn))].sort().map((fn) => [fn, inner.filter((entry) => entry.fn === fn).length]));
-    expect({ injected, fresh: calls.filter((item) => (item.request["fresh"] as string[]).length).length }, "注入的内层调用").toEqual({
-      injected: { ask: 1, contract_requirements: 13, load_locked_batteries: 1, mkdtemp: 2, rework_added_files: 11, run_pd: 90, worktree_root: 2 }, fresh: 2,
-    });
+    expect(shortOf({ ...injected, fresh: calls.filter((item) => (item.request["fresh"] as string[]).length).length }, {
+      ask: 1, contract_requirements: 13, load_locked_batteries: 1, mkdtemp: 2, rework_added_files: 11, run_pd: 90, worktree_root: 2, fresh: 2,
+    }), "注入的内层调用：低于下限的").toEqual([]);
     // 当时的结果都是正常交回（用例只验正常的信；出错的分支在手写场景里）
     const failed = calls.filter((item) => !(item.result as { result: { ok: boolean } }).result.ok).map((item) => [item.test, item.fn]);
     expect(failed, "当时就出错的").toEqual([]);

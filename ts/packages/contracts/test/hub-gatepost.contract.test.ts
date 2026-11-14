@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir, shortOf } from "./harness.ts";
 import { removeCreated } from "./repo-fixtures.ts";
 
 const ROOT = scratchDir("gatepost");
@@ -101,13 +101,13 @@ describe("第 ⑤f 片：pytest 的场景（样例只有 tests/test_kit_hub.py �
   it("改状态的五个函数：放回调用当时的快照、照记录注入后三边重放，交回值、ts、文件、账本、git 状态都与当时的结果相同；每个函数都有样本", () => {
     const calls = samples().filter((item) => FLOW.includes(item.fn));
     const counts = Object.fromEntries(FLOW.map((fn) => [fn, calls.filter((item) => item.fn === fn).length]));
-    expect(counts, "各函数的顶层调用次数").toEqual({ apply_candidate: 1, ensure_worktree: 16, seed_whitebox: 4, accept_gate_post: 25, run_mutations: 2 });
+    expect(shortOf(counts, { apply_candidate: 1, ensure_worktree: 16, seed_whitebox: 4, accept_gate_post: 25, run_mutations: 2 }), "各函数的顶层调用次数：低于下限的").toEqual([]);
     // 注入确实走到了：各内层调用记下的次数，新建 worktree（第三棵树）的次数；白盒那一次的环境变量两边都与当场的 kernel_pytest_env() 相同
     const inner = calls.flatMap((item) => item.request["inner"] as { fn: string; env?: unknown }[]);
     const injected = Object.fromEntries([...new Set(inner.map((entry) => entry.fn))].sort().map((fn) => [fn, inner.filter((entry) => entry.fn === fn).length]));
-    expect({ injected, fresh: calls.filter((item) => (item.request["fresh"] as string[]).length).length }, "注入的内层调用").toEqual({
-      injected: { mkdtemp: 13, run_pd: 24, run_supervised: 25, worktree_root: 13 }, fresh: 13,
-    });
+    expect(shortOf({ ...injected, fresh: calls.filter((item) => (item.request["fresh"] as string[]).length).length }, {
+      mkdtemp: 13, run_pd: 24, run_supervised: 25, worktree_root: 13, fresh: 13,
+    }), "注入的内层调用：低于下限的").toEqual([]);
     expect(inner.filter((entry) => entry.fn === "run_supervised" && entry.env !== true).length, "白盒那一次的环境变量").toBe(0);
     replay(calls);
   }, 1_800_000);
@@ -116,10 +116,10 @@ describe("第 ⑤f 片：pytest 的场景（样例只有 tests/test_kit_hub.py �
     const counts = Object.fromEntries([...SNAPSHOT, ...PURE].map((fn) => [fn, calls.filter((item) => item.fn === fn).length]));
     // gate_spec、unchanged_mismatches、defect_match_problems 没有顶层调用（都在 run_mutations、accept_gate_post 里面），在第二部分手写
     // attempt_base 74→75：第 159 轮改的 test_exec_rework_continues_from_the_reviewed_candidate 多走一次（那一轮漏改，第 160 轮补）
-    expect(counts, "各函数的顶层调用次数").toEqual({
+    expect(shortOf(counts, {
       attempt_base: 75, unmutated_problems: 3, gate_spec: 0, mutant_timeout: 4, unchanged_mismatches: 0, expected_missed_everywhere: 3, candidate_defects: 1,
       defect_matches: 8, defect_match_problems: 0, mutation_problems: 14,
-    });
+    }), "各函数的顶层调用次数：低于下限的").toEqual([]);
     replay(calls);
   }, 1_800_000);
 });

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir, shortOf } from "./harness.ts";
 import { removeCreated } from "./repo-fixtures.ts";
 
 const ROOT = scratchDir("land");
@@ -116,23 +116,23 @@ describe("第 ⑤h1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     const all = samples().filter((item) => FLOW.includes(item.fn));
     const counts = Object.fromEntries(FLOW.map((fn) => [fn, all.filter((item) => item.fn === fn).length]));
     // remove_workspaces、undo_landing、record_pass 没有顶层调用（都在 tidy_finished、finalize 里面），走 TS 自己的实现；没走到的分支在 hub-land-scenes 手写
-    expect(counts, "各函数的顶层调用次数").toEqual({
+    expect(shortOf(counts, {
       finalize: 20, landing_blockers: 20, retire_attempts: 4, tidy_finished: 5, remove_workspaces: 0, commit_records: 2, land_oracle: 2, land_rework_chain: 3,
       undo_landing: 0, record_pass: 0,
-    });
+    }), "各函数的顶层调用次数：低于下限的").toEqual([]);
     // 表里每一条恰好对上一次调用（过期的键会少一条）；采样器自己标的 skip 一条也没有
     expect(all.map((item) => item.unreplayable ?? null).filter((key) => key !== null).sort(), "UNREPLAYABLE 逐条对上").toEqual(Object.keys(UNREPLAYABLE).sort());
     expect(all.filter((item) => item.skip !== null && !item.unreplayable).map((item) => [item.test, item.fn, item.skip]), "采样器标的 skip").toEqual([]);
     const calls = all.filter((item) => item.skip === null);
     const inner = calls.flatMap((item) => item.request["inner"] as { fn: string }[]);
     const injected = Object.fromEntries([...new Set(inner.map((entry) => entry.fn))].sort().map((fn) => [fn, inner.filter((entry) => entry.fn === fn).length]));
-    expect(injected, "注入的内层调用").toEqual({ _running_attempts: 20, pid_alive: 11, run_pd: 25 }); // 第 155 轮：land 进车道前后各看一次有没有人挡着
+    expect(shortOf(injected, { _running_attempts: 20, pid_alive: 11, run_pd: 25 }), "注入的内层调用：低于下限的").toEqual([]); // 第 155 轮：land 进车道前后各看一次有没有人挡着
     replay(calls);
   }, 1_800_000);
   it("其余四个：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => !FLOW.includes(item.fn));
     const counts = Object.fromEntries([...SNAPSHOT, ...PURE].map((fn) => [fn, calls.filter((item) => item.fn === fn).length]));
-    expect(counts, "各函数的顶层调用次数").toEqual({ landed_meanwhile: 7, landing_chain: 11, on_branch: 25, landing_records: 2 });
+    expect(shortOf(counts, { landed_meanwhile: 7, landing_chain: 11, on_branch: 25, landing_records: 2 }), "各函数的顶层调用次数：低于下限的").toEqual([]);
     replay(calls);
   }, 1_800_000);
 });

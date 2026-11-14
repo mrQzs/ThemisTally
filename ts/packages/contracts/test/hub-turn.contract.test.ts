@@ -8,7 +8,7 @@ import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { COORDINATOR, ROSTER, type RosterSpec } from "@themis/hub/constants";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON as PYTHON_IMPL, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON as PYTHON_IMPL, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, missingOf, removeDir, runBatch, scratchDir } from "./harness.ts";
 
 const C = (...codes: number[]): string => String.fromCodePoint(...codes);
 const BS = C(92);
@@ -476,8 +476,8 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(value.get("skipped")).toEqual([]);
     const calls = value.get("calls") as PyDict[];
     const testOf = (item: PyDict): string => String(item.get("test"));
-    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(30); // 第 158 轮：加了临时报错扣信那一条
-    expect([...new Set(calls.filter((item) => item.get("fn") === "stage_inputs").map(testOf))].sort(), "记到 stage_inputs 的用例").toEqual(STAGE_TESTS);
+    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBeGreaterThanOrEqual(30); // 第 158 轮：加了临时报错扣信那一条
+    expect(missingOf(calls.filter((item) => item.get("fn") === "stage_inputs").map(testOf), STAGE_TESTS), "记到 stage_inputs 的用例：名单里没记到的").toEqual([]);
     const replayed = calls.filter((item) => item.get("fn") === "stage_inputs" || item.has("script"));
     // 记下的 pi 命令都以假 pi 开头（采样当时设了 PI_DISPATCH_PI_CMD）：以后改了采样，也不会悄悄又起本机的 pi
     const fake = JSON.parse(piCmd("ok")["PI_DISPATCH_PI_CMD"] as string) as string[];
@@ -493,7 +493,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       return (value.get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
     });
     // 第 145 轮：退回 pi 的协调人回合也算（证书退回的用例多 3 条）；第 148 轮：live plan 读不出又多 1 条；第 150 轮：quizs 刚才没起来、歇着时又多 1 条
-    expect(piHeads.length, "记下的 pi 命令").toBe(58); // 第 156 轮：绑在配置里的合同端退回替补又多 1 条；第 158 轮：临时报错那一条跑 10 个 pi 回合
+    expect(piHeads.length, "记下的 pi 命令").toBeGreaterThanOrEqual(58); // 第 156 轮：绑在配置里的合同端退回替补又多 1 条；第 158 轮：临时报错那一条跑 10 个 pi 回合
     expect(piHeads.filter((head) => head !== JSON.stringify(fake)), "不以假 pi 开头的 pi 命令").toEqual([]);
     const label = (item: PyDict, at: number): string => `${testOf(item)}（第 ${at} 条记录，${String(item.get("fn"))}）`;
     const [python, ...others] = IMPLS.map((impl) => runBatch(impl, replayed.map(sampled)).map((result, at) => view(replayed[at] as PyDict, result)));

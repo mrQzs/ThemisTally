@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, missingOf, removeDir, runBatch, runProbe, scratchDir, shortOf } from "./harness.ts";
 import { removeCreated } from "./repo-fixtures.ts";
 import { crashNormalized } from "./engine-fixtures.ts";
 
@@ -156,7 +156,7 @@ const tally = (items: readonly string[]): Record<string, number> =>
 describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 这一个来源）", () => {
   it("采样：各函数的最外层调用、跳过的调用、注入的内层调用、state 当场核对与 parametrize 展开", () => {
     const all = samples();
-    expect(tally(all.map((item) => item.fn)), "各函数的最外层调用次数").toEqual({
+    expect(shortOf(tally(all.map((item) => item.fn)), {
       "Engine.deliver_coordinator_letter": 8,
       "Engine.fail_stage": 3,
       "Engine.next_job": 3,
@@ -169,7 +169,7 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "runner_may_idle_exit": 7,
       "supervisor_busy": 39,
       "tasks_with_work": 40,
-    });
+    }), "各函数的最外层调用次数：低于下限的").toEqual([]);
     // 只跳调用当时有活的持有者、这次调用又拿过或探过的锁（themistally-04 要的收窄）：5360 的 .land 由 ⑤i1 的场景覆盖，.runners/T001 的
     // 两次由 hub-step-scenes 的“runner 锁被另一个进程拿着”覆盖
     expect(all.filter((item) => item.skip !== null).map((item) => [item.test, item.fn, item.skip]), "采样器标的 skip").toEqual([
@@ -178,7 +178,7 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       ["test_exec_waits_for_the_landing_lock_by_holding_its_letter", "Engine.step", "调用当时有活的持有者：.land"],
     ]);
     const inner = all.filter((item) => item.skip === null).flatMap((item) => (item.request["inner"] as { fn: string }[] | undefined) ?? []);
-    expect(tally(inner.map((entry) => entry.fn)), "注入的内层调用").toEqual({
+    expect(shortOf(tally(inner.map((entry) => entry.fn)), {
       "Engine.auto_jev": 2,
       "Engine.verify_delivery": 7,
       "apply_candidate": 2,
@@ -195,11 +195,11 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "runner": 135,
       "seed_whitebox": 1,
       "worktree_root": 122,
-    });
+    }), "注入的内层调用：低于下限的").toEqual([]);
     expect(tally(all.filter((item) => item.stateDiffers).map((item) => `${item.test} ${item.fn}`)), "state 当场核对").toEqual({
       "test_stage_reworks_are_capped Engine.deliver_coordinator_letter": 5,
     });
-    expect([...new Set(all.map((item) => item.test).filter((test) => test.includes("[")))].sort(), "parametrize 展开的样本").toEqual([
+    expect(missingOf(all.map((item) => item.test).filter((test) => test.includes("[")), [
       "test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too[0]",
       "test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too[1]",
       "test_plan_delivery_must_list_its_external_facts[0]",
@@ -215,14 +215,14 @@ describe("第 ⑤i2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "test_worker_retries_stop_when_the_output_stays_invalid[0]",
       "test_worker_retries_stop_when_the_output_stays_invalid[1]",
       "test_worker_retries_stop_when_the_output_stays_invalid[2]",
-    ]);
+    ]), "parametrize 展开的样本：名单里没记到的").toEqual([]);
   }, 1_800_000);
   it("改状态的：step、协调人一侧与续接一族放回调用当时的快照、照记录注入后三边重放，与当时的结果相同", () => {
     replay(samples().filter((item) => FLOW.includes(item.fn) && item.skip === null));
   }, 3_600_000);
   it("只读的：next_job、续接与 supervisor 用的几个判断放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => SNAPSHOT.includes(item.fn));
-    expect(calls.length, "顶层调用次数").toBe(363);
+    expect(calls.length, "顶层调用次数").toBeGreaterThanOrEqual(363);
     replay(calls);
   }, 1_800_000);
 });

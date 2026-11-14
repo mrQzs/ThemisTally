@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
-import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, removeDir, runBatch, runProbe, scratchDir } from "./harness.ts";
+import { IMPLS, PYTHON, type ProbeRequest, type ProbeResult, REPLAY_TIMEOUT, missingOf, removeDir, runBatch, runProbe, scratchDir, shortOf } from "./harness.ts";
 import { removeCreated } from "./repo-fixtures.ts";
 
 const ROOT = scratchDir("engine");
@@ -134,7 +134,7 @@ const tally = (items: readonly string[]): Record<string, number> =>
 describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 这一个来源）", () => {
   it("采样：各函数的最外层调用、跳过的调用、注入的内层调用、state 当场核对与 parametrize 展开", () => {
     const all = samples();
-    expect(tally(all.map((item) => item.fn)), "各函数的最外层调用次数").toEqual({
+    expect(shortOf(tally(all.map((item) => item.fn)), {
       "Engine.after_delivery": 4,
       "Engine.after_land": 6,
       "Engine.auto_jev": 5,
@@ -148,11 +148,11 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "land": 2,
       "release_dependents": 6,
       "resumed_session": 56,
-    });
+    }), "各函数的最外层调用次数：低于下限的").toEqual([]);
     // 只跳调用当时目录锁有活的持有者的（设计稿第 4 节）：5360 由用例自己拿着落地锁，由 hub-engine-scenes 的手写场景覆盖
     expect(all.filter((item) => item.skip !== null).map((item) => [item.test, item.fn, item.skip]), "采样器标的 skip").toEqual([["test_exec_waits_for_the_landing_lock_by_holding_its_letter", "Engine.worker_job", "调用当时有活的持有者：.land"]]);
     const inner = all.filter((item) => item.skip === null).flatMap((item) => (item.request["inner"] as { fn: string }[] | undefined) ?? []);
-    expect(tally(inner.map((entry) => entry.fn)), "注入的内层调用").toEqual({
+    expect(shortOf(tally(inner.map((entry) => entry.fn)), {
       "Engine.auto_jev": 2,
       "Engine.verify_delivery": 7,
       "_running_attempts": 3, // 第 155 轮：land 先不拿锁看一眼有没有人挡着，进了车道再看一次
@@ -174,7 +174,7 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "seed_whitebox": 2,
       "tidy_finished": 1,
       "worktree_root": 66,
-    });
+    }), "注入的内层调用：低于下限的").toEqual([]);
     // 传进来的 state 与调用当时的 state.json 不同的（用例在内存里改过、没存盘），重放照记下的 state 传
     expect(tally(all.filter((item) => item.stateDiffers).map((item) => `${item.test} ${item.fn}`)), "state 当场核对").toEqual({
       "test_finished_tasks_remove_their_stage_worktrees Engine.handle_pass": 1,
@@ -183,7 +183,7 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "test_owner_takeover_closes_the_task release_dependents": 1,
       "test_release_moves_the_base_once_every_dependency_is_done release_dependents": 3,
     });
-    expect([...new Set(all.map((item) => item.test).filter((test) => test.includes("[")))].sort(), "parametrize 展开的样本").toEqual([
+    expect(missingOf(all.map((item) => item.test).filter((test) => test.includes("[")), [
       "test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too[0]",
       "test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too[1]",
       "test_plan_delivery_must_list_its_external_facts[0]",
@@ -199,14 +199,14 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "test_worker_retries_stop_when_the_output_stays_invalid[0]",
       "test_worker_retries_stop_when_the_output_stays_invalid[1]",
       "test_worker_retries_stop_when_the_output_stays_invalid[2]",
-    ]);
+    ]), "parametrize 展开的样本：名单里没记到的").toEqual([]);
   }, 1_800_000);
   it("改状态的 Engine 方法与 land、release_dependents：放回调用当时的快照、照记录注入后三边重放，与当时的结果相同", () => {
     replay(samples().filter((item) => FLOW.includes(item.fn) && item.skip === null));
   }, 3_600_000);
   it("只读的 resumed_session（output_problem 只在流程里被调到）：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {
     const calls = samples().filter((item) => SNAPSHOT.includes(item.fn));
-    expect(calls.length, "顶层调用次数").toBe(56); // 第 158 轮：临时报错扣信的两条
+    expect(calls.length, "顶层调用次数").toBeGreaterThanOrEqual(56); // 第 158 轮：临时报错扣信的两条
     replay(calls);
   }, 1_800_000);
 });

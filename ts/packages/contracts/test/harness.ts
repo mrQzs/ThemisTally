@@ -304,3 +304,16 @@ export function runAgreeing(requests: readonly ProbeRequest[]): { python: ProbeR
   });
   return { python, mismatches };
 }
+
+/**
+ * 按 pytest 采样的计数与用例名单只设下限（r3 第 161 轮）：快照要防的是采样悄悄变少（探针没装上、用例被跳过或改了名），内核测试
+ * 每加一条用例，次数与名单只会变多，契约不跟着改。shortOf 给出低于下限的项，missingOf 给出名单里没记到的名字，都是空数组才算过。
+ */
+export function shortOf(counts: Readonly<Record<string, number>>, floors: Readonly<Record<string, number>>): string[] {
+  return Object.entries(floors).filter(([key, floor]) => (counts[key] ?? 0) < floor).map(([key, floor]) => `${key} ${counts[key] ?? 0} < ${floor}`);
+}
+
+export function missingOf(seen: readonly string[], names: readonly string[]): string[] {
+  const got = new Set(seen);
+  return names.filter((name) => !got.has(name));
+}
