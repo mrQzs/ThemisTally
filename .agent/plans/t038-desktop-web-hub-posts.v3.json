@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "task_id": "t038-desktop-web-hub-posts",
+  "plan_version": 3,
+  "title": "桌面端前端第 5 片：角色与模型页加七端岗位一组（模型配置 M4 之一）",
+  "repository": "ThemisTally",
+  "base_sha": "c637a9a797a9fd7b56faf2bd6cd14b46846b804b",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/src/pages/readonly1/roles-logic.ts",
+      "desktop/web/src/pages/readonly1/roles-styles.css",
+      "desktop/web/src/components/Table.tsx",
+      "desktop/web/tests/live-api.test.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/mock/hub-roles.ts",
+      "desktop/web/src/pages/readonly1/roles-HubPosts.tsx",
+      "desktop/web/tests/page-hub.test.tsx",
+      "desktop/web/tests/roles-hub-logic.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t038_*.py",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "desktop/web/src/writes/**",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t038_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": false,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`getHubRoles()` 两条分支都成立：真实模式 `GET /api/v1/hub/roles`、时限 30 秒、失败不回落到桩；桩模式命令是 `config hub show --json` 并给六行、`?mock=empty` 仍是六行。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "真实模式下页面不能拿桩里的岗位名册当真名册显示"
+    },
+    {
+      "id": "D02",
+      "text": "七端岗位的桩是 `src/mock/hub-roles.ts`（.ts），`src/mock` 仍恰 14 份 JSON、`src/pages` 顶层仍恰 9 个 `*Page.tsx`。",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "不破坏仓库对夹具数量与页面数量的既有约定"
+    },
+    {
+      "id": "D03",
+      "text": "页面并行发出四个读；前三个读的失败顺序仍是 `roles→profiles→presets`；hub 读失败只在七端岗位这一组显示失败信封，四个角色卡、profile 表、方案表与整页 data 态照常。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "旧内核没有 `config hub` 时这一页仍然可用"
+    },
+    {
+      "id": "D04",
+      "text": "七端岗位表六行，列头恰好是 岗位、运行时、模型、思考档位、来源、替补（没有操作列、没有按钮），每行带 `data-post`，位置在角色卡网格之后、profile 表之前。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "这一组是只读的展示，不提前做 B 片的写入口"
+    },
+    {
+      "id": "D05",
+      "text": "六行字段逐个对上：null 显示「—」；运行时是 `runtime（adapter）`（gate、audit 两行是「—（pi）」）；模型是 `provider/model`；planner 的 provider 为 null（模型列 `—/claude-opus-5-5`）；思考档位经 `EffortPair` 且 effective 为 null（有要求时显示「要求 X · 生效 未知」，thinking 为 null 时是「—」）；缺省行来源是 Tag「默认」、配置行来源是 profile id（contract 行 `quizs-m3`、exec 行 `step-high`）；替补 null 是「—」，四键替补显示 `—（pi） · dsf/deepseek-flash`、六键替补显示 `step-high · pi（pi） · bb/step-5-preview`。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "D11 要求与生效并列，生效未知不能拿要求顶替"
+    },
+    {
+      "id": "D06",
+      "text": "纯函数 `hubPostName`（六个中文名，未知岗位原样）、`allowedProfiles`（adapter 为 null 不算、不在允许名单不算、允许名单为空则空、coordinator 同时许 quizs 与 pi、planner 只许 claude-code）、`normalizeHubPost`（缺键归 null）都有测试。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "筛 profile 与行字段归一是 B 片要复用的逻辑，先把边界钉住"
+    },
+    {
+      "id": "D07",
+      "text": "新代码守既有源码规矩：`RolesPage.tsx` 原文（注释也算）不出现 `preview`/`getOperation`/`usePreset`/`setPluginEnabled`；src 下不出现网络词与危险 HTML 写入/动态求值类词；新文件不写内联 style、不渲染 `role=status`；CSS 不写十六进制颜色与颜色函数、不拼接 `--tt-` 令牌名，带 px 的行有出处注释。",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "不破 T006/T009/T024 的长期门禁"
+    },
+    {
+      "id": "D08",
+      "text": "既有测试没被删、跳过或弱化：角色页禁用钮仍是 6 个（`page-app.test.tsx:91` 不改）、`readonly2-app.test.tsx` 不改、`live-api.test.ts` 只加不改；新测试不用 skip/only/todo。",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "既有断言是长期保护，不能为了新功能放松"
+    },
+    {
+      "id": "D09",
+      "text": "所有修改都在允许集合内（7 个可改文件、4 个可新增文件），没有碰 forbidden_paths。",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "没有删除、跳过或弱化既有测试；没有新增或升级依赖（`package.json` 与锁文件不变）。",
+      "evidence": [
+        "review",
+        "scope"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "桩、页面文字与本文档都不出现 `src/mock/profiles.json` 里档位为 `low` 的那个 profile 的 id（站主来信里写的是它的字面形式，一并照办）；T009 的 D09 断言「差异面板收起后整个角色页文字不含它」因此成立，R01 不用改 T009。",
+      "evidence": [
+        "R01",
+        "G01"
+      ],
+      "intent": "这一串是 T009 拿来做「晚到回应独有的串」的，桩里出现它会让整页文字断言红"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
