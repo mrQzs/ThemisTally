@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "task_id": "t039-desktop-exit-note",
+  "plan_version": 1,
+  "title": "桌面端外壳第 7 片：服务状态页按“跑起来之后才退出”写说明（D3 收尾）",
+  "repository": "ThemisTally",
+  "base_sha": "65b3bdd2cf0d17d94bb5cbdba11777774273dcab",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/src/serviceflow.js",
+      "desktop/shell/tests/serviceflow.test.js",
+      "desktop/shell/README.md",
+      "desktop/web/src/shellpages/themisShell.ts",
+      "desktop/web/src/shellpages/exitCodes.ts",
+      "desktop/web/src/shellpages/ServiceStatusView.tsx",
+      "desktop/web/src/mock/shellpages-scenarios.ts",
+      "desktop/web/tests/shellpages-service-status.test.tsx"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/**",
+      "tests/test_gate_t039_*.py",
+      "desktop/shell/main.js",
+      "desktop/shell/preload.js",
+      "desktop/shell/shell-preload.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/src/shellipc.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/hostrelay.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/src/core.js",
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/detect.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/src/launch.js",
+      "desktop/shell/src/hostcheck.js",
+      "desktop/shell/src/control.js",
+      "desktop/shell/src/args.js",
+      "desktop/shell/src/handshake.js",
+      "desktop/shell/src/python.js",
+      "desktop/shell/tests/fixtures/**",
+      "desktop/shell/package.json",
+      "desktop/shell/package-lock.json",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/shellContext.tsx",
+      "desktop/web/src/shellpages/shellWindowRoute.ts",
+      "desktop/web/src/shellpages/shellBridge.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/FirstRunView.tsx",
+      "desktop/web/src/shellpages/firstRunModel.ts",
+      "desktop/web/src/shellpages/ExternalLinkDialog.tsx",
+      "desktop/web/src/shellpages/LicensesDialog.tsx",
+      "desktop/web/tests/shellpages-stub.test.ts",
+      "desktop/web/tests/shellpages-route.test.ts",
+      "desktop/web/tests/shellpages-first-run.test.tsx",
+      "desktop/web/tests/shellpages-settings.test.tsx",
+      "desktop/web/tests/shellpages-app.test.tsx",
+      "desktop/web/tests/shellpages-isolation.test.tsx",
+      "desktop/web/tests/shellpages-static.test.ts",
+      "desktop/web/tests/cleanup2-static.test.ts",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/vite.config.ts",
+      "desktop/web/scripts/**",
+      "ts/**",
+      "docs/**",
+      "scripts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass \\d+",
+        "# fail 0"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t039_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "外壳在“进过 running 之后的退出”上带 `afterRunning: true`（服务自己退出、跑起来之后被 stop、onRunning 失败后的收服务），启动阶段的退出（握手失败、握手超时、spawn 失败、握手前退出、starting 期间 abort）**不带这个键**；键按 run 算；`info.byShell` 与其余状态机语义一字未变。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "退出码 1 的两种含义只能由外壳分清，页面不许自己猜"
+    },
+    {
+      "id": "D02",
+      "text": "服务状态页按 `afterRunning` 给说明：带键的一律是“本机服务意外退出。重启服务；反复出现时打开设置检查 Python 与 kit。”，退出码那一行照旧显示真实码（`退出码 <码> · <时刻>。重启后会重新读取数据。`）；不带键的照旧按码（1 已经打开、2 文件不完整、其他意外退出）；h1、图标、两个按钮、title、不设 `role=alert` 一律不变。",
+      "evidence": [
+        "V02",
+        "V03",
+        "G01"
+      ],
+      "intent": "站主真窗口里结束服务进程后看到的是“意外退出”，不是让用户去找根本不存在的另一个窗口"
+    },
+    {
+      "id": "D03",
+      "text": "首启第 4 步不变：`firstRunHeadline`、`FirstRunView.tsx`、`firstRunModel.ts` 一个字未改，首启的错误框与取值照旧；那三句说明只放在 `exitCodes.ts`，视图与首启都从 `./exitCodes` 取。",
+      "evidence": [
+        "V02",
+        "V04",
+        "G01",
+        "R01"
+      ],
+      "intent": "首启与服务状态页共用同一份文案，改动不许波及第 4 步"
+    },
+    {
+      "id": "D04",
+      "text": "退出码 1 的两种情形都有用例钉住：`crash-1` 初始说明是“意外退出”且不含“已经打开”，`exit-1` 仍是“已经打开”，`crash-1` 点「重启服务」1500ms 后说明换成“已经打开”、退出码仍是 1、地址仍在 `#/service-status`。",
+      "evidence": [
+        "V02",
+        "V03",
+        "G01"
+      ],
+      "intent": "这正是站主要修的用户可见错误，两种情形都要有用例，免得下次又退回按码套话"
+    },
+    {
+      "id": "D05",
+      "text": "外壳 README 两处写清：冒烟第 4 条在“并显示退出码”之后补上“说明是意外退出那一句”；状态说明处写清 `afterRunning` 的约定（跑起来之后才退出的带 `true`、启动阶段不带），并把原先“页面负载多一个键就与类型不符”那句改成只说 `byShell` 不外传；`| **1** |` 那一行与既有 needle 一个未动。",
+      "evidence": [
+        "V01",
+        "V04",
+        "G01",
+        "R01"
+      ],
+      "intent": "真窗口行为自动化测不到（键经 IPC 过桥），README 与站主的真窗口冒烟是唯一的验收凭据"
+    },
+    {
+      "id": "D06",
+      "text": "范围与纪律：只改 Scope 里允许的 8 个文件；门禁文件、桩 `shellStub.ts`、首启页三个文件、`main.js`、`shellapi.js`、`shell-preload.js`、夹具、锁文件、`ts/**`、`docs/**` 一个字未动；T032 的 s09 名单里除已退役三项之外的每一项逐字未动。",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "别的片的契约不许被这一片削弱"
+    },
+    {
+      "id": "D07",
+      "text": "没有删除、跳过或弱化既有测试：`desktop/shell/tests/serviceflow.test.js` 与 `desktop/web/tests/shellpages-service-status.test.tsx` 的既有用例一条不删不改（只补用例），不用 `skip`/`only`/`todo`。",
+      "evidence": [
+        "V01",
+        "V02",
+        "scope",
+        "review"
+      ],
+      "intent": "本片的门禁靠既有用例兜底既有行为"
+    },
+    {
+      "id": "D08",
+      "text": "回归：G01 与 R01 全绿，既有门禁基准测试文件一条没删没改。",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "别的片的契约不许被这一片削弱"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 2400,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
