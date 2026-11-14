@@ -64,13 +64,13 @@ PRESET_KEYS = ("description", "roles")
 BINDING_FIELDS = ("mode", "profile", "runtime", "adapter", "provider", "model", "thinking")
 #: 七端的岗位（模型配置，r3 第 154 轮）：键是岗位，值是这个岗位现在允许的适配器。岗位的工具、时限、工作目录留在 hub 的
 #: 名册里（那是安全边界），这里只管“用哪个运行时、哪个模型、什么档位”。名册里的工具名是按载体写的：一个岗位换载体之前
-#: 要先有那个载体的工具映射并实测过，所以每个岗位只列已经跑过的载体。
+#: 要先有那个载体的工具映射并实测过，所以每个岗位只列已经跑过的载体。r3 第 156 轮：合同端、审核端加 quizs（MiniMax、仓库视图）：工具映射在假提供方上跑过；真实模型的重放（模型配置 M5）跑完之前不绑，绑定照样要站主同意。
 HUB_POST_ADAPTERS: Dict[str, Tuple[str, ...]] = {
     "coordinator": ("quizs", "pi"),
     "planner": ("claude-code",),
-    "contract": ("pi",),
+    "contract": ("pi", "quizs"),
     "gate": ("pi",),
-    "audit": ("pi",),
+    "audit": ("pi", "quizs"),
     "exec": ("pi",),
 }
 HUB_POSTS = tuple(HUB_POST_ADAPTERS)

@@ -1,0 +1,82 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-prompt.contract.test.ts",
+  "-t",
+  "第 156 轮",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "K01 合同端不读仓库视图",
+   "file": "ts/packages/hub/src/constants.ts",
+   "old": "export const QUIZS_REPO_VIEW_ROLES: readonly string[] = [\"contract\", \"audit\"];",
+   "new": "export const QUIZS_REPO_VIEW_ROLES: readonly string[] = [\"audit\"];"
+  },
+  {
+   "name": "K02 两份 live 文件就算一套",
+   "file": "ts/packages/hub/src/quizs.ts",
+   "old": "    if ([...found.values()].every((path) => isFile(path))) return [found, null];",
+   "new": "    if ([...found.values()].some((path) => isFile(path))) return [found, null];"
+  },
+  {
+   "name": "K03 环境那套是别家的也用",
+   "file": "ts/packages/hub/src/quizs.ts",
+   "old": "  if (typeof owner === \"string\" && Object.values(QUIZS_PROFILE_IDS).includes(owner) && owner !== QUIZS_PROFILE_IDS[provider]) {",
+   "new": "  if (false) {"
+  },
+  {
+   "name": "K04 环境缺变量也往下走",
+   "file": "ts/packages/hub/src/quizs.ts",
+   "old": "    if (!process.env[name]) return [null, `没有设 ${name}`];",
+   "new": "    if (!process.env[name]) continue;"
+  },
+  {
+   "name": "K05 读标记不分提供方",
+   "file": "ts/packages/hub/src/quizs.ts",
+   "old": "    mark = loads(readFileSync(join(stateDir, QUIZS_DOWN_FILE.replace(\"%s\", provider)), \"utf-8\"));",
+   "new": "    mark = loads(readFileSync(join(stateDir, QUIZS_DOWN_FILE.replace(\"%s\", \"deepseek\")), \"utf-8\"));"
+  },
+  {
+   "name": "K06 不查 QUIZS_CMD",
+   "file": "ts/packages/hub/src/quizs.ts",
+   "old": "  if (!process.env[\"QUIZS_CMD\"]) return \"没有设 QUIZS_CMD\";",
+   "new": "  if (false) return \"没有设 QUIZS_CMD\";"
+  },
+  {
+   "name": "K07 提示不分仓库视图",
+   "file": "ts/packages/hub/src/prompt.ts",
+   "old": "  const view = snapshot && QUIZS_REPO_VIEW_ROLES.includes(spec.role); // 第 156 轮：读仓库的岗位读的是整棵仓库，输入叠在上面",
+   "new": "  const view = false;"
+  },
+  {
+   "name": "K08 清单标题不分",
+   "file": "ts/packages/hub/src/prompt.ts",
+   "old": "lines.splice(0, lines.length, \"\", \"## 叠在仓库上的输入（内核）\"",
+   "new": "lines.splice(0, lines.length, \"\", \"## 快照里的文件（内核）\""
+  },
+  {
+   "name": "K09 清单不报剩下几个",
+   "file": "ts/packages/hub/src/prompt.ts",
+   "old": "    if (files.length > SNAPSHOT_MANIFEST_LIMIT) lines.push(`- 另有 ${files.length - SNAPSHOT_MANIFEST_LIMIT} 个，用 ls 看。`);",
+   "new": "    if (false) lines.push(`- 另有 ${files.length - SNAPSHOT_MANIFEST_LIMIT} 个，用 ls 看。`);"
+  },
+  {
+   "name": "K10 Python 的提示不分仓库视图",
+   "file": "scripts/kit_hub.py",
+   "old": "    view = snapshot and spec[\"role\"] in QUIZS_REPO_VIEW_ROLES  # 第 156 轮：读仓库的岗位读的是整棵仓库，输入叠在上面",
+   "new": "    view = False"
+  },
+  {
+   "name": "K11 Python 的 live 目录认一份就够",
+   "file": "scripts/kit_hub.py",
+   "old": "        if all(Path(path).is_file() for path in found.values()):",
+   "new": "        if any(Path(path).is_file() for path in found.values()):"
+  }
+ ]
+}

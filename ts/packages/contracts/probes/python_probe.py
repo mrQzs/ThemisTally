@@ -1382,7 +1382,27 @@ def op_hub_prompt(request):
             repo, inputs, target = args
             value = kit_hub.input_path(hub(repo), path(inputs), target)
         elif fn == "snapshot_manifest":
-            value = kit_hub.snapshot_manifest(Path(args[0]))
+            value = kit_hub.snapshot_manifest(Path(args[0]), *args[1:])  # 第 156 轮：第二个参数是仓库视图
+        elif fn in ("quizs_live_files", "quizs_unready"):  # 第 156 轮：QUIZS_* 环境照请求设（没给的去掉），调用完还原
+            names = ("QUIZS_CMD", "QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION")
+            before = {name: os.environ.get(name) for name in names}
+            given = request.get("env") or {}
+            try:
+                for name in names:
+                    if given.get(name) is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = given[name]
+                if fn == "quizs_live_files":
+                    value = list(kit_hub.quizs_live_files(path(args[0]), args[1]))
+                else:
+                    value = kit_hub.quizs_unready(args[0], args[1], path(args[2]), args[3])
+            finally:
+                for name, old in before.items():
+                    if old is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = old
         elif fn == "hub_bound":  # 第 154 轮：配置中心里的岗位绑定、叠出来的名册（只取会变的字段与不该变的几项）、executor 一行
             bindings = kit_hub.hub_bindings(hub(args[0]))
             triple, line = kit_hub.executor_line(bindings)
@@ -1707,8 +1727,8 @@ def op_hub_turn(request):
     hub = kit_hub.Hub(Path(request["repo"]))
     script = from_tagged(request["script"]) if request.get("script") is not None else {}
     calls = []
-    if request.get("restore") is not None:
-        _restore_tree(request["restore"]["from"], request["restore"]["to"], request["restore"].get("links", []))
+    if request.get("restore") is not None:  # 第 156 轮：记下时带了 .git 的（git 为真）照样带回
+        _restore_tree(request["restore"]["from"], request["restore"]["to"], request["restore"].get("links", []), with_git=bool(request["restore"].get("git")))
 
     def replayed(cmd, cwd, env, out, err, timeout):
         out.write(base64.b64decode(script.get("stdout", "")))
@@ -3131,12 +3151,14 @@ def op_hub_audit_samples(request):
         回合号与新会话号（重放时注入同一组）、当时的秒数；结束之后照 op_hub_turn 收集产物，存成“当时的结果”。"""
         def run(self, agent, session_key, workspace, role_prompt, prompt, retry_of=None, fresh=False, inputs=None, session_id=None):
             snapshot = Path(request["tmp"]).resolve() / "turn-snapshots" / str(len(calls))
-            links = _snapshot_tree(self.hub.repo, snapshot)
+            # 第 156 轮：工作目录在仓库目录里、自己就是一个 git 仓库时（quizs 的仓库视图要在里面算树）连 .git 一起拍，重放照样带回
+            own_git = Path(workspace).resolve() != Path(self.hub.repo).resolve() and (Path(workspace) / ".git").is_dir()
+            links = _snapshot_tree(self.hub.repo, snapshot, with_git=own_git)
             ledger = self.hub.ledger()
             offset = ledger.stat().st_size if ledger.exists() else 0
             entry = {"test": current[0], "fn": "TurnRunner.run", "repo": str(self.hub.repo), "snapshot": str(snapshot), "home": str(Path.home()),
                      "args": [agent, session_key, str(workspace), role_prompt, prompt, retry_of, fresh, None if inputs is None else str(inputs), session_id],
-                     "seconds": int(time.time()), "links": links, "overrides": overrides(),
+                     "seconds": int(time.time()), "links": links, "overrides": overrides(), "git": own_git,
                      # 第 137、141 轮：quizs 回合的命令与真实请求的三份文件由环境给，重放时照样设上
                      "quizs_env": {name: os.environ[name] for name in ("QUIZS_CMD", "QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION") if os.environ.get(name)}}
             calls.append(entry)

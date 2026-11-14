@@ -375,6 +375,8 @@ const TURN_TESTS = [
   "test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error",
   "test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block",
   "test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out",
+  "test_quizs_repository_view_for_reading_posts", // 第 156 轮：合同端在 quizs 上读工作目录冻成的整棵树（三边算出的树要一样）
+  "test_a_bound_quizs_post_marks_its_provider_down_and_falls_back", // 第 156 轮：配置里绑到 quizs 的岗位按提供方记标记、退回替补
   "test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided",
   "test_stage_inputs_copies_this_tasks_mailbox_contracts_and_evidence_read_only",
   "test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs",
@@ -405,7 +407,8 @@ const STAGE_TESTS = [
  */
 function sampled(item: PyDict): ProbeRequest {
   const repo = String(item.get("repo"));
-  const restore = { from: String(item.get("snapshot")), to: repo, links: item.get("links") };
+  // 第 156 轮：记下时连 .git 一起拍的（工作目录自己是 git 仓库），放回时照样带上（TS 的放回本来就整份照拷）
+  const restore = { from: String(item.get("snapshot")), to: repo, links: item.get("links"), git: item.get("git") === true };
   if (item.get("fn") === "stage_inputs") {
     return { op: "hub.inputs", repo, restore, ts: toTagged(item.get("ts") as PyValue), key: String(item.get("key")),
       worktree_root: String(item.get("worktree_root")), input_file_limit: Number(item.get("input_file_limit")) };
@@ -437,7 +440,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(value.get("skipped")).toEqual([]);
     const calls = value.get("calls") as PyDict[];
     const testOf = (item: PyDict): string => String(item.get("test"));
-    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(27);
+    expect(new Set(calls.filter((item) => item.get("fn") === "TurnRunner.run").map(testOf)).size, "记到 TurnRunner.run 的用例").toBe(29);
     expect([...new Set(calls.filter((item) => item.get("fn") === "stage_inputs").map(testOf))].sort(), "记到 stage_inputs 的用例").toEqual(STAGE_TESTS);
     const replayed = calls.filter((item) => item.get("fn") === "stage_inputs" || item.has("script"));
     // 记下的 pi 命令都以假 pi 开头（采样当时设了 PI_DISPATCH_PI_CMD）：以后改了采样，也不会悄悄又起本机的 pi
@@ -454,7 +457,7 @@ describe("第 ⑤d2 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       return (value.get("calls") as PyDict[]).map((call) => JSON.stringify((call.get("cmd") as string[]).slice(0, fake.length)));
     });
     // 第 145 轮：退回 pi 的协调人回合也算（证书退回的用例多 3 条）；第 148 轮：live plan 读不出又多 1 条；第 150 轮：quizs 刚才没起来、歇着时又多 1 条
-    expect(piHeads.length, "记下的 pi 命令").toBe(47);
+    expect(piHeads.length, "记下的 pi 命令").toBe(48); // 第 156 轮：绑在配置里的合同端退回替补又多 1 条
     expect(piHeads.filter((head) => head !== JSON.stringify(fake)), "不以假 pi 开头的 pi 命令").toEqual([]);
     const label = (item: PyDict, at: number): string => `${testOf(item)}（第 ${at} 条记录，${String(item.get("fn"))}）`;
     const [python, ...others] = IMPLS.map((impl) => runBatch(impl, replayed.map(sampled)).map((result, at) => view(replayed[at] as PyDict, result)));

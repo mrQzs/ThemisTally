@@ -1,0 +1,114 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "quizs or snapshot_manifest"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "P01 合同端不读仓库视图",
+   "file": "scripts/kit_hub.py",
+   "old": "QUIZS_REPO_VIEW_ROLES = (\"contract\", \"audit\")",
+   "new": "QUIZS_REPO_VIEW_ROLES = (\"audit\",)"
+  },
+  {
+   "name": "P02 读仓库的岗位不用自己的预算",
+   "file": "scripts/kit_hub.py",
+   "old": "            budgets = QUIZS_VIEW_BUDGETS if spec[\"role\"] in QUIZS_REPO_VIEW_ROLES else QUIZS_TURN_BUDGETS",
+   "new": "            budgets = QUIZS_TURN_BUDGETS"
+  },
+  {
+   "name": "P03 两份 live 文件就算一套",
+   "file": "scripts/kit_hub.py",
+   "old": "        if all(Path(path).is_file() for path in found.values()):",
+   "new": "        if any(Path(path).is_file() for path in found.values()):"
+  },
+  {
+   "name": "P04 找错提供方的 live 目录",
+   "file": "scripts/kit_hub.py",
+   "old": "        folder = hub_root / QUIZS_LIVE_ROOT / provider",
+   "new": "        folder = hub_root / QUIZS_LIVE_ROOT / \"deepseek\""
+  },
+  {
+   "name": "P05 环境那套是别家的也用",
+   "file": "scripts/kit_hub.py",
+   "old": "    if owner in QUIZS_PROFILE_IDS.values() and owner != QUIZS_PROFILE_IDS.get(provider):",
+   "new": "    if False:"
+  },
+  {
+   "name": "P06 环境那套认反",
+   "file": "scripts/kit_hub.py",
+   "old": "    if owner in QUIZS_PROFILE_IDS.values() and owner != QUIZS_PROFILE_IDS.get(provider):",
+   "new": "    if owner in QUIZS_PROFILE_IDS.values() and owner == QUIZS_PROFILE_IDS.get(provider):"
+  },
+  {
+   "name": "P07 读标记不分提供方",
+   "file": "scripts/kit_hub.py",
+   "old": "        mark = json.loads((state_dir / (QUIZS_DOWN_FILE % provider)).read_text(encoding=\"utf-8\"))",
+   "new": "        mark = json.loads((state_dir / (QUIZS_DOWN_FILE % \"deepseek\")).read_text(encoding=\"utf-8\"))"
+  },
+  {
+   "name": "P08 记标记不分提供方",
+   "file": "scripts/kit_hub.py",
+   "old": "            pd.write_json(self.hub.root / QUIZS_STATE_DIR / (QUIZS_DOWN_FILE % spec[\"provider\"]),",
+   "new": "            pd.write_json(self.hub.root / QUIZS_STATE_DIR / (QUIZS_DOWN_FILE % \"deepseek\"),"
+  },
+  {
+   "name": "P09 替补只看名册",
+   "file": "scripts/kit_hub.py",
+   "old": "        down = quizs and audit.get(\"quizs_down\") is True and bool(substitute)",
+   "new": "        down = quizs and audit.get(\"quizs_down\") is True and bool(ROSTER[agent].get(\"fallback\"))"
+  },
+  {
+   "name": "P10 树里没有未跟踪的新文件",
+   "file": "scripts/kit_hub.py",
+   "old": "        code, _out, _err = pd.run_capture([git_exe, \"-C\", str(workspace), \"add\", \"-A\"], env=env, timeout=300)",
+   "new": "        code, _out, _err = pd.run_capture([git_exe, \"-C\", str(workspace), \"add\", \"-u\"], env=env, timeout=300)"
+  },
+  {
+   "name": "P11 动了工作目录自己的索引",
+   "file": "scripts/kit_hub.py",
+   "old": "    env = dict(os.environ, GIT_INDEX_FILE=str(index))",
+   "new": "    env = dict(os.environ)"
+  },
+  {
+   "name": "P12 临时索引不删",
+   "file": "scripts/kit_hub.py",
+   "old": "        index.unlink(missing_ok=True)",
+   "new": "        pass"
+  },
+  {
+   "name": "P13 协调人也冻仓库",
+   "file": "scripts/kit_hub.py",
+   "old": "            view = workspace if spec[\"role\"] in QUIZS_REPO_VIEW_ROLES else None",
+   "new": "            view = workspace"
+  },
+  {
+   "name": "P14 仓库视图不叠输入",
+   "file": "scripts/kit_hub.py",
+   "old": "        source = [\"--repository\", str(view), \"--oid\", tree, \"--all-files\", \"--overlay-dir\", str(inputs)]",
+   "new": "        source = [\"--repository\", str(view), \"--oid\", tree, \"--all-files\"]"
+  },
+  {
+   "name": "P15 清单不分仓库视图",
+   "file": "scripts/kit_hub.py",
+   "old": "\"## 叠在仓库上的输入（内核）\", \"\", \"- 仓库自己的文件",
+   "new": "\"## 快照里的文件（内核）\", \"\", \"- 仓库自己的文件"
+  },
+  {
+   "name": "P16 环境缺变量也往下走",
+   "file": "scripts/kit_hub.py",
+   "old": "            return None, \"没有设 %s\" % name",
+   "new": "            continue"
+  }
+ ]
+}

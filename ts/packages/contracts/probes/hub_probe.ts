@@ -57,6 +57,7 @@ import {
   turnCostUsd,
 } from "@themis/hub/audit";
 import { boundSpec, executorLine, hubBindings } from "@themis/hub/bindings";
+import { quizsLiveFiles, quizsUnready } from "@themis/hub/quizs";
 import * as constants from "@themis/hub/constants";
 import {
   answersQuestion, budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, dodCoverageProblems, externalFactProblems,
@@ -421,8 +422,31 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
         value = inputPath(new Hub(textOf(a)), optionalText(b), c as PyValue);
         break;
       case "snapshot_manifest":
-        value = snapshotManifest(textOf(a));
+        value = snapshotManifest(textOf(a), b === true); // 第 156 轮：第二个参数是仓库视图
         break;
+      case "quizs_live_files":
+      case "quizs_unready": { // 第 156 轮：QUIZS_* 环境照请求设（没给的去掉），调用完还原
+        const names = ["QUIZS_CMD", "QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"];
+        const before = names.map((name) => [name, process.env[name]] as const);
+        const given = (request["env"] ?? {}) as Record<string, string | null | undefined>;
+        try {
+          for (const name of names) {
+            const wanted = given[name];
+            if (wanted == null) delete process.env[name];
+            else process.env[name] = wanted;
+          }
+          if (String(request["fn"]) === "quizs_live_files") {
+            const [files, problem] = quizsLiveFiles(optionalText(a), textOf(b));
+            value = [files === null ? null : new Map<string, PyValue>(files), problem];
+          } else value = quizsUnready(Number(a), Number(b), optionalText(c), textOf(d));
+        } finally {
+          for (const [name, old] of before) {
+            if (old === undefined) delete process.env[name];
+            else process.env[name] = old;
+          }
+        }
+        break;
+      }
       case "hub_bound": {
         // 第 154 轮：配置中心里的岗位绑定、叠出来的名册（只取会变的字段与不该变的几项）、executor 一行
         const bindings = hubBindings(textOf(a));

@@ -7,11 +7,11 @@ import { jsonlLines } from "@themis/base/jsonl";
 import { pyStrip } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
 import { runCapture } from "@themis/dispatcher/pi-cli";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, readFileSync, rmSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 import {
   EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_PERMIT_HELD,
-  QUIZS_STATE_DIR,
+  QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_STATE_DIR,
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
@@ -27,13 +27,44 @@ const CR = String.fromCharCode(13);
 export function effectiveSpec(agent: string, now: number, hubRoot: string | null = null, bindings: HubBindings | null = null): [RosterSpec, string | null] {
   const { fallback: substitute, ...listed } = boundSpec(agent, bindings?.get(String((ROSTER[agent] as RosterSpec).role)));
   const stateDir = hubRoot === null ? null : join(hubRoot, QUIZS_STATE_DIR);
-  const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800, stateDir) : null;
+  const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800, stateDir, pyStrValue(listed.provider ?? null)) : null;
   return [reason === null ? listed : { ...listed, ...substitute }, reason];
 }
 
-/** 第 148 轮：环境给的那份 live plan，交回 [plan, 问题]。 */
-export function quizsLivePlan(): [PyDict | null, string | null] {
-  const path = process.env["QUIZS_LIVE_PLAN"] as string;
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** 第 156 轮：kit_hub.quizs_live_files：这个提供方的三份 live 文件，交回 [{旗标: 路径}, 问题]。先找信箱的 quizs-live/<提供方>/，三份都在就用；
+ *  不全时退回环境变量给的那一套（第 141 轮），它的提供方档案认得出是别家的就不用。 */
+export function quizsLiveFiles(hubRoot: string | null, provider: string): [Map<string, string> | null, string | null] {
+  if (hubRoot !== null) {
+    const folder = join(hubRoot, QUIZS_LIVE_ROOT, provider);
+    const found = new Map(QUIZS_LIVE_NAMES.map(([flag, name]) => [flag, join(folder, name)] as [string, string]));
+    if ([...found.values()].every((path) => isFile(path))) return [found, null];
+  }
+  for (const [, name] of QUIZS_LIVE_FILES) {
+    if (!process.env[name]) return [null, `没有设 ${name}`];
+  }
+  let owner: PyValue = null;
+  try {
+    const profile = loads(readFileSync(process.env["QUIZS_PROVIDER_PROFILE"] as string, "utf-8"));
+    owner = profile instanceof Map ? (profile.get("id") ?? null) : null;
+  } catch (error) {
+    if (!(error instanceof PyJsonError) && !(error instanceof Error && "code" in error)) throw error;
+  }
+  if (typeof owner === "string" && Object.values(QUIZS_PROFILE_IDS).includes(owner) && owner !== QUIZS_PROFILE_IDS[provider]) {
+    return [null, `环境给的 live 文件是 ${owner} 的，没有 ${provider} 的（信箱的 ${QUIZS_LIVE_ROOT}/${provider}/ 不全）`];
+  }
+  return [new Map(QUIZS_LIVE_FILES.map(([flag, name]) => [flag, process.env[name] as string] as [string, string])), null];
+}
+
+/** 第 148 轮：这个提供方的那份 live plan（第 156 轮起不只看环境），交回 [plan, 问题]。 */
+export function quizsLivePlan(path: string): [PyDict | null, string | null] {
   let plan: PyValue;
   try {
     plan = loads(readFileSync(path, "utf-8"));
@@ -45,12 +76,12 @@ export function quizsLivePlan(): [PyDict | null, string | null] {
   return [plan, null];
 }
 
-/** 第 150 轮：quizs 刚才自己没起来、还在歇着时的原因；没有标记、标记读不出或已经到点是 null。 */
-export function quizsDown(now: number, stateDir: string | null): string | null {
+/** 第 150 轮：这个提供方的 quizs 刚才自己没起来、还在歇着时的原因；没有标记、标记读不出或已经到点是 null。 */
+export function quizsDown(now: number, stateDir: string | null, provider: string): string | null {
   if (stateDir === null) return null;
   let mark: PyValue;
   try {
-    mark = loads(readFileSync(join(stateDir, QUIZS_DOWN_FILE), "utf-8"));
+    mark = loads(readFileSync(join(stateDir, QUIZS_DOWN_FILE.replace("%s", provider)), "utf-8"));
   } catch (error) {
     if (!(error instanceof PyJsonError) && !(error instanceof Error && "code" in error)) throw error;
     return null;
@@ -60,13 +91,13 @@ export function quizsDown(now: number, stateDir: string | null): string | null {
   return `quizs 刚才自己没起来（${reason}），到纪元秒 ${until} 为止用替补`;
 }
 
-/** 第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出，
- *  刚才自己没起来还在歇着）；起得了是 null。 */
-export function quizsUnready(now: number, timeout: number, stateDir: string | null = null): string | null {
-  for (const name of ["QUIZS_CMD", ...QUIZS_LIVE_FILES.map(([, env]) => env)]) {
-    if (!process.env[name]) return `没有设 ${name}`;
-  }
-  const path = process.env["QUIZS_QUALIFICATION"] as string;
+/** 第 143 轮：quizs 回合起不了的原因（命令没设，这个提供方没有 live 文件，证书读不出或撑不完这一回合，live plan 读不出，
+ *  刚才自己没起来还在歇着）；起得了是 null。第 156 轮：按这一回合的提供方找（stateDir 的上一层是信箱目录）。 */
+export function quizsUnready(now: number, timeout: number, stateDir: string | null, provider: string): string | null {
+  if (!process.env["QUIZS_CMD"]) return "没有设 QUIZS_CMD";
+  const [files, problem] = quizsLiveFiles(stateDir === null ? null : dirname(stateDir), provider);
+  if (files === null) return problem;
+  const path = files.get("--qualification") as string;
   let data: PyValue;
   try {
     data = loads(readFileSync(path, "utf-8"));
@@ -77,7 +108,7 @@ export function quizsUnready(now: number, timeout: number, stateDir: string | nu
   const expires = data instanceof Map ? pyGet(data, "expires_at_ms") : null;
   if (typeof expires !== "bigint") return "资格证书里没有到期时刻";
   if (expires < BigInt((now + timeout + QUIZS_CERT_MARGIN) * 1000)) return `资格证书撑不完这一回合（${expires} 毫秒时到期）`;
-  return quizsLivePlan()[1] ?? quizsDown(now, stateDir);
+  return quizsLivePlan(files.get("--live-plan") as string)[1] ?? quizsDown(now, stateDir, provider);
 }
 
 /** quizs 的命令：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。 */
@@ -116,11 +147,42 @@ export function fencedJson(text: string): PyDict | null {
   return value instanceof Map ? value : null;
 }
 
-/** 这一回合的输入目录交给 quizs snapshot capture 冻成只读快照：交回（manifest_ref, 问题）。 */
-export async function quizsSnapshot(quizsCmd: readonly string[], sessionsDir: string, inputs: string, env: Map<string, string>): Promise<[string | null, string | null]> {
+/** 第 156 轮：kit_hub.workspace_tree：工作目录此刻的整棵树（已跟踪的改动与没被忽略的新文件都算），交回 [树的 id, 问题]。用一份临时索引：
+ *  先抄工作目录自己的索引（git add 只重算变了的文件），工作目录与它的索引都不动。 */
+export async function workspaceTree(gitExe: string, workspace: string, index: string): Promise<[string | null, string | null]> {
+  const [found, out] = await runCapture([gitExe, "-C", workspace, "rev-parse", "--git-path", "index"], { timeout: 60 });
+  const named = pyStrip(out);
+  const own = isAbsolute(named) ? named : join(workspace, named);
+  const env = new Map(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  env.set("GIT_INDEX_FILE", index);
+  let code = found;
+  let tree = "";
+  try {
+    if (code === 0 && isFile(own)) copyFileSync(own, index);
+    [code] = await runCapture([gitExe, "-C", workspace, "add", "-A"], { env, timeout: 300 });
+    if (code === 0) [code, tree] = await runCapture([gitExe, "-C", workspace, "write-tree"], { env, timeout: 120 });
+  } finally {
+    rmSync(index, { force: true });
+  }
+  if (code !== 0 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pyStrip(tree))) {
+    return [null, `算不出工作目录的树（git add 或 write-tree 退出码 ${code}），quizs 冻结不了这一回合的仓库，没有起这一回合`];
+  }
+  return [pyStrip(tree), null];
+}
+
+/** 这一回合的输入目录交给 quizs snapshot capture 冻成只读快照：交回（manifest_ref, 问题）。
+ *  第 156 轮：给了 view（读仓库的岗位的工作目录）就冻那个目录此刻的整棵树，输入目录叠在上面（index 是算树用的临时索引）。 */
+export async function quizsSnapshot(quizsCmd: readonly string[], sessionsDir: string, inputs: string, env: Map<string, string>,
+  view: string | null = null, index: string | null = null): Promise<[string | null, string | null]> {
   const gitExe = pyWhich("git");
   if (gitExe === null) return [null, "找不到 git，quizs 冻结不了这一回合的输入，没有起这一回合"];
-  const [code, out] = await runCapture([...quizsCmd, "snapshot", "capture", "--session-dir", sessionsDir, "--dir", inputs, "--git-executable", gitExe],
+  let source = ["--dir", inputs];
+  if (view !== null && index !== null) {
+    const [tree, problem] = await workspaceTree(gitExe, view, index);
+    if (tree === null) return [null, problem];
+    source = ["--repository", view, "--oid", tree, "--all-files", "--overlay-dir", inputs];
+  }
+  const [code, out] = await runCapture([...quizsCmd, "snapshot", "capture", "--session-dir", sessionsDir, ...source, "--git-executable", gitExe],
     { env, timeout: 180 });
   const lines = jsonlLines(out).filter((line) => pyStrip(line) !== ""); // 输出以换行结尾：最后一个是空串
   let last: PyValue = null;

@@ -260,7 +260,25 @@ export const QUIZS_LIVE_FILES: readonly (readonly [string, string])[] = [
 export const QUIZS_TURN_PLAN = "live-plan.json";
 /** 第 150 轮：quizs 自己没起来（result 事件的退出码 2：plan、证书、参数这类配置问题，请求没有发出去）时，名册写了替补的岗位
  *  记下这个标记（信箱的 quizs-state 下），协调人这一回合当场换替补重办；之后这么多秒内直接用替补，到点再试 quizs */
-export const QUIZS_DOWN_FILE = "down.json";
+/** 第 156 轮：标记按提供方分开（down-<提供方>.json）：MiniMax 的 live 文件坏了，不该把协调人（DeepSeek）也推去替补。 */
+export const QUIZS_DOWN_FILE = "down-%s.json";
 export const QUIZS_DOWN_SECONDS = 900;
+/** 第 156 轮：读仓库的岗位在 quizs 上读这一回合工作目录冻成的整棵仓库（Quizs 的仓库视图：已跟踪的文件与没被忽略的新文件，二进制与超过
+ *  4 MiB 的不在里面），内核复制的输入照相对仓库的原样叠在上面；协调人照旧只读输入目录冻成的快照。 */
+export const QUIZS_REPO_VIEW_ROLES: readonly string[] = ["contract", "audit"];
+/** 第 156 轮：读仓库的岗位每回合的预算。pi 上 MiniMax 的合同端（52 个回合）工具调用中位 30、最多 107，审核端（45 个）最多 60；工具调用 128 是
+ *  Quizs live plan 的上限。 */
+export const QUIZS_VIEW_BUDGETS: readonly (readonly [string, string])[] = [
+  ["--max-requests", "128"], ["--max-tool-calls", "128"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "8388608"], ["--max-object-bytes", "8388608"],
+];
+/** 第 156 轮：每个提供方一套 live 文件，放在信箱的 quizs-live/<提供方>/ 下（续期脚本写的三个文件名）。三份不全时退回环境变量给的那一套
+ *  （第 141 轮协调人原来的做法），但那一套的提供方档案认得出是别家的就不用（键是 Quizs 的 --provider，值是它的档案 id）。 */
+export const QUIZS_LIVE_ROOT = "quizs-live";
+export const QUIZS_LIVE_NAMES: readonly (readonly [string, string])[] = [
+  ["--live-plan", "plan.json"], ["--provider-profile", "profile.json"], ["--qualification", "qualification.json"],
+];
+export const QUIZS_PROFILE_IDS: Readonly<Record<string, string>> = { deepseek: "deepseek-api", minimax: "minimax-m-plan", stepfun: "stepfun-cn-step-plan" };
+/** 第 156 轮：算工作目录的树时用的临时索引（回合目录里，用完就删）。 */
+export const QUIZS_VIEW_INDEX = "view.index";
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

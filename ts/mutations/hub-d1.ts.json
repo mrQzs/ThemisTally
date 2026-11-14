@@ -265,7 +265,7 @@
     {
       "name": "D43 quizs 回合的提示不附快照清单（第 151 轮）",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs));",
+      "old": "if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs, view));",
       "new": ""
     },
     {

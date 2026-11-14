@@ -27,14 +27,14 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_LIVE_FILES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
 } from "./constants.ts";
-import { hubBindings } from "./bindings.ts";
+import { boundSpec, hubBindings } from "./bindings.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { HubError } from "./errors.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
-import { auditQuizsStream, effectiveSpec, quizsLivePlan, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
+import { auditQuizsStream, effectiveSpec, quizsLiveFiles, quizsLivePlan, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
 
 const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
@@ -118,7 +118,8 @@ export class TurnRunner {
     retryOf: string | null = null, fresh = false, inputs: string | null = null, sessionId: string | null = null): Promise<PyDict> {
     if (!Object.hasOwn(ROSTER, agent)) throw new PyCrash("KeyError", pyRepr(agent));
     // 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds(), this.hub.root, hubBindings(this.hub.repo));
+    const bindings = hubBindings(this.hub.repo);
+    const [spec, fallback] = effectiveSpec(agent, this.sources.seconds(), this.hub.root, bindings);
     const claude = spec.adapter === "claude";
     const quizs = spec.adapter === "quizs";
     // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
@@ -185,7 +186,8 @@ export class TurnRunner {
     }
     let blocked: string | null;
     if (quizs) {
-      const [ref, problem] = inputs === null ? [null, null] : await quizsSnapshot(quizsCmd, sessionsDir, inputs, env);
+      const view = QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? where : null; // 第 156 轮：读仓库的岗位冻工作目录的整棵树，输入叠在上面
+      const [ref, problem] = inputs === null ? [null, null] : await quizsSnapshot(quizsCmd, sessionsDir, inputs, env, view, join(turnDir, QUIZS_VIEW_INDEX));
       blocked = deliveryProblem(spec.role) || problem;
       if (ref !== null) cmd.push("--read-snapshot", ref);
     } else {
@@ -261,9 +263,11 @@ export class TurnRunner {
     ]);
     if (fallback !== null) summary.set("quizs_fallback", fallback);
     writeJson(join(turnDir, "result.json"), summary, true);
-    const down = quizs && pyGet(audit, "quizs_down") === true && (ROSTER[agent] as RosterSpec).fallback !== undefined;
+    // 第 156 轮：有没有替补看叠上配置中心绑定之后的名册（配置里绑到 quizs 的岗位，替补写在绑定里）；标记按提供方记
+    const substitute = boundSpec(agent, bindings.get(String((ROSTER[agent] as RosterSpec).role))).fallback;
+    const down = quizs && pyGet(audit, "quizs_down") === true && substitute !== undefined;
     if (down) { // 第 150 轮：记下标记，调用方（协调人回合）当场换替补重办
-      writeJson(join(this.hub.root, QUIZS_STATE_DIR, QUIZS_DOWN_FILE),
+      writeJson(join(this.hub.root, QUIZS_STATE_DIR, QUIZS_DOWN_FILE.replace("%s", spec.provider as string)),
         new Map<string, PyValue>([["until", BigInt(this.sources.seconds() + QUIZS_DOWN_SECONDS)], ["reason", pyGet(audit, "api_error")]]));
     }
     await this.hub.appendEvent("turn.finished", [["turn_id", turnId], ["agent", agent], ["session_key", sessionKey],
@@ -322,13 +326,12 @@ export class TurnRunner {
       "--cwd", where, "--readonly-root", inputs ?? where,
       "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
       "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir,
-      ...QUIZS_TURN_BUDGETS.flat()];
-    for (const [flag, name] of QUIZS_LIVE_FILES) {
-      const value = process.env[name];
-      if (value) cmd.push(flag, value);
-    }
-    if (process.env["QUIZS_LIVE_PLAN"]) { // 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
-      const [plan, problem] = quizsLivePlan();
+      // 第 156 轮：读仓库的岗位用自己的预算；live 文件按这一回合的提供方找
+      ...(QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS).flat()];
+    const [live] = quizsLiveFiles(this.hub.root, spec.provider as string);
+    for (const [flag, path] of live ?? []) cmd.push(flag, path);
+    if (live !== null) { // 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
+      const [plan, problem] = quizsLivePlan(live.get("--live-plan") as string);
       if (plan === null) throw new HubError(problem ?? "", EXIT_BLOCKED);
       const turnPlan = join(turnDir, QUIZS_TURN_PLAN);
       writeJson(turnPlan, new Map([...plan, ["plan_id", `${pyGet(plan, "plan_id") as string}.${purePathName(turnDir)}`]]));

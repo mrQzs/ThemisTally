@@ -429,6 +429,62 @@ describe("第 ⑤d1 片：按种子生成的回合输入", () => {
     expect(prompts.some((prompt) => prompt.includes("# 协调人的断点"))).toBe(true);
   });
 
+  it("第 156 轮：读仓库的岗位用仓库视图（清单只列叠上去的输入、提示换一句）；live 文件按提供方找，“没起来”的标记按提供方分", () => {
+    const dirs = ["v-few", "v-many"].map((name) => join(ROOT, "manifest", name));
+    for (const dir of dirs) mkdirSync(dir, { recursive: true });
+    const index = (files: [string, number][]): string => JSON.stringify({ files: files.map(([path, bytes]) => ({ path, bytes })), skipped: [] });
+    writeFileSync(join(dirs[0] as string, "INPUTS.json"), index([[".agent/mailbox/tasks/T001/brief.md", 12], ["top.md", 0]]));
+    writeFileSync(join(dirs[1] as string, "INPUTS.json"), index(Array.from({ length: 201 }, (_, n): [string, number] => [`a/f${n}.md`, n])));
+    const manifests = agree(dirs.flatMap((dir) => [call("snapshot_manifest", [dir, true]), call("snapshot_manifest", [dir, false])]), 1)
+      .map((result) => valueOf(result) as string[]);
+    expect(manifests[0]?.slice(0, 2)).toEqual(["", "## 叠在仓库上的输入（内核）"]);
+    expect(manifests[0]?.at(-1)).toBe("- top.md（0 字节）");
+    expect(manifests[1]?.[1]).toBe("## 快照里的文件（内核）");
+    expect(manifests[2]?.at(-1)).toBe("- 另有 1 个，用 ls 看。");
+    // 合同端、审核端换到 quizs（MiniMax）时的整份提示是仓库视图那一句；协调人照旧是输入快照（第 151 轮那一条）
+    const kit = promptKit(156, where);
+    const prompts = agree(["contract-glm", "audit-sonnet"].map((agent) => {
+      const ts = kit.state();
+      const stage = agent === "contract-glm" ? "2-contract" : "4-audit-pre";
+      const roster = { [agent]: { ...(ROSTER[agent] as object), adapter: "quizs", provider: "minimax" } };
+      return call("turn_prompt", [where.repo, ts, agent, `${String(ts.get("task"))}-${stage}`, [], where.workspace, null, dirs[0] as string, null, null], { roster });
+    }), 1).map((result) => String(valueOf(result)));
+    for (const prompt of prompts) {
+      expect(prompt).toContain("- 只读快照：根目录是这一回合工作目录此刻冻成的整棵仓库");
+      expect(prompt).toContain("## 叠在仓库上的输入（内核）");
+      expect(prompt).toContain("## 交差（最后的回答写一个 json 代码块）");
+    }
+    // live 文件：信箱的 quizs-live/<提供方>/ 三份齐了才用；不全退回环境给的那一套，那一套认得出是别家的就不用
+    const box = join(ROOT, "live156");
+    const own = join(box, "quizs-live", "minimax");
+    const kept = join(ROOT, "live156-env");
+    for (const dir of [own, kept, join(box, "quizs-state")]) mkdirSync(dir, { recursive: true });
+    writeFileSync(join(kept, "plan.json"), JSON.stringify({ plan_id: "p" }));
+    writeFileSync(join(kept, "profile.json"), JSON.stringify({ id: "deepseek-api" }));
+    writeFileSync(join(kept, "qualification.json"), JSON.stringify({ expires_at_ms: 9000000000000 }));
+    const env = { QUIZS_CMD: JSON.stringify(["quizs"]), QUIZS_LIVE_PLAN: join(kept, "plan.json"), QUIZS_PROVIDER_PROFILE: join(kept, "profile.json"),
+      QUIZS_QUALIFICATION: join(kept, "qualification.json") };
+    const files = (provider: string, given: Record<string, string>, hub: string | null = box): ProbeRequest => call("quizs_live_files", [hub, provider], { env: given });
+    const first = agree([files("minimax", {}), files("deepseek", env), files("minimax", env), files("stepfun", env, null)], 1).map((result) => valueOf(result) as PyValue[]);
+    expect(first[0]).toEqual([null, "没有设 QUIZS_LIVE_PLAN"]);
+    expect((first[1]?.[0] as PyDict).get("--provider-profile")).toBe(env.QUIZS_PROVIDER_PROFILE);
+    expect(first[2]).toEqual([null, "环境给的 live 文件是 deepseek-api 的，没有 minimax 的（信箱的 quizs-live/minimax/ 不全）"]);
+    expect(first[3]?.[1]).toBe("环境给的 live 文件是 deepseek-api 的，没有 stepfun 的（信箱的 quizs-live/stepfun/ 不全）");
+    writeFileSync(join(own, "plan.json"), JSON.stringify({ plan_id: "m" }));
+    writeFileSync(join(own, "profile.json"), JSON.stringify({ id: "minimax-m-plan" }));
+    expect(valueOf(agree([files("minimax", env)], 1)[0]), "两份不算一套").toEqual([null, "环境给的 live 文件是 deepseek-api 的，没有 minimax 的（信箱的 quizs-live/minimax/ 不全）"]);
+    writeFileSync(join(own, "qualification.json"), JSON.stringify({ expires_at_ms: 9000000000000 }));
+    const state = join(box, "quizs-state");
+    const now = 1800000000;
+    const unready = (provider: string, given: Record<string, string> = env): ProbeRequest => call("quizs_unready", [now, 600, state, provider], { env: given });
+    writeFileSync(join(state, "down-deepseek.json"), JSON.stringify({ until: now + 500, reason: "quizs 退出码 2（USAGE）" }));
+    const second = agree([files("minimax", env), unready("minimax"), unready("deepseek"), unready("minimax", { ...env, QUIZS_CMD: "" })], 1).map((result) => valueOf(result));
+    expect(((second[0] as PyValue[])[0] as PyDict).get("--live-plan")).toBe(join(own, "plan.json"));
+    expect(second[1], "DeepSeek 的标记不拦 MiniMax").toBe(null);
+    expect(second[2]).toBe(`quizs 刚才自己没起来（quizs 退出码 2（USAGE）），到纪元秒 ${now + 500} 为止用替补`);
+    expect(second[3]).toBe("没有设 QUIZS_CMD");
+  });
+
   it("第 154 轮：配了岗位绑定之后，提示按绑定写（合同端的 executor 一行；协调人绑到没有替补的 quizs 时用代码块交差）", () => {
     const file = join(where.repo, ".agent", "dispatch.config.json");
     const kit = promptKit(154, where);

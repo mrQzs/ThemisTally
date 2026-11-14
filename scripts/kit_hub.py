@@ -583,7 +583,22 @@ QUIZS_LIVE_FILES = (("--live-plan", "QUIZS_LIVE_PLAN"), ("--provider-profile", "
 QUIZS_TURN_PLAN = "live-plan.json"
 #: 第 150 轮：quizs 自己没起来（result 事件的退出码 2：plan、证书、参数这类配置问题，请求没有发出去）时，名册写了替补的岗位
 #: 记下这个标记（信箱的 quizs-state 下），协调人这一回合当场换替补重办；之后这么多秒内直接用替补，到点再试 quizs
-QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS = "down.json", 900
+#: 第 156 轮：标记按提供方分开（down-<提供方>.json）：MiniMax 的 live 文件坏了，不该把协调人（DeepSeek）也推去替补
+QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS = "down-%s.json", 900
+#: 第 156 轮：读仓库的岗位在 quizs 上读这一回合工作目录冻成的整棵仓库（Quizs 的仓库视图：已跟踪的文件与没被忽略的新文件，
+#: 二进制与超过 4 MiB 的不在里面），内核复制的输入照相对仓库的原样叠在上面；协调人照旧只读输入目录冻成的快照
+QUIZS_REPO_VIEW_ROLES = ("contract", "audit")
+#: 第 156 轮：读仓库的岗位每回合的预算。pi 上 MiniMax 的合同端（52 个回合）工具调用中位 30、最多 107，审核端（45 个）最多 60；
+#: 工具调用 128 是 Quizs live plan 的上限
+QUIZS_VIEW_BUDGETS = (("--max-requests", "128"), ("--max-tool-calls", "128"), ("--max-input-bytes", "2097152"),
+                      ("--max-response-bytes", "8388608"), ("--max-object-bytes", "8388608"))
+#: 第 156 轮：每个提供方一套 live 文件，放在信箱的 quizs-live/<提供方>/ 下（续期脚本写的三个文件名）。三份不全时退回环境变量给的那一套
+#: （第 141 轮协调人原来的做法），但那一套的提供方档案认得出是别家的就不用（键是 Quizs 的 --provider，值是它的档案 id）
+QUIZS_LIVE_ROOT = "quizs-live"
+QUIZS_LIVE_NAMES = (("--live-plan", "plan.json"), ("--provider-profile", "profile.json"), ("--qualification", "qualification.json"))
+QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan"}
+#: 第 156 轮：算工作目录的树时用的临时索引（回合目录里，用完就删）
+QUIZS_VIEW_INDEX = "view.index"
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -1935,9 +1950,28 @@ def guard_config(workspace: Path, repo: Path) -> str:
         "readTools": list(READ_TOOLS)})
 
 
-def quizs_live_plan() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """第 148 轮：环境给的那份 live plan，交回（plan, 问题）。"""
-    path = os.environ["QUIZS_LIVE_PLAN"]
+def quizs_live_files(hub_root: Optional[Path], provider: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
+    """第 156 轮：这个提供方的三份 live 文件，交回（{旗标: 路径}, 问题）。先找信箱的 quizs-live/<提供方>/，三份都在就用；
+    不全时退回环境变量给的那一套（第 141 轮），它的提供方档案认得出是别家的就不用。"""
+    if hub_root is not None:
+        folder = hub_root / QUIZS_LIVE_ROOT / provider
+        found = {flag: str(folder / name) for flag, name in QUIZS_LIVE_NAMES}
+        if all(Path(path).is_file() for path in found.values()):
+            return found, None
+    for _flag, name in QUIZS_LIVE_FILES:
+        if not os.environ.get(name):
+            return None, "没有设 %s" % name
+    try:
+        owner = json.loads(Path(os.environ["QUIZS_PROVIDER_PROFILE"]).read_text(encoding="utf-8")).get("id")
+    except (OSError, ValueError, AttributeError):
+        owner = None
+    if owner in QUIZS_PROFILE_IDS.values() and owner != QUIZS_PROFILE_IDS.get(provider):
+        return None, "环境给的 live 文件是 %s 的，没有 %s 的（信箱的 %s/%s/ 不全）" % (owner, provider, QUIZS_LIVE_ROOT, provider)
+    return {flag: os.environ[name] for flag, name in QUIZS_LIVE_FILES}, None
+
+
+def quizs_live_plan(path: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """第 148 轮：这个提供方的那份 live plan（第 156 轮起不只看环境），交回（plan, 问题）。"""
     try:
         plan = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -1947,12 +1981,12 @@ def quizs_live_plan() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     return plan, None
 
 
-def quizs_down(now: int, state_dir: Optional[Path]) -> Optional[str]:
-    """第 150 轮：quizs 刚才自己没起来、还在歇着时的原因；没有标记、标记读不出或已经到点是 None。"""
+def quizs_down(now: int, state_dir: Optional[Path], provider: str) -> Optional[str]:
+    """第 150 轮：这个提供方的 quizs 刚才自己没起来、还在歇着时的原因；没有标记、标记读不出或已经到点是 None。"""
     if state_dir is None:
         return None
     try:
-        mark = json.loads((state_dir / QUIZS_DOWN_FILE).read_text(encoding="utf-8"))
+        mark = json.loads((state_dir / (QUIZS_DOWN_FILE % provider)).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     until, reason = (mark.get("until"), mark.get("reason")) if isinstance(mark, dict) else (None, None)
@@ -1961,13 +1995,15 @@ def quizs_down(now: int, state_dir: Optional[Path]) -> Optional[str]:
     return "quizs 刚才自己没起来（%s），到纪元秒 %d 为止用替补" % (reason, until)
 
 
-def quizs_unready(now: int, timeout: int, state_dir: Optional[Path] = None) -> Optional[str]:
-    """第 143 轮：quizs 回合起不了的原因（命令、live plan、档案、证书没设，证书读不出或撑不完这一回合，live plan 读不出，
-    刚才自己没起来还在歇着）；起得了是 None。"""
-    for name in ("QUIZS_CMD",) + tuple(env for _flag, env in QUIZS_LIVE_FILES):
-        if not os.environ.get(name):
-            return "没有设 %s" % name
-    path = os.environ["QUIZS_QUALIFICATION"]
+def quizs_unready(now: int, timeout: int, state_dir: Optional[Path], provider: str) -> Optional[str]:
+    """第 143 轮：quizs 回合起不了的原因（命令没设，这个提供方没有 live 文件，证书读不出或撑不完这一回合，live plan 读不出，
+    刚才自己没起来还在歇着）；起得了是 None。第 156 轮：按这一回合的提供方找（state_dir 的上一层是信箱目录）。"""
+    if not os.environ.get("QUIZS_CMD"):
+        return "没有设 QUIZS_CMD"
+    files, problem = quizs_live_files(None if state_dir is None else state_dir.parent, provider)
+    if files is None:
+        return problem
+    path = files["--qualification"]
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -1977,7 +2013,7 @@ def quizs_unready(now: int, timeout: int, state_dir: Optional[Path] = None) -> O
         return "资格证书里没有到期时刻"
     if expires < (now + timeout + QUIZS_CERT_MARGIN) * 1000:
         return "资格证书撑不完这一回合（%d 毫秒时到期）" % expires
-    return quizs_live_plan()[1] or quizs_down(now, state_dir)
+    return quizs_live_plan(files["--live-plan"])[1] or quizs_down(now, state_dir, provider)
 
 
 def hub_bindings(hub: "Hub") -> Dict[str, Any]:
@@ -2038,7 +2074,7 @@ def effective_spec(agent: str, now: int, hub_root: Optional[Path] = None,
     listed = {key: value for key, value in base.items() if key != "fallback"}
     substitute = base.get("fallback")
     state_dir = None if hub_root is None else hub_root / QUIZS_STATE_DIR
-    reason = (quizs_unready(now, int(listed.get("timeout", 1800)), state_dir)
+    reason = (quizs_unready(now, int(listed.get("timeout", 1800)), state_dir, str(listed.get("provider")))
               if listed["adapter"] == "quizs" and substitute else None)
     return (listed if reason is None else {**listed, **substitute}), reason
 
@@ -2077,13 +2113,40 @@ def fenced_json(text: str) -> Optional[Dict[str, Any]]:
     return value if isinstance(value, dict) else None
 
 
-def quizs_snapshot(quizs_cmd: Sequence[str], sessions_dir: Path, inputs: Path, env: Dict[str, str]) -> Tuple[Optional[str], Optional[str]]:
-    """这一回合的输入目录交给 quizs snapshot capture 冻成只读快照（第 137 轮）：交回（manifest_ref, 问题）。"""
+def workspace_tree(git_exe: str, workspace: Path, index: Path) -> Tuple[Optional[str], Optional[str]]:
+    """第 156 轮：工作目录此刻的整棵树（已跟踪的改动与没被忽略的新文件都算），交回（树的 id, 问题）。用一份临时索引：先抄工作目录
+    自己的索引（git add 只重算变了的文件），工作目录与它的索引都不动。"""
+    code, out, _err = pd.run_capture([git_exe, "-C", str(workspace), "rev-parse", "--git-path", "index"], timeout=60)
+    own = Path(out.strip())
+    own = own if own.is_absolute() else workspace / own
+    env = dict(os.environ, GIT_INDEX_FILE=str(index))
+    try:
+        if code == 0 and own.is_file():
+            shutil.copyfile(own, index)
+        code, _out, _err = pd.run_capture([git_exe, "-C", str(workspace), "add", "-A"], env=env, timeout=300)
+        code, tree, _err = pd.run_capture([git_exe, "-C", str(workspace), "write-tree"], env=env, timeout=120) if code == 0 else (code, "", "")
+    finally:
+        index.unlink(missing_ok=True)
+    if code != 0 or not re.fullmatch("[0-9a-f]{40}|[0-9a-f]{64}", tree.strip()):
+        return None, "算不出工作目录的树（git add 或 write-tree 退出码 %s），quizs 冻结不了这一回合的仓库，没有起这一回合" % code
+    return tree.strip(), None
+
+
+def quizs_snapshot(quizs_cmd: Sequence[str], sessions_dir: Path, inputs: Path, env: Dict[str, str],
+                  view: Optional[Path] = None, index: Optional[Path] = None) -> Tuple[Optional[str], Optional[str]]:
+    """这一回合的输入目录交给 quizs snapshot capture 冻成只读快照（第 137 轮）：交回（manifest_ref, 问题）。
+    第 156 轮：给了 view（读仓库的岗位的工作目录）就冻那个目录此刻的整棵树，输入目录叠在上面（index 是算树用的临时索引）。"""
     git_exe = shutil.which("git")
     if git_exe is None:
         return None, "找不到 git，quizs 冻结不了这一回合的输入，没有起这一回合"
-    code, out, _err = pd.run_capture(list(quizs_cmd) + ["snapshot", "capture", "--session-dir", str(sessions_dir), "--dir", str(inputs),
-                                                       "--git-executable", git_exe], env=env, timeout=180)
+    source = ["--dir", str(inputs)]
+    if view is not None and index is not None:
+        tree, problem = workspace_tree(git_exe, view, index)
+        if tree is None:
+            return None, problem
+        source = ["--repository", str(view), "--oid", tree, "--all-files", "--overlay-dir", str(inputs)]
+    code, out, _err = pd.run_capture(list(quizs_cmd) + ["snapshot", "capture", "--session-dir", str(sessions_dir)] + source
+                                     + ["--git-executable", git_exe], env=env, timeout=180)
     lines = [line for line in jsonl_lines(out) if line.strip()]  # 输出以换行结尾：最后一个是空串
     try:
         last = json.loads(lines[-1]) if lines else None
@@ -2311,7 +2374,8 @@ class TurnRunner:
         inputs：这一回合的只读输入目录（第 88 轮，stage_inputs 建的）。
         session_id：续接这一个会话（第 93 轮：被打断的回合的会话，取自它的 result.json），不看记录里的是哪个。"""
         # 第 143 轮：quizs 岗位起不了（证书过期、文件没设）就这一回合改用名册写的替补（pi），开新会话
-        spec, fallback = effective_spec(agent, int(time.time()), self.hub.root, hub_bindings(self.hub))
+        bindings = hub_bindings(self.hub)
+        spec, fallback = effective_spec(agent, int(time.time()), self.hub.root, bindings)
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
         quizs = spec["adapter"] == "quizs"
@@ -2403,12 +2467,14 @@ class TurnRunner:
             cmd += ["--cwd", str(workspace), "--readonly-root", str(inputs if inputs is not None else workspace)]
             cmd += ["--system-append", str(role_path), "--prompt", "@%s" % (turn_dir / "prompt.md"), "--session-dir", str(sessions_dir),
                     "--session-id", session["id"], "--deadline", str(deadline_ms), "--provider-state-dir", str(state_dir)]
-            cmd += [part for pair in QUIZS_TURN_BUDGETS for part in pair]
-            for flag, name in QUIZS_LIVE_FILES:
-                if os.environ.get(name):
-                    cmd += [flag, os.environ[name]]
-            if os.environ.get("QUIZS_LIVE_PLAN"):  # 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
-                plan, problem = quizs_live_plan()
+            # 第 156 轮：读仓库的岗位用自己的预算；live 文件按这一回合的提供方找
+            budgets = QUIZS_VIEW_BUDGETS if spec["role"] in QUIZS_REPO_VIEW_ROLES else QUIZS_TURN_BUDGETS
+            cmd += [part for pair in budgets for part in pair]
+            live, _problem = quizs_live_files(self.hub.root, spec["provider"])
+            for flag, path in (live or {}).items():
+                cmd += [flag, path]
+            if live is not None:  # 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
+                plan, problem = quizs_live_plan(live["--live-plan"])
                 if plan is None:
                     raise HubError(problem, EXIT_BLOCKED)
                 pd.write_json(turn_dir / QUIZS_TURN_PLAN, dict(plan, plan_id="%s.%s" % (plan["plan_id"], turn_id)))
@@ -2439,7 +2505,9 @@ class TurnRunner:
             env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
             env["THEMIS_GUARD"] = guard_config(workspace, self.hub.repo)
         if quizs:
-            ref, problem = (None, None) if inputs is None else quizs_snapshot(quizs_cmd, sessions_dir, inputs, env)
+            view = workspace if spec["role"] in QUIZS_REPO_VIEW_ROLES else None
+            ref, problem = (None, None) if inputs is None else quizs_snapshot(quizs_cmd, sessions_dir, inputs, env, view,
+                                                                           turn_dir / QUIZS_VIEW_INDEX)
             blocked = delivery_problem(spec["role"]) or problem
             if ref is not None:
                 cmd += ["--read-snapshot", ref]
@@ -2518,9 +2586,11 @@ class TurnRunner:
         if fallback is not None:
             summary["quizs_fallback"] = fallback
         pd.write_json(turn_dir / "result.json", summary, exclusive=True)
-        down = quizs and audit.get("quizs_down") is True and bool(ROSTER[agent].get("fallback"))
+        # 第 156 轮：有没有替补看叠上配置中心绑定之后的名册（配置里绑到 quizs 的岗位，替补写在绑定里）；标记按提供方记
+        substitute = bound_spec(agent, bindings.get(str(ROSTER[agent].get("role")))).get("fallback")
+        down = quizs and audit.get("quizs_down") is True and bool(substitute)
         if down:  # 第 150 轮：记下标记，调用方（协调人回合）当场换替补重办
-            pd.write_json(self.hub.root / QUIZS_STATE_DIR / QUIZS_DOWN_FILE,
+            pd.write_json(self.hub.root / QUIZS_STATE_DIR / (QUIZS_DOWN_FILE % spec["provider"]),
                           {"until": int(time.time()) + QUIZS_DOWN_SECONDS, "reason": audit["api_error"]})
         self.hub.append_event("turn.finished", turn_id=turn_id, agent=agent, session_key=session_key,
                               exit_code=summary["exit_code"], timed_out=summary["timed_out"],
@@ -5058,9 +5128,10 @@ def snapshot_path(hub: Hub, path: Any) -> str:
     return text if not text or rel == os.pardir or rel.startswith(os.pardir + os.sep) else rel.replace(os.sep, "/")
 
 
-def snapshot_manifest(inputs: Path) -> List[str]:
+def snapshot_manifest(inputs: Path, view: bool = False) -> List[str]:
     """第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。
-    P2b 的 30 个协调人回合：483 次工具调用里 171 次是 ls、find 在摸目录，17 个回合读过快照里没有的路径。"""
+    P2b 的 30 个协调人回合：483 次工具调用里 171 次是 ls、find 在摸目录，17 个回合读过快照里没有的路径。
+    第 156 轮：仓库视图（view）里输入只是叠在仓库上的那一层，仓库自己的文件不列，照仓库路径直接读。"""
     index = read_text(inputs / INPUTS_INDEX)
     if not index:
         return []
@@ -5068,7 +5139,12 @@ def snapshot_manifest(inputs: Path) -> List[str]:
     files = listing["files"]
     lines = ["", "## 快照里的文件（内核）", ""]
     together = "- 互不依赖的读取放在同一条回复里一起发，不要一条回复只读一个文件。"
-    if len(files) <= SNAPSHOT_MANIFEST_LIMIT:
+    if view:
+        lines = ["", "## 叠在仓库上的输入（内核）", "", "- 仓库自己的文件照仓库路径直接读、grep，不列在这里；下面是内核复制进来、叠在仓库上的 %d 个文件。" % len(files)]
+        lines += [together] + ["- %s（%d 字节）" % (item["path"], item["bytes"]) for item in files[:SNAPSHOT_MANIFEST_LIMIT]]
+        if len(files) > SNAPSHOT_MANIFEST_LIMIT:
+            lines.append("- 另有 %d 个，用 ls 看。" % (len(files) - SNAPSHOT_MANIFEST_LIMIT))
+    elif len(files) <= SNAPSHOT_MANIFEST_LIMIT:
         lines += ["- 一共 %d 个文件，都列在下面：read、grep 直接用这些路径；清单之外的文件快照里没有，不用 ls、find 去找。" % len(files), together]
         lines += ["- %s（%d 字节）" % (item["path"], item["bytes"]) for item in files]
     else:
@@ -5090,6 +5166,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
     # 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
     spec, _fallback = effective_spec(agent, int(time.time()), hub.root, hub_bindings(hub))
     snapshot = spec["adapter"] == "quizs" and inputs is not None  # 第 137 轮：quizs 读的是输入目录冻成的快照
+    view = snapshot and spec["role"] in QUIZS_REPO_VIEW_ROLES  # 第 156 轮：读仓库的岗位读的是整棵仓库，输入叠在上面
     shown = ((lambda path: snapshot_path(hub, path)) if snapshot  # noqa: E731  主工作区的路径一律换成输入里的那一份
              else (lambda path: input_path(hub, inputs, path)))
     role = spec["role"]
@@ -5102,6 +5179,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
              ("- 只读输入目录：%s（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 `.agent/…` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 %s）" % (inputs, "、".join(
                  str(hub.repo / dep) for dep in DEPENDENCY_DIRS)) if inputs is not None else
               "- 仓库主工作区（只读参考）：%s" % hub.repo) if not snapshot else
+             ("- 只读快照：根目录是这一回合工作目录此刻冻成的整棵仓库（已跟踪的文件与没被忽略的新文件；二进制与超过 4 MiB 的不在里面），"
+              "内核复制的输入（信箱、合同与执行证据）照相对仓库的原样叠在上面；read、grep、find、ls 都用相对快照根的路径，"
+              "信里写的 `.agent/…` 路径照原样读；主工作区与工作目录本身读不到") if view else
              ("- 只读快照：根目录就是内核这一回合复制的输入（信箱、合同与执行证据照相对仓库的原样摆放）；read、grep、find、ls "
               "都用相对快照根的路径，信里写的 `.agent/…` 路径照原样读；主工作区与工作目录都读不到"),
              "- 你的 state.md：%s" % shown(task_dir / "state.md"),
@@ -5260,7 +5340,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                 parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
                              "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
     if snapshot:
-        parts += snapshot_manifest(inputs)
+        parts += snapshot_manifest(inputs, view)
     if spec["adapter"] == "quizs":
         # 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
         parts += ["", "## 交差（最后的回答写一个 json 代码块）", "",

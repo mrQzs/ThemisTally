@@ -1,0 +1,46 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-turn.contract.test.ts",
+  "-t",
+  "记下的 TurnRunner.run",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1800,
+ "mutations": [
+  {
+   "name": "T01 读仓库的岗位不用自己的预算",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "      ...(QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS).flat()];",
+   "new": "      ...QUIZS_TURN_BUDGETS.flat()];"
+  },
+  {
+   "name": "T02 合同端只冻输入",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "      const view = QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? where : null;",
+   "new": "      const view = null;"
+  },
+  {
+   "name": "T03 树里没有未跟踪的新文件",
+   "file": "ts/packages/hub/src/quizs.ts",
+   "old": "    [code] = await runCapture([gitExe, \"-C\", workspace, \"add\", \"-A\"], { env, timeout: 300 });",
+   "new": "    [code] = await runCapture([gitExe, \"-C\", workspace, \"add\", \"-u\"], { env, timeout: 300 });"
+  },
+  {
+   "name": "T04 替补只看名册",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "    const down = quizs && pyGet(audit, \"quizs_down\") === true && substitute !== undefined;",
+   "new": "    const down = quizs && pyGet(audit, \"quizs_down\") === true && (ROSTER[agent] as RosterSpec).fallback !== undefined;"
+  },
+  {
+   "name": "T05 不带 live 文件",
+   "file": "ts/packages/hub/src/turn.ts",
+   "old": "    for (const [flag, path] of live ?? []) cmd.push(flag, path);",
+   "new": "    for (const [flag, path] of []) cmd.push(flag, path);"
+  }
+ ]
+}

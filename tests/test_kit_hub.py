@@ -6358,16 +6358,187 @@ def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, m
     refusals.append("USAGE")
     refused = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
     assert refused["quizs_down"] is True and refused["api_error"] == "quizs 退出码 2（USAGE）" and "quizs_fallback" not in refused
-    mark = json.loads((hub.root / kh.QUIZS_STATE_DIR / kh.QUIZS_DOWN_FILE).read_text(encoding="utf-8"))
+    mark = json.loads((hub.root / kh.QUIZS_STATE_DIR / (kh.QUIZS_DOWN_FILE % "deepseek")).read_text(encoding="utf-8"))
     assert mark["reason"] == refused["api_error"] and 0 < mark["until"] - int(time.time()) <= kh.QUIZS_DOWN_SECONDS
     resting = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入")
     assert resting["quizs_fallback"] == "quizs 刚才自己没起来（quizs 退出码 2（USAGE）），到纪元秒 %d 为止用替补" % mark["until"]
     assert "worker" not in seen[-1] and "quizs_down" not in resting
-    assert kh.quizs_down(mark["until"] - 1, hub.root / kh.QUIZS_STATE_DIR) and kh.quizs_down(mark["until"], hub.root / kh.QUIZS_STATE_DIR) is None
+    assert kh.quizs_down(mark["until"] - 1, hub.root / kh.QUIZS_STATE_DIR, "deepseek") and kh.quizs_down(mark["until"], hub.root / kh.QUIZS_STATE_DIR, "deepseek") is None
+    # 第 156 轮：标记按提供方记，另一家提供方（MiniMax 上的岗位）不受它影响
+    assert kh.quizs_down(mark["until"] - 1, hub.root / kh.QUIZS_STATE_DIR, "minimax") is None
     (tmp_path / "plan.json").write_text(json.dumps({"plan_id": 7}), encoding="utf-8")
-    assert kh.quizs_unready(int(time.time()), 600) == "live plan 里没有 plan_id"
+    assert kh.quizs_unready(int(time.time()), 600, None, "deepseek") == "live plan 里没有 plan_id"
     certificate.write_text(json.dumps([1]), encoding="utf-8")
-    assert kh.quizs_unready(int(time.time()), 600) == "资格证书里没有到期时刻"
+    assert kh.quizs_unready(int(time.time()), 600, None, "deepseek") == "资格证书里没有到期时刻"
+
+
+def test_quizs_live_files_follow_the_turns_provider(tmp_path, monkeypatch):
+    # 第 156 轮：每个提供方一套 live 文件（信箱的 quizs-live/<提供方>/，三份齐了才用），不全时退回环境给的那一套（协调人原来的做法）；
+    # 环境那一套的提供方档案认得出是别家的就不用，认不出（读不了、没有 id）照旧交给 Quizs 去核
+    hub_root = tmp_path / "hub"
+    for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.delenv(name, raising=False)
+    assert kh.quizs_live_files(hub_root, "minimax") == (None, "没有设 QUIZS_LIVE_PLAN")
+    for name, file in (("QUIZS_LIVE_PLAN", "plan.json"), ("QUIZS_PROVIDER_PROFILE", "profile.json"), ("QUIZS_QUALIFICATION", "qualification.json")):
+        (tmp_path / file).write_text("{}", encoding="utf-8")
+        monkeypatch.setenv(name, str(tmp_path / file))
+    flags = {"--live-plan": str(tmp_path / "plan.json"), "--provider-profile": str(tmp_path / "profile.json"),
+             "--qualification": str(tmp_path / "qualification.json")}
+    assert kh.quizs_live_files(hub_root, "minimax") == (flags, None)
+    (tmp_path / "profile.json").write_text(json.dumps({"id": "deepseek-api"}), encoding="utf-8")
+    assert kh.quizs_live_files(hub_root, "deepseek") == (flags, None)
+    assert kh.quizs_live_files(hub_root, "minimax") == (None, "环境给的 live 文件是 deepseek-api 的，没有 minimax 的（信箱的 quizs-live/minimax/ 不全）")
+    own = hub_root / kh.QUIZS_LIVE_ROOT / "minimax"
+    own.mkdir(parents=True)
+    (own / "plan.json").write_text(json.dumps({"plan_id": "m"}), encoding="utf-8")
+    (own / "profile.json").write_text(json.dumps({"id": "minimax-m-plan"}), encoding="utf-8")
+    assert kh.quizs_live_files(hub_root, "minimax")[0] is None, "two of three files are not a set"
+    (own / "qualification.json").write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
+    assert kh.quizs_live_files(hub_root, "minimax") == ({flag: str(own / name) for flag, name in kh.QUIZS_LIVE_NAMES}, None)
+    assert kh.quizs_live_files(hub_root, "deepseek") == (flags, None), "the coordinator keeps the environment set"
+    monkeypatch.setenv("QUIZS_CMD", json.dumps(["quizs"]))
+    state = hub_root / kh.QUIZS_STATE_DIR
+    assert kh.quizs_unready(int(time.time()), 600, state, "minimax") is None
+    assert kh.quizs_unready(int(time.time()), 600, state, "deepseek") == "资格证书里没有到期时刻"
+
+
+def test_quizs_repository_view_for_reading_posts(tmp_path, monkeypatch):
+    # 第 156 轮：读仓库的岗位（合同端、审核端）在 quizs 上读这一回合工作目录此刻冻成的整棵仓库（已跟踪的改动与没被忽略的新文件），
+    # 输入叠在上面；树用临时索引算，工作目录与它自己的索引不动。live 文件按这一回合的提供方找，预算照读仓库的岗位给
+    import subprocess
+    # 一切都放在仓库目录（tmp_path）里：hub-turn 契约照记下的仓库目录重放这一回合，三边算出的树要一样
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, "contract-glm", dict(kh.ROSTER["contract-glm"], adapter="quizs", provider="minimax"))
+    newline = chr(10)
+    git = shutil.which("git")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+
+    def run_git(*args):
+        return subprocess.run([git, "-C", str(workspace)] + list(args), check=True, capture_output=True, text=True).stdout.strip()
+
+    run_git("init", "-q")
+    run_git("config", "user.email", "view@example.invalid")
+    run_git("config", "user.name", "View")
+    (workspace / "a.txt").write_text("tracked", encoding="utf-8")
+    run_git("add", "a.txt")
+    run_git("commit", "-q", "-m", "c")
+    (workspace / "new.txt").write_text("untracked", encoding="utf-8")
+    inputs = tmp_path / "inputs"
+    (inputs / ".agent").mkdir(parents=True)
+    (inputs / ".agent" / "letter.md").write_text("开工", encoding="utf-8")
+    live = hub.root / kh.QUIZS_LIVE_ROOT / "minimax"
+    live.mkdir(parents=True)
+    (live / "plan.json").write_text(json.dumps({"plan_id": "tt-minimax-1"}), encoding="utf-8")
+    (live / "profile.json").write_text(json.dumps({"id": "minimax-m-plan"}), encoding="utf-8")
+    (live / "qualification.json").write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
+    fake = tmp_path / "fake_quizs.py"
+    fake.write_text(newline.join([
+        "import hashlib, json, sys",
+        "args = sys.argv[1:]",
+        "assert args[:2] == ['snapshot', 'capture'], args",
+        "open(sys.argv[0] + '.args', 'w', encoding='utf-8').write(json.dumps(args))",
+        # 清单号由收到的参数算出：冻的是哪棵树、叠没叠输入，都会带进回合命令的 --read-snapshot，hub-turn 契约才比得出来
+        "print(json.dumps({'manifest_ref': hashlib.sha256(json.dumps(args).encode()).hexdigest(), 'files': 3, 'bytes': 9, 'overlay_files': 1, 'skipped': []}))",
+        ""]), encoding="utf-8")
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        out.write((json.dumps({"type": "result", "exit_code": 0, "error_class": None, "actual_model": "MiniMax-M3.1-Flash", "usage": None,
+                               "final_text": "没有代码块"}) + newline).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake)]))
+    for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.delenv(name, raising=False)
+    turn = kh.TurnRunner(hub, launcher=launcher).run("contract-glm", "T001-2-contract", workspace, "角色", "输入", inputs=inputs)
+    capture = json.loads(Path(str(fake) + ".args").read_text(encoding="utf-8"))
+    tree = capture[capture.index("--oid") + 1]
+    assert capture[capture.index("--repository") + 1] == str(workspace) and "--all-files" in capture and "--dir" not in capture
+    assert capture[capture.index("--overlay-dir") + 1] == str(inputs)
+    assert sorted(run_git("ls-tree", "--name-only", tree).split(newline)) == ["a.txt", "new.txt"]
+    assert run_git("status", "--porcelain") == "?? new.txt", "the workspace and its own index are untouched"
+    assert not (Path(turn["turn_dir"]) / kh.QUIZS_VIEW_INDEX).exists()
+    cmd = seen[0]
+    import hashlib
+    assert cmd[cmd.index("--provider") + 1] == "minimax"
+    assert cmd[cmd.index("--read-snapshot") + 1] == hashlib.sha256(json.dumps(capture).encode()).hexdigest()
+    assert cmd[cmd.index("--max-requests") + 1] == "128" and cmd[cmd.index("--max-tool-calls") + 1] == "128"
+    assert cmd[cmd.index("--provider-profile") + 1] == str(live / "profile.json")
+    plan = json.loads(Path(cmd[cmd.index("--live-plan") + 1]).read_text(encoding="utf-8"))
+    assert plan["plan_id"].startswith("tt-minimax-1.") and turn["output"] is None
+    # 协调人照旧只冻输入目录（另见 test_quizs_turn_reads_a_frozen_snapshot），也不吃读仓库岗位的预算
+    assert kh.QUIZS_TURN_BUDGETS[0] == ("--max-requests", "32") and "coordinator" not in kh.QUIZS_REPO_VIEW_ROLES
+
+
+
+def test_a_bound_quizs_post_marks_its_provider_down_and_falls_back(tmp_path, monkeypatch):
+    # 第 156 轮：配置中心里绑到 quizs 的岗位（合同端，MiniMax），替补写在绑定里：quizs 自己没起来（退出码 2）时照样记标记、按提供方记；
+    # 下一回合这个岗位直接用替补（pi），协调人（DeepSeek）不受这个标记影响
+    import subprocess
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    # 名册也写 quizs（替补仍只在绑定里）：hub-turn 契约按名册的载体分辨哪些是 pi 命令
+    monkeypatch.setitem(kh.ROSTER, "contract-glm", dict(kh.ROSTER["contract-glm"], adapter="quizs", provider="minimax"))
+    (tmp_path / ".agent" / "dispatch.config.json").write_text(json.dumps({
+        "runtimes": {"pi": {"adapter": "pi"}, "qz": {"adapter": "quizs"}},
+        "profiles": {"qz-mm": {"runtime": "qz", "model": {"provider": "minimax", "id": "MiniMax-M3.1-Flash"}, "options": {"thinking": "high"}},
+                     "pi-mm": {"runtime": "pi", "model": {"provider": "minimax", "id": "MiniMax-M3.1-Flash"}, "options": {"thinking": "high"}}},
+        "hub_roles": {"contract": {"profile": "qz-mm", "fallback": "pi-mm"}}}), encoding="utf-8")
+    newline = chr(10)
+    git = shutil.which("git")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    for args in (["init", "-q"], ["config", "user.email", "down@example.invalid"], ["config", "user.name", "Down"]):
+        subprocess.run([git, "-C", str(workspace)] + args, check=True, capture_output=True)
+    (workspace / "a.txt").write_text("tracked", encoding="utf-8")
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "letter.md").write_text("开工", encoding="utf-8")
+    live = hub.root / kh.QUIZS_LIVE_ROOT / "minimax"
+    live.mkdir(parents=True)
+    (live / "plan.json").write_text(json.dumps({"plan_id": "tt-minimax-1"}), encoding="utf-8")
+    (live / "profile.json").write_text(json.dumps({"id": "minimax-m-plan"}), encoding="utf-8")
+    (live / "qualification.json").write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
+    fake = tmp_path / "fake_quizs.py"
+    fake.write_text(newline.join(["import json", "print(json.dumps({'manifest_ref': 'c' * 64, 'files': 1, 'bytes': 7, 'skipped': []}))", ""]),
+                    encoding="utf-8")
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        if "worker" in cmd:
+            out.write((json.dumps({"type": "result", "exit_code": 2, "error_class": "USAGE"}) + newline).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake)]))
+    for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.delenv(name, raising=False)
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    refused = runner.run("contract-glm", "T001-2-contract", workspace, "角色", "输入", inputs=inputs)
+    assert refused["quizs_down"] is True and seen[0][seen[0].index("--provider") + 1] == "minimax"
+    mark = json.loads((hub.root / kh.QUIZS_STATE_DIR / (kh.QUIZS_DOWN_FILE % "minimax")).read_text(encoding="utf-8"))
+    assert mark["reason"] == "quizs 退出码 2（USAGE）"
+    resting = runner.run("contract-glm", "T001-2-contract", workspace, "角色", "输入", inputs=inputs)
+    assert resting["quizs_fallback"].startswith("quizs 刚才自己没起来（quizs 退出码 2（USAGE））")
+    assert "worker" not in seen[-1] and seen[-1][seen[-1].index("--provider") + 1] == "minimax"
+    assert not (hub.root / kh.QUIZS_STATE_DIR / (kh.QUIZS_DOWN_FILE % "deepseek")).exists()
+    coordinator = kh.effective_spec(kh.COORDINATOR, int(time.time()), hub.root, kh.hub_bindings(hub))[1]
+    assert coordinator is None or "刚才自己没起来" not in coordinator
+
+
+def test_snapshot_manifest_for_a_repository_view(tmp_path):
+    # 第 156 轮：仓库视图里输入只是叠在仓库上的那一层：清单只列输入，并写明仓库自己的文件照仓库路径直接读
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / kh.INPUTS_INDEX).write_text(json.dumps({"files": [{"path": ".agent/a.md", "bytes": 3}], "skipped": []}), encoding="utf-8")
+    lines = kh.snapshot_manifest(inputs, True)
+    assert lines[:3] == ["", "## 叠在仓库上的输入（内核）", ""] and "仓库自己的文件照仓库路径直接读" in lines[3]
+    assert lines[-1] == "- .agent/a.md（3 字节）" and "清单之外" not in "".join(lines)
+    assert kh.snapshot_manifest(inputs)[1] == "## 快照里的文件（内核）"
+
 
 def test_state_writes_and_reads_wait_out_a_sharing_violation(tmp_path, monkeypatch):
     # 第 37 轮：T010 的协调人回合替换 state.json 时撞上 WinError 5（别的进程正读着），回合出错，临时文件留在 ledger 里

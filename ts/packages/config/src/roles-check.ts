@@ -41,13 +41,13 @@ export const HOST_ADAPTERS = ADAPTER_NAMES.filter((name) => ADAPTERS[name]?.host
 const RUNTIME_KEYS = ["adapter"];
 const PROFILE_KEYS = ["runtime", "model", "options", "credential_env"];
 const PRESET_KEYS = ["description", "roles"];
-/** kit_roles.HUB_POST_ADAPTERS：七端的岗位 → 这个岗位现在允许的适配器（只列已经跑过的载体）。 */
+/** kit_roles.HUB_POST_ADAPTERS：七端的岗位 → 这个岗位现在允许的适配器（只列已经跑过的载体；r3 第 156 轮合同端、审核端加 quizs：工具映射在假提供方上跑过，真实模型的重放跑完之前不绑）。 */
 export const HUB_POST_ADAPTERS: Readonly<Record<string, readonly string[]>> = {
   coordinator: ["quizs", "pi"],
   planner: ["claude-code"],
-  contract: ["pi"],
+  contract: ["pi", "quizs"],
   gate: ["pi"],
-  audit: ["pi"],
+  audit: ["pi", "quizs"],
   exec: ["pi"],
 };
 export const HUB_POSTS = Object.keys(HUB_POST_ADAPTERS);

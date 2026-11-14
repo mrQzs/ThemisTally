@@ -241,14 +241,14 @@
     {
       "name": "Q05 单次回应的上限还是 4 MiB（第 152 轮）",
       "file": "ts/packages/hub/src/constants.ts",
-      "old": "[\"--max-response-bytes\", \"8388608\"]",
-      "new": "[\"--max-response-bytes\", \"4194304\"]"
+      "old": "[\"--max-tool-calls\", \"48\"], [\"--max-input-bytes\", \"2097152\"], [\"--max-response-bytes\", \"8388608\"]",
+      "new": "[\"--max-tool-calls\", \"48\"], [\"--max-input-bytes\", \"2097152\"], [\"--max-response-bytes\", \"4194304\"]"
     },
     {
       "name": "Q06 不传单个对象的上限（第 152 轮）",
       "file": "ts/packages/hub/src/constants.ts",
-      "old": ", [\"--max-object-bytes\", \"8388608\"],",
-      "new": ","
+      "old": "[\"--max-tool-calls\", \"48\"], [\"--max-input-bytes\", \"2097152\"], [\"--max-response-bytes\", \"8388608\"], [\"--max-object-bytes\", \"8388608\"],",
+      "new": "[\"--max-tool-calls\", \"48\"], [\"--max-input-bytes\", \"2097152\"], [\"--max-response-bytes\", \"8388608\"],"
     }
   ]
 }

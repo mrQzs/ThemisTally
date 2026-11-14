@@ -23,6 +23,7 @@
     "./letters": "./src/letters.ts",
     "./mailbox": "./src/mailbox.ts",
     "./prompt": "./src/prompt.ts",
+    "./quizs": "./src/quizs.ts",
     "./runexec": "./src/runexec.ts",
     "./runner": "./src/runner.ts",
     "./runpd": "./src/runpd.ts",

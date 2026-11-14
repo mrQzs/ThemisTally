@@ -17,7 +17,7 @@ import { globPaths } from "@themis/dispatcher/instruction";
 import { comparePaths, stripChars } from "./audit.ts";
 import {
   CONTRACT_EXECUTOR_LINE, COORDINATOR, DEPENDENCY_DIRS, ENGINEERING_HEADING, ENGINEERING_ROLES, EXIT_BLOCKED, FIELDS, GATE_PITFALLS, HANDOFF_FIELD,
-  INPUTS_INDEX, MIN_ATTEMPTS_LEFT, OUTPUT_SPECS, ROLE_EXTRA_OUTPUT, ROSTER, type RosterSpec, SNAPSHOT_MANIFEST_LIMIT, TEMPLATE_READ_TRIES, VERDICT_FIELDS,
+  INPUTS_INDEX, MIN_ATTEMPTS_LEFT, OUTPUT_SPECS, QUIZS_REPO_VIEW_ROLES, ROLE_EXTRA_OUTPUT, ROSTER, type RosterSpec, SNAPSHOT_MANIFEST_LIMIT, TEMPLATE_READ_TRIES, VERDICT_FIELDS,
 } from "./constants.ts";
 import { HubError } from "./errors.ts";
 import { KERNEL_ROOT, TEMPLATE_DIR, git } from "./kernel.ts";
@@ -267,6 +267,7 @@ export function turnPrompt(
   // 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
   const [spec] = effectiveSpec(agent, Math.floor(Date.now() / 1000), hub.root, hubBindings(hub.repo));
   const snapshot = spec.adapter === "quizs" && inputs !== null; // 第 137 轮：quizs 读的是输入目录冻成的快照
+  const view = snapshot && QUIZS_REPO_VIEW_ROLES.includes(spec.role); // 第 156 轮：读仓库的岗位读的是整棵仓库，输入叠在上面
   // 主工作区的路径一律换成输入里的那一份
   const shown = (path: PyValue): string => (snapshot ? snapshotPath(hub, path) : inputPath(hub, inputs, path));
   const role = spec.role;
@@ -277,8 +278,12 @@ export function turnPrompt(
     `- 本回合的任务：${taskId}`,
     `- 工作目录：${purePathStr(workspace)}`, // 照 str(Path)：调用方传的路径没规整也一样
     snapshot
-      ? "- 只读快照：根目录就是内核这一回合复制的输入（信箱、合同与执行证据照相对仓库的原样摆放）；read、grep、find、ls 都用相对快照根的路径，"
-        + "信里写的 " + BT + ".agent/…" + BT + " 路径照原样读；主工作区与工作目录都读不到"
+      ? (view
+        ? "- 只读快照：根目录是这一回合工作目录此刻冻成的整棵仓库（已跟踪的文件与没被忽略的新文件；二进制与超过 4 MiB 的不在里面），"
+          + "内核复制的输入（信箱、合同与执行证据）照相对仓库的原样叠在上面；read、grep、find、ls 都用相对快照根的路径，"
+          + "信里写的 " + BT + ".agent/…" + BT + " 路径照原样读；主工作区与工作目录本身读不到"
+        : "- 只读快照：根目录就是内核这一回合复制的输入（信箱、合同与执行证据照相对仓库的原样摆放）；read、grep、find、ls 都用相对快照根的路径，"
+          + "信里写的 " + BT + ".agent/…" + BT + " 路径照原样读；主工作区与工作目录都读不到")
       : inputs !== null
         ? `- 只读输入目录：${purePathStr(inputs)}（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 ` + BT + ".agent/…" + BT
           + ` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 ${DEPENDENCY_DIRS.map((dep) => purePathStr(hub.repo, dep)).join("、")}）`
@@ -324,7 +329,7 @@ export function turnPrompt(
   parts.push("", "## 新信", "", ...(letters.length ? letters : ["（没有新信）"]));
   if (role === "coordinator") coordinatorParts(hub, ts, letters, routingNote, parts, shown, taskDir);
   else workerParts(hub, ts, agent, taskId, workspace, parts, shown);
-  if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs));
+  if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs, view));
   if (spec.adapter === "quizs") {
     // 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
     parts.push("", "## 交差（最后的回答写一个 json 代码块）", "",
@@ -351,15 +356,20 @@ export function turnPrompt(
   return `${pyJoinStrings(LF, parts)}${LF}`;
 }
 
-/** 第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。 */
-export function snapshotManifest(inputs: string): string[] {
+/** 第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。
+ *  第 156 轮：仓库视图（view）里输入只是叠在仓库上的那一层，仓库自己的文件不列，照仓库路径直接读。 */
+export function snapshotManifest(inputs: string, view = false): string[] {
   const index = readText(join(inputs, INPUTS_INDEX));
   if (!index) return [];
   const listing = loads(index);
   const files = pyIter(pyItem(listing, "files"));
   const lines = ["", "## 快照里的文件（内核）", ""];
   const together = "- 互不依赖的读取放在同一条回复里一起发，不要一条回复只读一个文件。";
-  if (files.length <= SNAPSHOT_MANIFEST_LIMIT) {
+  if (view) {
+    lines.splice(0, lines.length, "", "## 叠在仓库上的输入（内核）", "", `- 仓库自己的文件照仓库路径直接读、grep，不列在这里；下面是内核复制进来、叠在仓库上的 ${files.length} 个文件。`,
+      together, ...files.slice(0, SNAPSHOT_MANIFEST_LIMIT).map((item) => `- ${pyStrValue(pyItem(item, "path"))}（${pyPercentD(pyItem(item, "bytes"))} 字节）`));
+    if (files.length > SNAPSHOT_MANIFEST_LIMIT) lines.push(`- 另有 ${files.length - SNAPSHOT_MANIFEST_LIMIT} 个，用 ls 看。`);
+  } else if (files.length <= SNAPSHOT_MANIFEST_LIMIT) {
     lines.push(`- 一共 ${files.length} 个文件，都列在下面：read、grep 直接用这些路径；清单之外的文件快照里没有，不用 ls、find 去找。`, together,
       ...files.map((item) => `- ${pyStrValue(pyItem(item, "path"))}（${pyPercentD(pyItem(item, "bytes"))} 字节）`));
   } else {
