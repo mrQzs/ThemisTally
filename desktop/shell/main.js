@@ -64,7 +64,9 @@ async function runShellPage() {
   });
   let shellTracked = null;
   let serviceWindow = null;
-  // 服务自己退出那条路已经在收尾：服务窗口的 closed 不用再收一次服务
+  // 服务自己退出那条路已经在收尾：服务窗口的 closed 不用再收一次服务。
+  // 按 run 记：新服务窗口开起来就复位（onRunning 里），收尾回调再比对当前 serviceWindow 是不是自己
+  // 那一个窗口——重启之后旧窗口迟到的 closed 被身份检查挡掉，不会误停新 run 的服务、也不会误退出
   let serviceGone = false;
 
   // 外壳窗口统一走这里：每次取新分区、只在它自己的 session 上注册一次协议 handler。
@@ -160,6 +162,8 @@ async function runShellPage() {
         allowNavigation: (url) => isServiceUrl(url, origin),
       });
       serviceWindow = opened;
+      // 新 run 的服务窗口：复位「已收尾」——上一个 run 意外退出置的位不继承到这一 run
+      serviceGone = false;
       let tracked;
       try {
         tracked = await trackWindow(opened, () => opened.webContents.loadURL(bootstrap));
@@ -172,6 +176,9 @@ async function runShellPage() {
 
       // 用户关掉服务窗口就结束服务：以 0 退出才让应用以 0 退出（与带参数那条路同一套规则）
       tracked.closed.then(async () => {
+        // 只看当前这一个服务窗口：重启之后旧窗口迟到的 closed 不改新 run 的状态、不触退出码
+        if (serviceWindow !== opened) return;
+        // 外壳自己关的（意外退出换页的收尾）：不收第二次
         if (serviceGone) return;
         const stop = await flow.stop();
         if (stop.exited && stop.code === 0) {
