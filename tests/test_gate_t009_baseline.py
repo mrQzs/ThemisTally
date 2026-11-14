@@ -134,8 +134,9 @@ EXECUTOR_TESTS = ("page-logic.test.ts", "page-common.test.tsx", "page-overview.t
 
 # 三页可以从 api.ts 取的读函数（合同第 2 条）
 # 站主门禁准备（2026-11-13）：T038（“角色与模型”页加“七端岗位”一组，模型配置 M4）让 RolesPage 多读一个 getHubRoles
+# 站主门禁准备（2026-11-14）：T043（“CLI 运行时”页加 Quizs 一块，模型配置 M4 之三）让 RuntimesPage 多读 getQuizsProviders、getQuizsLive
 ALLOWED_API_READS = ("getStatus", "getHistory", "getMeta", "getMetaNow", "getRoles", "getProfiles", "getPresets",
-                     "diffPresets", "getRuntimes", "getHubRoles")
+                     "diffPresets", "getRuntimes", "getHubRoles", "getQuizsProviders", "getQuizsLive")
 
 # 合同 §3.4 的分组状态码（分组只来自 attemptGroups，页面源码里不得自己写）
 STATE_CODES = ("PREPARING", "RUNNING", "COLLECTING", "NEEDS_REVIEW", "TIMEOUT", "CANCELLED", "INFRA_FAILURE", "ESCALATE",
@@ -2898,7 +2899,8 @@ describe('D10 就绪检查区与空态', () => {
     await mountRuntimes();
     const r = root('runtimes');
     expectAllSectionsTitled(r);
-    expect(qa(r, 'section').map(sectionTitle)).toEqual(['已登记', '就绪检查']);
+    // 站主门禁准备（2026-11-14）：T043 在末尾加 Quizs 一块，只钉开头两节
+    expect(qa(r, 'section').map(sectionTitle).slice(0, 2)).toEqual(['已登记', '就绪检查']);
     const sec = sectionNamed(r, '就绪检查');
     const b = btn(sec, '运行就绪检查');
     expect(b, '应有 [运行就绪检查]').not.toBeNull();

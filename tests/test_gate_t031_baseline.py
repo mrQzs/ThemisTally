@@ -181,13 +181,13 @@ ASSUMPTIONS = (
     "由替身用例的白名单断言与真内核 U9 的逐字段一致在流水线里钉住，静态不猜实现写法",
     "「岗位名与适配器名注明出处」按 redaction.ts 与 writeroutes.ts 的注释里出现 kit_roles.py 判（未去注释的全文找）",
     "「readroutes.ts 去注释后无 WRITE」沿用 T019 门禁的注释剥离口径；本片另加两条写路由名 api.hub.roles.set/"
-    "api.hub.roles.unset 与 action 名 hub.set/hub.unset 也不许出现；条数注释只查「20 条」出现，不查「19 条」"
+    "api.hub.roles.unset 与 action 名 hub.set/hub.unset 也不许出现；条数注释只查写明了「N 条」（站主 11-14 为 T042 放宽，原来只查「20 条」出现），不查「19 条」"
     "消失（合同 §1 只点名文件头那一处，另两处注释改不改由执行端自定）",
     "「四份锁定的基准测试只改点名的几处」按点名的标记在判（名表与示例的新行、条数断言的值不少于 20/14、时限数组"
     "不少于 20 个值、令牌表的两行）；条数与行数的具体值不钉恰好、旧数不查消失——站主口径：数随后续片变，"
     "总数由被锁定用例 W2 的集合比对与 routes-auth 的条数断言钉住，证据不丢",
     "README 的条数只认「写明了」（读路由与写操作两处有「N 条…」的说法）；「连接空闲超时」那一条按合同 v2 §7 "
-    "仍逐字要求「20 条读路由、预览、14 条写路由」（合同保留的逐字要求，不做整页否定）",
+    "要求写成「N 条读路由、预览、M 条写路由」（站主 11-14 为 T042 放宽，原来逐字钉 20 与 14；不做整页否定）",
     "流水线预算 480 秒（G01 的 600 秒减去静态用例与 pytest 自身开销）：依赖装好时两组 vitest 实测远小于预算；bun install "
     "只在依赖不齐时跑（候选做完 S01 之后不会跑）",
 )
@@ -398,9 +398,9 @@ def test_static_readroutes_clean():
                           ("hub.unset", "action 名 hub.unset")):
         if needle in code:
             problems.append(f"readroutes.ts 去注释后不应出现 {label}")
-    if re.search(r"20\s*条", text) is None:
-        # 合同 §1 点名文件头注释改成 20 条；只查出现，不查「19 条」消失（合同未点名的两处注释改不改由执行端自定）
-        problems.append("readroutes.ts 的文件头注释应写「20 条读路由」")
+    # 站主门禁准备（2026-11-14）：T042 再加两条 Quizs 读路由，条数随片变；只认写明了条数（原来钉「20 条」）
+    if re.search(r"\d+\s*条", text) is None:
+        problems.append("readroutes.ts 的文件头注释应写明有几条读路由（「N 条」）")
     fail_if(problems, "readroutes.ts 的干净面（D01/D11）")
 
 
@@ -876,8 +876,9 @@ def test_static_readme():
     else:
         bullet_end = text.find("\n- ", at)
         bullet = text[at:bullet_end if bullet_end > 0 else at + 600]
-        if "20 条读路由、预览、14 条写路由" not in bullet:
-            problems.append("「连接空闲超时」那一条应写「20 条读路由、预览、14 条写路由」")
+        # 站主门禁准备（2026-11-14）：T042 加读路由，条数随片变；只认「N 条读路由、预览、M 条写路由」的说法（原来逐字钉 20 与 14）
+        if re.search(r"\d+\s*条读路由、预览、\d+\s*条写路由", bullet) is None:
+            problems.append("「连接空闲超时」那一条应写「N 条读路由、预览、M 条写路由」")
     # 已知限制
     limits = _section(text, "## 已知限制")
     if limits is None:
