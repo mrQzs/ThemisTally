@@ -2509,6 +2509,22 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **检查**：每段都进重活车道：类型检查 0 错；配置的契约 7 份 52 条全过（roles-probe、roles-commands、config-launcher、hub-contract-repo、schemas、mutation-specs、source-hygiene）。配置的 pytest 第一遍红了 test_kernel_impl 的两条“发现错误由 Python 回答”：那两条要一个不在任何 Git 仓库里的目录，我把 basetemp 放在了 C:/Code/Quizs（它本身是仓库）底下，与这一轮无关；补了用例之后 basetemp 改到仓库外重跑 ：配置的 pytest 364 条（子测试 157 个）全过，roles-probe 契约 19 条全过。
 - **没做**：本机服务的两条路由与“CLI 运行时”页的 Quizs 一块（T042 候选，T041 落地之后登记）；Quizs 的原生启动器还不认这两条命令（Quizs 那边的事），没设 QUIZS_CMD 时 PATH 上的 quizs 会报用法错误，原样记进 problem。
 
+### 第 164 轮：站主已要求更早的阶段返工时，门禁交付照收、不跑基线检查（候选 #12）
+
+- **起因**：站主用 `send --rework` 要求 1-plan 或 2-contract 返工的时候，门禁端正好交付（两次都是热修补）：那个阶段重新交付时，这份门禁交付连同基准测试一起作废，门禁要照新的上游重交，这一遍基线检查的结果用不上。内核却照常把它排进重活车道；同一主任务的 runner 要等它跑完，协调人才收得到站主的信。
+  - 11-12 T027：17:22:49Z 站主要求 2-contract 返工，17:23:03Z 门禁端交付，基线检查跑了约 20 分钟。
+  - 11-14 T038：11:24:26Z 站主要求 2-contract 返工，11:24:44Z 门禁端交付。基线检查 11:24:48Z 排进车道，11:59:55Z 进车道，12:20:00Z 跑完；协调人 12:21 才照站主的信给合同端发返工，前后白等 56 分钟。
+- **改法**：
+  - accept_gate_pre（TS 的 acceptGatePre）在改完合同的 base_sha 之后、排车道之前，看一眼站主的返工要求：要返工的阶段排在 3-gate-pre 之前（STAGE_ORDER 里的 1-plan、2-contract），就不跑基线检查，基准测试不锁定。oracle 记 `baseline_deferred`（站主要返工的阶段），账本记 `oracle.baseline_deferred`（task、suffix），交回空表：交付照收。
+  - 提交基准、挂引用、已派遣时升版都照旧。热修补等门禁照新的上游重交、锁定时才入账（ts.hotfix 留着，previous_oracle 不变）。合同摘要照旧由 revalidate_contract 写：它每次都写，草稿里写的“跳过时不写合同摘要”不成立，用例照出来后改了。
+  - 交付信的内核核验写“通过（基线检查没跑）：站主已要求 2-contract 返工，它重新交付时这份交付会作废，门禁端重交之后再跑基线检查。基准测试没有锁定，一审开不了工：先照站主的信发 2-contract 的返工”（Engine.after_delivery，战后门禁举证候选缺陷时也是在这里改写）。以“通过”开头，是为了不让例行流转把它当成核验没过、代办门禁的返工；它想代办的一审开工照旧被 guard 拦下（站主指定的上游返工还没发，基准测试也没锁）。
+  - 站主要求的是门禁自己（3-gate-pre）或更晚的阶段，照旧跑。
+- **测试**：Python 新加 2 条。第一条：站主要求 2-contract 返工时门禁端交热修补，照收、升版、改 base_sha，不调 baseline，基准测试没锁，账本有 oracle.baseline_deferred，交付信写明基线检查没跑，站主的返工要求还在，一审开不了工。第二条：站主要求 1-plan 时同样跳过，要求 3-gate-pre、5-exec 时照跑照锁。
+- **契约**：hub-contract-flow 的采样名单加上这两条，hub-engine 的加上第一条（第 161 轮之后计数是下限，不用改数字）。另加两段手写对照，名字都带“第 164 轮”：hub-contract-flow 是四种站主返工下的 accept_gate_pre，注入 run_pd，1-plan、2-contract 不给 baseline，另外两种给；hub-engine-scenes 是 after_delivery 改写后的内核核验，从调用之后的 fields 里读。
+- **变异**：Python 6 条（`hub-k7.py.json`）、TS 6 条（`hub-k7.ts.json`，只跑那两段手写对照）：照跑基线检查、不看阶段先后、门禁自己的返工也跳过、跳过时照样锁定、跳过不记账、交付信照写“通过”。全部抓住：Python 6 条、TS 6 条。
+- **检查**：每段都进重活车道：类型检查 0 错；test_kit_hub.py 400 条全过；hub-engine-scenes、hub-heavy-scenes 两份契约加 mutation-specs、source-hygiene 4 份 30 条全过；hub-contract-flow 9 条、hub-engine 3 条、hub-step 3 条全过。这一轮是从第 161 轮的末端切出来的，合入前接到第 162、163、165 轮之后（两边都动过的只有 tests/test_kit_hub.py，位置不挨着；TS 没有共同的文件），复查 test_kit_hub.py 401 条全过，mutation-specs、source-hygiene 2 份 5 条全过。
+- **没做**：只在开跑之前看一次站主的返工要求；站主的要求在基线检查跑起来之后才到的，照旧跑完。站主要门禁自己返工时，这一遍的结果门禁重交前还用得上，所以照旧跑。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

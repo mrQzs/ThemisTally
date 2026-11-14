@@ -1,0 +1,53 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract-flow.contract.test.ts",
+    "packages/contracts/test/hub-engine-scenes.contract.test.ts",
+    "-t",
+    "第 164 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "T01 站主要求更早的阶段返工也照跑基线检查",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (typeof rework === \"string\" && STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(\"3-gate-pre\")).includes(rework)) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "T02 不看阶段先后（站主要求 5-exec 也跳过）",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (typeof rework === \"string\" && STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(\"3-gate-pre\")).includes(rework)) {",
+      "new": "  if (typeof rework === \"string\") {"
+    },
+    {
+      "name": "T03 门禁自己的返工也跳过",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "  if (typeof rework === \"string\" && STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(\"3-gate-pre\")).includes(rework)) {",
+      "new": "  if (typeof rework === \"string\" && STAGE_ORDER.slice(0, STAGE_ORDER.indexOf(\"3-gate-pre\") + 1).includes(rework)) {"
+    },
+    {
+      "name": "T04 跳过时照样锁定",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    dict(pyItem(ts, \"oracle\")).set(\"baseline_deferred\", rework);",
+      "new": "    dict(pyItem(ts, \"oracle\")).set(\"baseline_deferred\", rework).set(\"locked\", true);"
+    },
+    {
+      "name": "T05 跳过不记账",
+      "file": "ts/packages/hub/src/accept.ts",
+      "old": "    await hub.appendEvent(\"oracle.baseline_deferred\", [[\"task\", task], [\"suffix\", rework]]);",
+      "new": ""
+    },
+    {
+      "name": "T06 交付信照写“通过”",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": "    if (suffix === \"3-gate-pre\" && pyTruthy(pyGet(pyItem(ts, \"oracle\"), \"baseline_deferred\"))) {",
+      "new": "    if (false) {"
+    }
+  ]
+}

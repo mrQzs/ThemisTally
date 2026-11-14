@@ -14,6 +14,7 @@ import { purePathName, purePathParent, purePathStr } from "@themis/base/pypath";
 import { D, S, pyLstrip, pyRegex, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { runSupervised } from "@themis/base/supervise";
 import { executorLine, hubBindings } from "./bindings.ts";
+import { STAGE_ORDER } from "./constants.ts";
 import {
   budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, hollowBaselineProblems, normalizeIdentity, normalizeMarkup,
   stripDecisions, tail,
@@ -236,6 +237,15 @@ export async function acceptGatePre(hub: Hub, ts: PyDict, workspace: string, dep
   }
   let problems = await setContractBase(hub, ts, sha, deps);
   if (problems.length) return problems;
+  const owner = pyGet(ts, "owner_rework");
+  const rework = pyGet(pyTruthy(owner) ? owner : new Map(), "suffix");
+  if (typeof rework === "string" && STAGE_ORDER.slice(0, STAGE_ORDER.indexOf("3-gate-pre")).includes(rework)) {
+    // 第 164 轮（候选 #12）：站主已经要求更早的阶段返工，它重新交付时这份交付连同基准测试一起作废、门禁照新的上游重交，
+    // 这一遍基线检查的结果用不上（T027、T038 都在车道里白排了一遍，协调人要等它跑完才收得到站主的信）。照收、不锁，重交时再跑
+    dict(pyItem(ts, "oracle")).set("baseline_deferred", rework);
+    await hub.appendEvent("oracle.baseline_deferred", [["task", task], ["suffix", rework]]);
+    return [];
+  }
   const [code, out] = await checkedInLane(hub, ts, "基线检查", ["baseline", pyItem(pyItem(ts, "contract"), "key") as string], 1800,
     (text) => baselineMismatches(hub, text), deps.runPd, deps);
   dict(pyItem(ts, "oracle")).set("baseline_exit", BigInt(code));

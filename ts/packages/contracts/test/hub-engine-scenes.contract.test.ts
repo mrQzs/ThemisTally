@@ -25,6 +25,7 @@ import { renderLetter } from "@themis/hub/letters";
 import { Hub, canonicalState } from "@themis/hub/mailbox";
 import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
+import { type Tagged, fromTagged } from "../src/tagged.ts";
 import { REPO } from "./harness.ts";
 import { AT, LF, type Scene, agreeFlow, flow, kernelPython, py, returned, scene, text, tsAfter, written } from "./flow-fixtures.ts";
 import { put, removeCreated, tempDir } from "./repo-fixtures.ts";
@@ -339,6 +340,19 @@ describe("第 ⑤i1 片：变异第二段补的场景（手写）", () => {
     expect(lettersTo(states[0], OWNER).join(LF)).toContain(`偏离: - 上游 1.3.0 的许可证是 MIT（出处：未写）${LF}`);
     expect(lettersTo(states[1], OWNER).join(LF)).toContain(`偏离: - ${"卯".repeat(1498)}${LF}`);
     expect((tsAfter(states[2]).get("audit_pre") as PyDict).get("fails")).toBe(1n);
+  }, 600_000);
+
+  it("第 164 轮：after_delivery：门禁交付时基线检查推迟了（站主已要求更早的阶段返工），内核核验写明没跑；没推迟的照旧是“通过”", () => {
+    const sc = stateScene(planned1);
+    const gate = (oracle: Record<string, unknown>): PyDict => taskState(sc.head, "3-gate-pre", { oracle });
+    const states = agreeFlow([
+      flow("Engine.after_delivery", sc, [null, gate({ sha: "a".repeat(40), locked: false, baseline_deferred: "2-contract" }), "3-gate-pre", { 内核核验: "通过" }, {}]),
+      flow("Engine.after_delivery", sc, [null, gate({ sha: "a".repeat(40), locked: true }), "3-gate-pre", { 内核核验: "通过" }, {}]),
+    ]);
+    const check = (state: Record<string, unknown> | undefined): PyValue =>
+      (fromTagged((state?.["args_after"] as Record<string, Tagged>)["fields"] as Tagged) as PyDict).get("内核核验") ?? null;
+    expect(String(check(states[0]))).toMatch(/^通过（基线检查没跑）：站主已要求 2-contract 返工，/);
+    expect(check(states[1])).toBe("通过");
   }, 600_000);
 
   it("finish_kernel_stage：通过与没过都让下游作废、没过的写法（F01–F04）；阶段是列表、是 None 时照 Python 报 TypeError（Y01、Y03）；worker_job 的阶段是列表（Y04）", () => {

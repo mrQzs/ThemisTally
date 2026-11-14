@@ -61,6 +61,7 @@ const TESTS = [
   "test_three_rejected_coordinator_turns_block_the_task", "test_unverified_external_facts_wait_for_the_owner",
   "test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes", "test_worker_delivery_is_verified_then_forwarded",
   "test_worker_retries_stop_when_the_output_stays_invalid", "test_worker_turn_with_violation_is_not_delivered",
+  "test_a_gate_delivery_skips_the_baseline_while_the_owner_wants_the_contract_redone", // 第 164 轮
 ];
 const FLOW = [
   "Engine.escalate", "Engine.worker_job", "Engine.auto_jev", "Engine.stage_workspace", "Engine.verify_delivery", "Engine.after_delivery", "Engine.finish_kernel_stage",

@@ -3108,6 +3108,13 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
     problems = set_contract_base(hub, ts, sha)
     if problems:
         return problems
+    rework = (ts.get("owner_rework") or {}).get("suffix")
+    if rework in STAGE_ORDER[:STAGE_ORDER.index("3-gate-pre")]:
+        # 第 164 轮（候选 #12）：站主已经要求更早的阶段返工，它重新交付时这份交付连同基准测试一起作废、门禁照新的上游重交，
+        # 这一遍基线检查的结果用不上（T027、T038 都在车道里白排了一遍，协调人要等它跑完才收得到站主的信）。照收、不锁，重交时再跑
+        ts["oracle"]["baseline_deferred"] = rework
+        hub.append_event("oracle.baseline_deferred", task=ts["task"], suffix=rework)
+        return []
     code, out = checked_in_lane(hub, ts, "基线检查", ["baseline", ts["contract"]["key"]], 1800,
                                 lambda text: baseline_mismatches(hub, text))
     ts["oracle"]["baseline_exit"] = code
@@ -6301,6 +6308,10 @@ class Engine:
                                   "需协调人决定": "请站主逐条核实，用 kit_hub.py send %s --type 回复 --facts-checked "
                                                   "写明每条的结果" % ts["task"],
                                   "证据": ".agent/mailbox/tasks/%s-1-plan/report.md" % ts["task"]})
+        if suffix == "3-gate-pre" and ts["oracle"].get("baseline_deferred"):
+            deferred = ts["oracle"]["baseline_deferred"]
+            fields["内核核验"] = ("通过（基线检查没跑）：站主已要求 %s 返工，它重新交付时这份交付会作废，门禁端重交之后再跑基线检查。"
+                              "基准测试没有锁定，一审开不了工：先照站主的信发 %s 的返工" % (deferred, deferred))
         if suffix == "6-gate-post" and ts["gate_post"].get("defects"):
             fields["内核核验"] = ("通过：门禁端举证了 %d 处候选缺陷，白盒测试正好红在这几条上；变异检查没跑（候选是红的）。"
                               "下一步照常开工终审，由终审裁定并一次列全阻塞项" % len(ts["gate_post"]["defects"]))

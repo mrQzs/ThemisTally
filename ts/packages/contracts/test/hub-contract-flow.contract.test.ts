@@ -2,7 +2,7 @@
 // bump_contract_version、set_contract_base、accept_gate_pre、sync_executor_line 交给 Python、Node、Bun，照调用当时比（设计稿第 6 节
 // 第 6 条、第 8 节）：交回值，调用之后的 ts，两棵树（hub 仓库、仓库外的门禁 worktree）里新建、改动、删掉的文件，账本新增的部分，
 // 用命令读出的 git 状态（HEAD、全部引用、status）。语料：
-//   - tests/test_kit_hub.py 里调到这六个函数的 23 条用例：Python 探针在最外层调用时记下调用当时的快照（带 .git）、钉住的时刻、用例
+//   - tests/test_kit_hub.py 里调到这六个函数的 25 条用例：Python 探针在最外层调用时记下调用当时的快照（带 .git）、钉住的时刻、用例
 //     当时换掉的 run_pd、contract_requirements、budget_problems、revalidate_contract 的每一次调用（参数、交回值、文件改动、调用之后
 //     的 ts），三边先原地放回快照、照记录注入再重放，每一次都要与当时的结果相同；
 //   - 只在比较这一步把 pytest 收集失败输出里的用时换成占位（第 6 节第 2 条），实现里不打。
@@ -41,6 +41,7 @@ const TESTS = [
   "test_gate_rework_resets_a_worktree_the_state_lost_track_of", "test_kernel_writes_the_contract_version_and_base_it_assigns", "test_owner_raises_the_attempt_budget",
   "test_retry_after_failed_checks_tells_the_executor_why", "test_rework_contract_lets_the_executor_modify_files_added_earlier",
   "test_unsent_contracts_get_the_rostered_executor_line",
+  "test_a_gate_delivery_skips_the_baseline_while_the_owner_wants_the_contract_redone", "test_only_an_owner_rework_before_the_gate_skips_the_baseline", // 第 164 轮
 ];
 const FUNCTIONS = ["accept_contract", "revalidate_contract", "bump_contract_version", "set_contract_base", "accept_gate_pre", "sync_executor_line"];
 
@@ -209,6 +210,34 @@ describe("第 ⑤e2b 片：临时仓库上的手写对照", () => {
     expect([oracle.get("baseline_exit"), oracle.get("baseline_tail")]).toEqual([1n, baselineOut.split(LF).slice(5).join(LF)]);
     // baseline 那次调用改了合同 JSON：锁定时重算的哈希是改过之后的（三边一比就看出锁定时有没有重算）
     expect([returned(results[5]), (tsAfter(results[5]).get("oracle") as PyDict).get("locked")]).toEqual([[], true]);
+  }, 300_000);
+
+  it("第 164 轮：站主已要求 1-plan、2-contract 返工时，门禁交付照收、提交、改 base_sha，不跑基线检查、不锁定，账本记 oracle.baseline_deferred；要的是 3-gate-pre 或更晚的阶段照跑", () => {
+    const made = (): Scene => scene(BASE_FILES, (repo, wt, head) => {
+      put(repo, ".agent/plans/t001-doc.v1.md", contractMd(head));
+      expect(runPythonCli(["--repo", repo, "derive-json", "t001-doc.v1", "--title", "改文档"], repo).status, "搭场景时的 derive-json").toBe(0);
+      put(wt, GATE, GATE_TEST);
+    });
+    const revalidated = [pd(["derive-json", "t001-doc.v1", "--force", "--title", "改文档"], 0, "ok"), pd(["validate", "t001-doc.v1"], 0, "ok")];
+    const record = JSON.stringify({ results: [{ id: "V01", argv: ["python", "-m", "pytest", GATE, "-q"], log: "01/V01.log", exit_code: 1, timed_out: false, interrupted: false, spawn_error: null }] });
+    const baseline = pd(["baseline", "t001-doc.v1"], 0, `基线检查记录：.agent/runs/t001-doc/baseline/01/checks.json${LF}`, 1800, {
+      "0/.agent/runs/t001-doc/baseline/01/checks.json": record, "0/.agent/runs/t001-doc/baseline/01/V01.log": `1 failed in 0.01s${LF}`,
+    });
+    const cases: [string, unknown[]][] = [
+      ["1-plan", revalidated], ["2-contract", revalidated], ["3-gate-pre", [...revalidated, baseline]], ["5-exec", [...revalidated, baseline]],
+    ];
+    const results = agreeFlow(cases.map(([suffix, inner]) => {
+      const sc = made();
+      return flow("accept_gate_pre", sc, [taskState(sc, V1, { owner_rework: { suffix, msg: `m-${suffix}`, requested_at: AT } }), sc.wt], { inner });
+    }));
+    expect(results.map(returned)).toEqual([[], [], [], []]);
+    expect(results.map((state) => {
+      const oracle = tsAfter(state).get("oracle") as PyDict;
+      return [oracle.get("locked"), oracle.get("baseline_deferred") ?? null];
+    })).toEqual([[false, "1-plan"], [false, "2-contract"], [true, null], [true, null]]);
+    const deferred = (state: Record<string, unknown> | undefined): number => Buffer.from(state?.["ledger"] as string, "base64").toString("utf8").split(LF)
+      .filter((line) => line.includes(`"event": "oracle.baseline_deferred"`)).length;
+    expect(results.map(deferred)).toEqual([1, 1, 0, 0]);
   }, 300_000);
 
   it("revalidate_contract：带标题时 derive-json 带 --title；derive-json 自己失败；validate 过了之后内核要求报问题（假的 run_pd 写出合同 JSON）", () => {

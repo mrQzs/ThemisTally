@@ -701,6 +701,11 @@ export class Engine implements Landing {
         ]));
       }
     }
+    if (suffix === "3-gate-pre" && pyTruthy(pyGet(pyItem(ts, "oracle"), "baseline_deferred"))) {
+      const deferred = pyStrValue(pyItem(pyItem(ts, "oracle"), "baseline_deferred"));
+      fields.set("内核核验", `通过（基线检查没跑）：站主已要求 ${deferred} 返工，它重新交付时这份交付会作废，门禁端重交之后再跑基线检查。`
+        + `基准测试没有锁定，一审开不了工：先照站主的信发 ${deferred} 的返工`);
+    }
     if (suffix === "6-gate-post" && pyTruthy(pyGet(pyItem(ts, "gate_post"), "defects"))) {
       fields.set("内核核验", `通过：门禁端举证了 ${pyLenValue(pyItem(pyItem(ts, "gate_post"), "defects"))} 处候选缺陷，白盒测试正好红在这几条上；`
         + "变异检查没跑（候选是红的）。下一步照常开工终审，由终审裁定并一次列全阻塞项");

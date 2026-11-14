@@ -518,6 +518,26 @@ def test_gate_pre_baseline_must_fail_on_assertions(tmp_path, monkeypatch):
         "baseline 的检查记录里没有跑 tests/test_gate_t009_baseline.py 的检查"]
 
 
+def test_only_an_owner_rework_before_the_gate_skips_the_baseline(tmp_path, monkeypatch):
+    # 第 164 轮：站主要的是 1-plan 也一样照收、不跑基线检查；要的是门禁自己（3-gate-pre）或更晚的阶段（5-exec），
+    # 这份交付的基线检查照跑、照锁
+    repo, head, hub, ts, _plans, calls = gate_setup(tmp_path, monkeypatch)
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    target = workspace / "tests" / "test_gate_t001_baseline.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    seen = []
+    for suffix in ("1-plan", "3-gate-pre", "5-exec"):
+        kh.git(["reset", "-q", "--mixed", head], workspace)
+        ts["owner_rework"] = {"suffix": suffix, "msg": "m-" + suffix}
+        del calls[:]
+        assert kh.accept_gate_pre(hub, ts, workspace) == []
+        seen.append((suffix, ["baseline", "t001-doc.v1"] in calls, ts["oracle"]["locked"],
+                     ts["oracle"].get("baseline_deferred")))
+    assert seen == [("1-plan", False, False, "1-plan"), ("3-gate-pre", True, True, None), ("5-exec", True, True, None)]
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+
+
 def test_contract_with_pending_marks_is_rejected(tmp_path, monkeypatch):
     _repo, _head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
     md = plans / "t001-doc.v1.md"
@@ -2752,6 +2772,48 @@ def test_a_second_hotfix_rework_keeps_the_original_previous_oracle(engine_env):
         hub.save_state(state)
     ts = hub.load_state()["tasks"]["T001"]
     assert ts["hotfix"]["previous_oracle"] == "o" * 40 and (ts.get("reworks") or {}).get("3-gate-pre") == 2
+
+
+def test_a_gate_delivery_skips_the_baseline_while_the_owner_wants_the_contract_redone(tmp_path, monkeypatch):
+    """第 164 轮（候选 #12）：站主已经用 send --rework 2-contract 要求合同返工，门禁端这时交了热修补：内核照收、提交、升版、
+    改 base_sha，不跑这一遍基线检查（合同端重新交付会把这份交付连同基准测试一起作废，门禁照新合同重交时再跑）；基准测试不锁，
+    交付信写明基线检查没跑。T027、T038 都在车道里白排过一遍，协调人要等它跑完才收得到站主的信。"""
+    calls = []
+    repo, head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=pd_with_baseline(calls))
+    (plans / "t001-doc.v2.json").write_text((plans / "t001-doc.v1.json").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(kh, "role_prompt", lambda agent: "角色")
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    target = workspace / "tests" / "test_gate_t001_baseline.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_x():\n    assert False\n", encoding="utf-8")
+    assert kh.accept_gate_pre(hub, ts, workspace) == []
+    first = ts["oracle"]["sha"]
+    ts["contract"]["dispatched"] = True
+    ts["hotfix"] = {"reason": "执行端报了 1 条合同矛盾", "previous_oracle": first}
+    ts["stages"]["3-gate-pre"] = {"status": "assigned", "kind": "返工"}
+    ts["owner_rework"] = {"suffix": "2-contract", "msg": "m-owner", "requested_at": "2026-11-14T11:24:26Z"}
+    hub.save_state({"tasks": {"T001": ts}})
+    hub.deliver({"from": kh.COORDINATOR, "to": "gate-sonnet", "task-id": "T001-3-gate-pre", "in-reply-to": "none",
+                 "type": "返工"}, fields())
+    delivery = {"letter": dict(planner_delivery()["letter"], type="返工完成"), "report": "热修补", "state": ""}
+
+    def rewrite(ws):
+        (ws / "tests" / "test_gate_t001_baseline.py").write_text("def test_x():\n    assert 1 == 2\n", encoding="utf-8")
+
+    runner = HookedRunner([(delivery, [])], {1: rewrite})
+    kh.Engine(hub, runner).step()
+    ts = hub.load_state()["tasks"]["T001"]
+    assert len(runner.calls) == 1 and [args[1] for args in calls if args[0] == "baseline"] == ["t001-doc.v1"]
+    assert ts["stages"]["3-gate-pre"]["status"] == "delivered" and ts["contract"]["key"] == "t001-doc.v2"
+    assert ts["oracle"]["sha"] != first and not ts["oracle"]["locked"] and ts["oracle"]["baseline_deferred"] == "2-contract"
+    assert "- base_sha: %s" % ts["oracle"]["sha"] in (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "hotfixes" not in ts and ts["hotfix"]["previous_oracle"] == first  # 热修补等门禁照新合同重交、锁定时才入账
+    assert [(e["task"], e["suffix"]) for e in kh.ledger_events(hub) if e["event"] == "oracle.baseline_deferred"] == [
+        ("T001", "2-contract")]
+    assert coordinator_letter(hub)["内核核验"].startswith("通过（基线检查没跑）：站主已要求 2-contract 返工")
+    assert ts["owner_rework"]["suffix"] == "2-contract"  # 站主的要求还在：协调人照发合同端的返工
+    assert "基准测试还没锁定" in kh._guard_start(ts, "4-audit-pre")  # 一审开不了工
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
 
 
 def attempt_dir(hub, state: dict, violations: int = 0):

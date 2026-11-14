@@ -1,0 +1,54 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "skips_the_baseline"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 站主要求更早的阶段返工也照跑基线检查",
+      "file": "scripts/kit_hub.py",
+      "old": "    if rework in STAGE_ORDER[:STAGE_ORDER.index(\"3-gate-pre\")]:",
+      "new": "    if rework in ():"
+    },
+    {
+      "name": "P02 不看阶段先后（站主要求 5-exec 也跳过）",
+      "file": "scripts/kit_hub.py",
+      "old": "    if rework in STAGE_ORDER[:STAGE_ORDER.index(\"3-gate-pre\")]:",
+      "new": "    if rework:"
+    },
+    {
+      "name": "P03 门禁自己的返工也跳过",
+      "file": "scripts/kit_hub.py",
+      "old": "    if rework in STAGE_ORDER[:STAGE_ORDER.index(\"3-gate-pre\")]:",
+      "new": "    if rework in STAGE_ORDER[:STAGE_ORDER.index(\"3-gate-pre\") + 1]:"
+    },
+    {
+      "name": "P04 跳过时照样锁定",
+      "file": "scripts/kit_hub.py",
+      "old": "        ts[\"oracle\"][\"baseline_deferred\"] = rework",
+      "new": "        ts[\"oracle\"].update(baseline_deferred=rework, locked=True)"
+    },
+    {
+      "name": "P05 跳过不记账",
+      "file": "scripts/kit_hub.py",
+      "old": "        hub.append_event(\"oracle.baseline_deferred\", task=ts[\"task\"], suffix=rework)",
+      "new": "        pass"
+    },
+    {
+      "name": "P06 交付信照写“通过”",
+      "file": "scripts/kit_hub.py",
+      "old": "        if suffix == \"3-gate-pre\" and ts[\"oracle\"].get(\"baseline_deferred\"):",
+      "new": "        if False:"
+    }
+  ]
+}
