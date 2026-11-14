@@ -1,5 +1,5 @@
 // 假的本机 CLI（迁移第 ③d 片起，配置中心会运行本机 CLI 的命令用）：fake-pi.mjs 按旁边的 fake-pi.json 回答 --version、
-// --help、--list-models [模型] 与 auth check，并把收到的 argv 与 child_env 的几项结果记进 FAKE_PI_LOG。pi.cmd 是 npm
+// --help、--list-models [模型]、auth check 与 quizs 的 providers list、live status（按目录名，r3 第 165 轮），并把收到的 argv 与 child_env 的几项结果记进 FAKE_PI_LOG。pi.cmd 是 npm
 // 样式的垫片（resolve_pi_command 绕过它直接起 node；scan 与 PI_DISPATCH_PI_CMD 指向它时经 CreateProcessW 起 cmd.exe）。
 // claude.cmd 只回答版本，codex.exe 是起不来的文件。转义的反斜杠用 String.fromCharCode(92) 拼。
 import { spawnSync } from "node:child_process";
@@ -22,13 +22,13 @@ export function dirOf(program: string): string {
 
 export const FAKE_PI = [
   'import { appendFileSync, readFileSync } from "node:fs";',
-  'import { dirname, join } from "node:path";',
+  'import { basename, dirname, join } from "node:path";',
   'import { fileURLToPath } from "node:url";',
   "const here = dirname(fileURLToPath(import.meta.url));",
   'const spec = JSON.parse(readFileSync(join(here, "fake-pi.json"), "utf8"));',
   "const argv = process.argv.slice(2);",
   'const at = argv.indexOf("--list-models");',
-  'const mode = argv.includes("--version") ? "version" : argv.includes("--help") ? "help" : at >= 0 ? (argv[at + 1] ? `list:${argv[at + 1]}` : "list") : argv[0] === "auth" ? "auth" : "other";',
+  'const mode = argv.includes("--version") ? "version" : argv.includes("--help") ? "help" : at >= 0 ? (argv[at + 1] ? `list:${argv[at + 1]}` : "list") : argv[0] === "auth" ? "auth" : argv[0] === "providers" ? "providers" : argv[0] === "live" ? `live:${basename(argv.at(-1) ?? "")}` : "other";',
   'const reply = spec[mode] ?? spec[mode.split(":")[0]] ?? { code: 9 };',
   "const seen = (name) => process.env[name] ?? null;",
   "if (process.env.FAKE_PI_LOG) {",

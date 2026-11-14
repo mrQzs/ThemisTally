@@ -1321,6 +1321,132 @@ def _hub_unset(args: Any) -> int:
     return EXIT_OK
 
 
+# --- quizs（Quizs 的只读事实，r3 第 165 轮）-------------------------------------
+
+#: 与 kit_hub 的 QUIZS_LIVE_ROOT、QUIZS_LIVE_NAMES、QUIZS_LIVE_FILES、QUIZS_PROFILE_IDS 和 resolve_quizs_command 相同（tests/test_kit_hub.py
+#: 有一条核对）：config quizs 要在没装 kit_hub.py 的仓库里也能用，所以这里另放一份
+QUIZS_LIVE_ROOT = "quizs-live"
+QUIZS_LIVE_NAMES = ("plan.json", "profile.json", "qualification.json")
+QUIZS_LIVE_ENV = ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION")
+QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan"}
+#: Quizs 两条只读命令（Quizs 的 M2，54f3438）输出的 schema_version、live status 的五种 state，每次的时限（秒）
+QUIZS_PROVIDERS_SCHEMA, QUIZS_LIVE_SCHEMA, QUIZS_TIMEOUT = "quizs.providers.v1", "quizs.live-status.v1", 30
+QUIZS_LIVE_STATES = ("ready", "expired", "build_mismatch", "invalid", "missing")
+
+
+def quizs_command() -> List[str]:
+    """quizs 的命令：QUIZS_CMD 是 JSON 的字符串列表，缺省是 PATH 里的 quizs。与 hub 一样不认配置中心登记的 quizs 运行时；
+    QUIZS_CMD 不是 JSON 时 hub 冒堆栈，这里报错。"""
+    raw = os.environ.get("QUIZS_CMD")
+    if not raw:
+        return [shutil.which("quizs") or "quizs"]
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = None
+    if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
+        raise _error("QUIZS_CMD 要是非空的字符串列表（JSON）")
+    return value
+
+
+def cmd_quizs(args: Any) -> int:
+    return _run({"providers": _quizs_providers, "live": _quizs_live}[args.quizs_action], args)
+
+
+def _quizs_json(command: List[str], words: List[str], env: Dict[str, str],
+                schema: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """跑一条 Quizs 的只读命令（不读凭据、不发请求），交回（输出的 JSON 对象，问题）。起不来、超时、退出码不是 0、输出不是
+    这个 schema_version 的对象时对象是 None，问题里带退出码与脱敏之后的最后一行（截到 200 个字）。"""
+    code, out, err = pd.run_capture(command + words, env=env, timeout=QUIZS_TIMEOUT)
+    if code == 0:
+        try:
+            data = json.loads(out)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and data.get("schema_version") == schema:
+            return data, None
+    lines = [line.strip() for line in pd.redact_secrets(err if code else out).splitlines() if line.strip()]
+    detail = "退出码 %d" % code if code else "输出不是 %s 的 JSON 对象" % schema
+    return None, "quizs %s 失败（%s）%s" % (" ".join(words[:2]), detail, "：" + lines[-1][:200] if lines else "")
+
+
+def _quizs_providers(args: Any) -> int:
+    _kc_, _repo_, config = _open(args)
+    env, _removed = pd.child_env(config)
+    data, problem = _quizs_json(quizs_command(), ["providers", "list"], env, QUIZS_PROVIDERS_SCHEMA)
+    providers = None if data is None else data.get("providers")
+    if data is None or not isinstance(providers, list) or not all(isinstance(item, dict) for item in providers):
+        raise _error(problem or "quizs providers list 给的 providers 不是对象的列表")
+    if args.json:
+        _print_json({"build_id": data.get("build_id"), "providers": providers})
+        return EXIT_OK
+    if not providers:
+        print("quizs providers list 没有列出提供方")
+    for item in providers:
+        thinking = item.get("thinking")
+        print("%-10s %-22s %-16s %s" % (item.get("provider"), item.get("id"), item.get("model"),
+                                        "、".join(str(level) for level in thinking) if isinstance(thinking, list) else thinking))
+    return EXIT_OK
+
+
+def _quizs_live_sets(root: Path) -> List[Dict[str, Any]]:
+    """各套 live 文件：信箱 quizs-live/ 下的每个目录（目录名就是提供方，按名字排），再加环境变量给的那一套（hub 在信箱的那套
+    不全时退回它；三个变量都没设就没有）。quizs live status 只认一个目录：三个变量不全、三份不在同一个目录或不叫那三个名字时只记问题。"""
+    folder = root / ".agent" / "mailbox" / QUIZS_LIVE_ROOT
+    names = sorted(entry.name for entry in folder.iterdir() if entry.is_dir()) if folder.is_dir() else []
+    sets: List[Dict[str, Any]] = [{"source": "mailbox", "provider": name, "live_dir": str(folder / name), "problem": None}
+                                  for name in names]
+    given = [os.environ.get(name) or "" for name in QUIZS_LIVE_ENV]
+    if not any(given):
+        return sets
+    row: Dict[str, Any] = {"source": "env", "provider": None, "live_dir": None, "problem": None}
+    paths = [Path(value) for value in given]
+    if not all(given):
+        row["problem"] = "没有设 %s" % "、".join(name for name, value in zip(QUIZS_LIVE_ENV, given) if not value)
+    elif len({str(path.parent) for path in paths}) > 1 or tuple(path.name for path in paths) != QUIZS_LIVE_NAMES:
+        row["problem"] = "环境给的三份 live 文件不在同一个目录或不叫 %s：quizs live status 只认一个目录" % "、".join(QUIZS_LIVE_NAMES)
+    else:
+        row["live_dir"] = str(paths[0].parent)
+    return sets + [row]
+
+
+def _quizs_provider_of(status: Dict[str, Any]) -> Optional[str]:
+    profile = status.get("profile")
+    profile_id = profile.get("id") if isinstance(profile, dict) else None
+    return next((name for name, known in QUIZS_PROFILE_IDS.items() if known == profile_id), None)
+
+
+def _quizs_live(args: Any) -> int:
+    _kc_, repo, config = _open(args)
+    env, _removed = pd.child_env(config)
+    command = quizs_command()
+    rows = []
+    for row in _quizs_live_sets(repo.root):
+        status = None
+        if row["live_dir"] is not None:
+            status, row["problem"] = _quizs_json(command, ["live", "status", "--live-dir", row["live_dir"]], env, QUIZS_LIVE_SCHEMA)
+        if status is not None and status.get("state") not in QUIZS_LIVE_STATES:
+            status, row["problem"] = None, "quizs live status 给的 state 不认得：%s" % _shown(status.get("state"))
+        if row["provider"] is None and status is not None:
+            row["provider"] = _quizs_provider_of(status)
+        rows.append(dict(row, status=status))
+    if args.json:
+        _print_json({"live": rows})
+        return EXIT_OK
+    if not rows:
+        print("没有 live 文件：信箱的 %s/ 下没有目录，也没有设 %s" % (QUIZS_LIVE_ROOT, "、".join(QUIZS_LIVE_ENV)))
+    for row in rows:
+        status = row["status"] or {}
+        print(("%-10s %-8s %-15s %s" % (row["provider"] or "?", row["source"], status.get("state") or "读不出",
+                                        row["live_dir"] or "")).rstrip())
+        missing = status.get("missing")
+        note = row["problem"] or ("缺 " + "、".join(str(name) for name in missing) if isinstance(missing, list) and missing
+                                  else status.get("problem"))
+        if note:
+            print("  %s" % note)
+    return EXIT_OK
+
+
 # --- preset ----------------------------------------------------------------
 
 def cmd_preset(args: Any) -> int:

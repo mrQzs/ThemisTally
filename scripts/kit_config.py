@@ -1684,6 +1684,15 @@ def build_parser() -> argparse.ArgumentParser:
     _preview_options(q)
     p.set_defaults(func=_roles_command("cmd_hub"))
 
+    p = sub.add_parser("quizs", help="Quizs 的只读事实（r3 第 165 轮）：providers、live；只跑本机 Quizs 的只读命令")
+    actions = p.add_subparsers(dest="quizs_action", required=True)
+    q = actions.add_parser("providers", help="quizs providers list：已批准的路线（提供方、档案、模型、思考档位、上限、计费）")
+    q.add_argument("--json", action="store_true")
+    q = actions.add_parser("live", help="信箱 quizs-live/ 下的每一套与环境变量给的那一套各跑 quizs live status："
+                                        "ready、expired、build_mismatch、invalid、missing")
+    q.add_argument("--json", action="store_true")
+    p.set_defaults(func=_roles_command("cmd_quizs"))
+
     p = sub.add_parser("preset", help="方案：list、show、save、use、diff、remove")
     actions = p.add_subparsers(dest="preset_action", required=True)
     q = actions.add_parser("list")

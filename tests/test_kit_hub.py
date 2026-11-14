@@ -8686,6 +8686,22 @@ def test_config_defaults_for_the_posts_match_the_roster():
             "thinking": spec["thinking"]}), post
 
 
+def test_config_quizs_mirrors_the_hub_quizs_constants_and_command(monkeypatch):
+    """r3 第 165 轮：config quizs 另放的一份 Quizs 常量与命令解析和 hub 的相同（没装 kit_hub.py 的仓库里也要能用）。"""
+    import kit_roles
+    assert kit_roles.QUIZS_LIVE_ROOT == kh.QUIZS_LIVE_ROOT
+    assert [flag for flag, _name in kh.QUIZS_LIVE_NAMES] == [flag for flag, _name in kh.QUIZS_LIVE_FILES]
+    assert list(kit_roles.QUIZS_LIVE_NAMES) == [name for _flag, name in kh.QUIZS_LIVE_NAMES]
+    assert list(kit_roles.QUIZS_LIVE_ENV) == [name for _flag, name in kh.QUIZS_LIVE_FILES]
+    assert kit_roles.QUIZS_PROFILE_IDS == kh.QUIZS_PROFILE_IDS
+    for value in (None, "", json.dumps(["node", "C:/quizs/main.js", "--x"])):
+        if value is None:
+            monkeypatch.delenv("QUIZS_CMD", raising=False)
+        else:
+            monkeypatch.setenv("QUIZS_CMD", value)
+        assert kit_roles.quizs_command() == kh.resolve_quizs_command(), value
+
+
 def test_a_post_without_a_binding_runs_exactly_as_the_roster_says(engine_env):
     hub = engine_env
     assert kh.hub_bindings(hub) == {}

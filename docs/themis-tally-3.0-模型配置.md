@@ -140,8 +140,8 @@ Quizs 是独立仓库，改动由规划端直接做（用户 2026-11-06 的决�
 | 路由 | 命令 |
 |---|---|
 | `GET /api/v1/hub/roles` | `config hub show --json` |
-| `GET /api/v1/quizs/providers` | `quizs providers list --json` |
-| `GET /api/v1/quizs/live` | 逐个 quizs 的 profile 调 `quizs live status --json`，合成一份 |
+| `GET /api/v1/quizs/providers` | `config quizs providers --json`（内核跑 `quizs providers list`，核对形状之后交回提供方的列表） |
+| `GET /api/v1/quizs/live` | `config quizs live --json`（信箱 `quizs-live/` 下的每一套与环境变量给的那一套各跑 `quizs live status --live-dir`，一套一行；读不出的一套只记问题，不挡别的） |
 
 写路由（照现有 12 条的规矩：预览、确认号、`--expect-state`、操作终态）：
 
@@ -201,7 +201,7 @@ M0 与 M1、M2 并行：M0 走 hub，M1、M2 由规划端在 hub 跑的间隙做
 | M0 | T027、T028（2026-11-12），T030、T032、T033、T034（11-13）落地；T029 停掉、重登记为 T034。T035（服务意外退出与重启）、T036（实时状态）、T037（写操作接真实路由，片 1）11-14 落地；T039（服务状态页的“意外退出”说明）在跑 |
 | M1 | 已落地（r3 第 154 轮）：`hub_roles` 的校验，`config hub` 的 show、set、unset 三条命令，适配器表加 quizs，hub 每回合读绑定；Python 与 TS 各一份，契约三边一致，变异 28 条全部抓住 |
 | M2 | 已合入 Quizs（2026-11-13，54f3438、d71b740）：`providers list`、`live status --live-dir`；`auth check` 原本就输出 JSON。live 目录按提供方分改在内核做（r3 第 156 轮：信箱的 `quizs-live/<提供方>/`，三份不全退回环境变量那一套） |
-| M3 | 七端岗位的读写路由已落地（T031，2026-11-13）。Quizs 的两条读路由没做：第 156 轮之后 live 状态可以照信箱的 `quizs-live/<提供方>/` 读，不必先在配置中心登记 quizs 的 profile（规划端代定，做的时候再核） |
+| M3 | 七端岗位的读写路由已落地（T031，2026-11-13）。Quizs 两条读路由的内核一半已落地（r3 第 165 轮）：`config quizs providers`、`config quizs live`，quizs 的命令照 hub 取 QUIZS_CMD（缺省 PATH 里的 quizs），不认配置中心登记的 quizs 运行时；本机服务的两条路由与“CLI 运行时”页的 Quizs 一块在 T041 之后另登记 |
 | M4 | T038（“七端岗位”一组的只读部分）在跑；改绑定（B 片）与“CLI 运行时页：手动登记运行时”在它之后另登记。r3 第 162 轮：预览给出岗位的前后（`hub_changes`，本机服务的白名单放行）与“合同端、审核端同一个模型”的警告（第 8 节第 2 条），给 B 片的确认框用；r3 第 163 轮：“岗位此刻有回合在跑”（§3.3，预览的 `running_turns`，本机服务的白名单放行） |
 | M5 | Quizs 接了 MiniMax（分支 `tt-m5-minimax`，没合入）；r3 第 156 轮：合同端、审核端可以绑到 quizs（读整棵仓库的视图）。等用户录 key，之后资格认证与重放；重放跑完之前不绑，绑定要用户同意 |
 | M6 | 未开始 |

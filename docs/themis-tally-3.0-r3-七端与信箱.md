@@ -2494,6 +2494,21 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **没覆盖到的**：回合目录“列不出来”（记进 unreadable、要 --yes）那一支只有 Python 的用例（替身让 lstat 抛 PermissionError）。三边契约在 Windows 上造不出列不出来的目录：文件、联接点都按“不是普通目录”跳过，只有权限被拒才走这一支，要改 ACL，又脆又重，没做；TS 那一支没有对照（错题本第 32 条的检查照出来的）。
 - **又犯的错**：改 transaction.ts 里 needs_yes 那一行之前没有先在 ts/mutations 里搜锚点（错题本第 28 条），mutation-specs 校验照出 config-b.ts.json 的 T12 原文出现 0 次；这次在提交之前、进车道之前就照出来了（第 28 条的做法“改完先跑一次 mutation-specs”起了作用），挪锚点后单独复跑。
 
+### 第 165 轮：配置中心读 Quizs 的两条只读事实（config quizs providers、live）
+
+- **起因**：模型配置文档第 6 节要在“CLI 运行时”页加 Quizs 一块，显示提供方档案的列表与各套 live 文件的状态；第 9 节的 M3 写着 Quizs 的两条读路由没做。桌面端 D3 规定本机服务的路由只起 `pi_dispatch.py … --json` 子进程，不直接跑别的 CLI，所以先由内核给两条只读命令，服务那一片只加路由、白名单与界面（与 T031 依赖第 154 轮同一个路数）。Quizs 那一侧已经有了（M2，54f3438）：`quizs providers list` 输出 `{schema_version: "quizs.providers.v1", build_id, providers}`，`quizs live status --live-dir DIR` 判断一个目录里的 profile.json、plan.json、qualification.json（state 是 ready、expired、build_mismatch、invalid、missing），两条都不读凭据、不发请求。
+- **改法**：
+  - **providers**：`config quizs providers [--json]` 跑 `quizs providers list`（时限 30 秒），核对输出是 quizs.providers.v1 的对象、providers 是对象的列表，交回 `{build_id, providers}`；不加 `--json` 打一张表（提供方、档案、模型、思考档位）。起不来、超时、退出码不是 0、形状不对都报错退出 1，说明里带退出码与脱敏之后的最后一行。
+  - **live**：`config quizs live [--json]` 一套一行 `{source, provider, live_dir, problem, status}`：信箱 `quizs-live/` 下的每个目录（目录名就是提供方，按码位排），再加环境变量给的那一套（QUIZS_LIVE_PLAN 等三个变量；hub 在信箱那套不全时退回它，提供方照 status 里档案的 id 认）。每套跑一次 `quizs live status --live-dir`；起不来、退出码不是 0、输出不是 quizs.live-status.v1、state 不认得的只记在那一套的 problem 上，不挡别的。环境的三个变量不全、三份不在同一个目录或不叫那三个名字时只记问题（`live status` 只认一个目录）。
+  - **quizs 的命令**：照 hub 取 QUIZS_CMD（JSON 字符串列表，缺省 PATH 里的 quizs），不认配置中心登记的 quizs 运行时（hub 也不认）。几个常量（live 根目录、三个文件名、三个环境变量、提供方的档案 id）与命令解析在 kit_roles 另放一份：config quizs 要在没装 kit_hub.py 的仓库里也能用，test_kit_hub 加一条核对两份相同（同 HUB_DEFAULTS 的做法）。
+  - 只读：不加配置锁、不写历史与审计。转交名单（pi_dispatch 与 kernel-impl.ts）、子命令族、pyargs-v1 的两个 Schema 分支与 schemas.test.ts 的样例一起加（错题本第 30 条）；AGENTS.md“Codex 的沙箱”一节把这两条列进只读探测；模型配置第 5 节的两条 Quizs 读路由改成这两条命令，第 9 节 M3 一行跟着改。
+  - Python 与 TS 各一份（kit_roles、roles-probe.ts）。
+- **测试**：Python 新加 4 条（提供方的表与 JSON；退出码不是 0 先脱敏、不是 JSON、形状不对、providers 不是对象、QUIZS_CMD 写错、PATH 上没有 quizs；几套 live 文件按名字排、文件不当一套、环境那一套认出提供方、state 不认得与退出码不是 0 只记在那一套上（报错里的凭据形状遮掉）、文字的行；没有一套、环境的三个变量不全、不在同一个目录、名字不对），test_kit_hub 加 1 条两份常量与命令解析的核对，test_kernel_impl 的样例加两条。
+- **契约**：roles-probe 的三边契约加 7 个场景，QUIZS_CMD 指向同一个假 pi（它按 providers list 与 live status 的目录名回答，收到的参数照旧记进日志逐个比）：提供方的表与各套 live 文件（含旧 schema 的一套、报错带凭据形状的一套，和一个大写开头、码位顺序与 NTFS 列目录的顺序不同的目录）、退出码不是 0、不是 JSON、providers 不是对象、一个提供方也没有、环境那一套的三种毛病、QUIZS_CMD 写错、没设 QUIZS_CMD 也找不到 quizs；“配置无效、不在 Git 仓库里”一条也带上这两条命令。
+- **变异**：Python 8 条（`quizs-facts.py.json`）、TS 8 条（`quizs-facts.ts.json`）。第一遍 Python 漏了 P05（报错不脱敏）：用例只在 providers 那一路放了凭据形状的串，那一路的报错走 ConfigError，kit_config.main 打印之前还要再遮一遍令牌，去掉这一层也看不出来；live 那一路的问题进 stdout 的 JSON，这一层是唯一的一道，却没有一套的报错带凭据。pytest 与契约的场景各给一套 live 的报错加上凭据形状的串之后，单跑 P05 抓住。Python 其余 7 条第一遍就抓住；TS 8 条全部抓住（R05 靠的就是 live 那一套带凭据的报错，R07 靠大写开头的那个目录）。
+- **检查**：每段都进重活车道：类型检查 0 错；配置的契约 7 份 52 条全过（roles-probe、roles-commands、config-launcher、hub-contract-repo、schemas、mutation-specs、source-hygiene）。配置的 pytest 第一遍红了 test_kernel_impl 的两条“发现错误由 Python 回答”：那两条要一个不在任何 Git 仓库里的目录，我把 basetemp 放在了 C:/Code/Quizs（它本身是仓库）底下，与这一轮无关；补了用例之后 basetemp 改到仓库外重跑 ：配置的 pytest 364 条（子测试 157 个）全过，roles-probe 契约 19 条全过。
+- **没做**：本机服务的两条路由与“CLI 运行时”页的 Quizs 一块（T042 候选，T041 落地之后登记）；Quizs 的原生启动器还不认这两条命令（Quizs 那边的事），没设 QUIZS_CMD 时 PATH 上的 quizs 会报用法错误，原样记进 problem。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

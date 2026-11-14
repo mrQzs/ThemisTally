@@ -1,0 +1,67 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_roles.py",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "QuizsFacts or mirrors_the_hub_quizs"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 600,
+ "mutations": [
+  {
+   "name": "P01 输出的 schema_version 不核",
+   "file": "scripts/kit_roles.py",
+   "old": "        if isinstance(data, dict) and data.get(\"schema_version\") == schema:",
+   "new": "        if isinstance(data, dict):"
+  },
+  {
+   "name": "P02 环境给的那一套不看",
+   "file": "scripts/kit_roles.py",
+   "old": "    if not any(given):\n        return sets",
+   "new": "    if True:\n        return sets"
+  },
+  {
+   "name": "P03 环境给的三份不在同一个目录也照跑",
+   "file": "scripts/kit_roles.py",
+   "old": "    elif len({str(path.parent) for path in paths}) > 1 or tuple(path.name for path in paths) != QUIZS_LIVE_NAMES:",
+   "new": "    elif tuple(path.name for path in paths) != QUIZS_LIVE_NAMES:"
+  },
+  {
+   "name": "P04 state 不核",
+   "file": "scripts/kit_roles.py",
+   "old": "        if status is not None and status.get(\"state\") not in QUIZS_LIVE_STATES:",
+   "new": "        if False:"
+  },
+  {
+   "name": "P05 报错不脱敏",
+   "file": "scripts/kit_roles.py",
+   "old": "pd.redact_secrets(err if code else out).splitlines()",
+   "new": "(err if code else out).splitlines()"
+  },
+  {
+   "name": "P06 环境那一套不认提供方",
+   "file": "scripts/kit_roles.py",
+   "old": "        if row[\"provider\"] is None and status is not None:",
+   "new": "        if False:"
+  },
+  {
+   "name": "P07 信箱里的文件也当一套",
+   "file": "scripts/kit_roles.py",
+   "old": "names = sorted(entry.name for entry in folder.iterdir() if entry.is_dir()) if folder.is_dir() else []",
+   "new": "names = sorted(entry.name for entry in folder.iterdir()) if folder.is_dir() else []"
+  },
+  {
+   "name": "P08 QUIZS_CMD 是空串时当成写错（hub 是去 PATH 找）",
+   "file": "scripts/kit_roles.py",
+   "old": "    if not raw:\n        return [shutil.which(\"quizs\") or \"quizs\"]",
+   "new": "    if raw is None:\n        return [shutil.which(\"quizs\") or \"quizs\"]"
+  }
+ ]
+}

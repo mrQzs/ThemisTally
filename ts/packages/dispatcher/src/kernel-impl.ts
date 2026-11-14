@@ -23,12 +23,13 @@ export const TS_CONFIG_COMMANDS = table([
   ["config", "show"], ["config", "validate"], ["config", "set"], ["config", "unset"], ["config", "history"], ["config", "rollback"], ["config", "init"],
   ["config", "decisions"], ["config", "secret"], ["config", "runtime", "list"], ["config", "runtime", "scan"], ["config", "runtime", "add"],
   ["config", "runtime", "remove"], ["config", "runtime", "probe"], ["config", "models"], ["config", "profile", "show"], ["config", "profile", "add"],
-  ["config", "profile", "edit"], ["config", "profile", "remove"], ["config", "role", "show"], ["config", "role", "set"], ["config", "hub", "show"], ["config", "hub", "set"], ["config", "hub", "unset"], ["config", "preset", "list"],
+  ["config", "profile", "edit"], ["config", "profile", "remove"], ["config", "role", "show"], ["config", "role", "set"], ["config", "hub", "show"], ["config", "hub", "set"], ["config", "hub", "unset"], ["config", "quizs", "providers"], ["config", "quizs", "live"],
+  ["config", "preset", "list"],
   ["config", "preset", "show"], ["config", "preset", "save"], ["config", "preset", "use"], ["config", "preset", "diff"], ["config", "preset", "remove"],
   ["config", "doctor"], ["plugins", "list"], ["plugins", "show"], ["plugins", "verify"], ["plugins", "enable"], ["plugins", "disable"],
 ]);
 /** 配置中心命令的路径后两段由哪个 dest 给出（CONFIG_ACTION_DESTS 的前一半）。 */
-export const CONFIG_ACTION_FAMILIES: ReadonlySet<string> = new Set(["runtime", "profile", "role", "preset", "hub"]);
+export const CONFIG_ACTION_FAMILIES: ReadonlySet<string> = new Set(["runtime", "profile", "role", "preset", "hub", "quizs"]);
 export const TS_DISPATCHER_COMMANDS = table([
   ["doctor"], ["smoke"], ["validate"], ["derive-json"], ["baseline"], ["prepare"], ["run"], ["collect"], ["check"], ["mutate"], ["wait"],
   ["sync-adapters"], ["verdict"], ["status"], ["decisions"], ["decisions", "replay"], ["release-check"], ["metrics"], ["branch"], ["review-draft"],

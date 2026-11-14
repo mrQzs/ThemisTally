@@ -711,7 +711,7 @@ CONFIG_SAMPLES = [
     ["config", "profile", "edit", "p", "--model", "a/c"], ["config", "profile", "remove", "p"], ["config", "role", "show", "--json"],
     ["config", "role", "set", "scheduler_agent", "p", "--cadence-seconds", "60"], ["config", "preset", "list"],
     ["config", "hub", "show", "--json"], ["config", "hub", "set", "coordinator", "p", "--fallback", "q"],
-    ["config", "hub", "unset", "coordinator"],
+    ["config", "hub", "unset", "coordinator"], ["config", "quizs", "providers", "--json"], ["config", "quizs", "live"],
     ["config", "preset", "show", "day"], ["config", "preset", "save", "day", "--description", "d", "--roles", "execution"],
     ["config", "preset", "use", "day", "--expect-state=v1;config=x"], ["config", "preset", "diff", "a", "b"],
     ["config", "preset", "remove", "day", "--dry-run", "--json"], ["config", "doctor", "--record", "t.v1"],
@@ -719,7 +719,7 @@ CONFIG_SAMPLES = [
     ["plugins", "enable", "x", "--allow-permission", "a"], ["plugins", "disable", "x"],
 ]
 #: Namespace 里不交给 TS 的键：func 与子命令的 dest（runtime add 的 command 是 --command 的值，交成 command_option）
-NOT_HANDED = {"func", "command", "runtime_action", "profile_action", "role_action", "preset_action", "hub_action"}
+NOT_HANDED = {"func", "command", "runtime_action", "profile_action", "role_action", "preset_action", "hub_action", "quizs_action"}
 
 
 def leaf_paths(parser, prefix):

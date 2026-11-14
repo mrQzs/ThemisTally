@@ -78,7 +78,7 @@
   - `logs`（`list`、`show`、`search`、`usage`）与 `plugins list`、`plugins show`、`plugins verify` 只读；`plugins enable`、`plugins disable` 只写工作区（`.agent/dispatch.config.json` 的 `plugins` 段）。都可以在沙箱内运行。
   - `config` 的角色绑定命令：
     - `show`、`validate`、`history`、`runtime list`、`profile show`、`role show`、`hub show`、`preset list`、`preset show`、`preset diff` 只读；
-    - `runtime scan`、`runtime probe`、`models`、`doctor` 只运行本机 CLI 的只读探测（`--version`、`--help`、`--list-models`、`auth check --no-refresh`），不调用模型；沙箱内列不出模型时改在沙箱外运行；
+    - `runtime scan`、`runtime probe`、`models`、`doctor`、`quizs providers`、`quizs live` 只运行本机 CLI 的只读探测（`--version`、`--help`、`--list-models`、`auth check --no-refresh`、`quizs providers list`、`quizs live status`），不调用模型；沙箱内列不出模型时改在沙箱外运行；
     - 写入子命令（`set`、`unset`、`rollback`、`runtime add`、`runtime remove`、`runtime scan --add`、`profile add`、`profile edit`、`profile remove`、`role set`、`hub set`、`hub unset`、`preset save`、`preset use`、`preset remove`）只写 `.agent/` 下的配置、本机文件、历史与审计。
     - 都可以在沙箱内运行。
     - 例外：沙箱内的 `doctor` 可能列不出执行模型；这时它会报“list-models 执行失败”或“pi 没有任何可用模型”，改在沙箱外运行再判断。

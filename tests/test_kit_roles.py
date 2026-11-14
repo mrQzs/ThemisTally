@@ -2028,5 +2028,154 @@ class HubRoles(RolesRepo):
         self.assertEqual(run_config(["profile", "remove", "qz-step"], self.repo)[0], 0)
 
 
+#: config quizs 的替身（r3 第 165 轮）：按参数从旁边的 quizs.json 取回答（providers list 取 "providers"，live status 取
+#: "live:<目录名>"），把收到的参数记进旁边的 quizs.log
+FAKE_QUIZS = """import json, sys
+from pathlib import Path
+here = Path(__file__).resolve().parent
+args = sys.argv[1:]
+with open(here / "quizs.log", "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(args) + chr(10))
+spec = json.loads((here / "quizs.json").read_text(encoding="utf-8"))
+key = "providers" if args[:2] == ["providers", "list"] else "live:" + Path(args[-1]).name if args[:2] == ["live", "status"] else "other"
+reply = spec.get(key) or {"code": 9}
+sys.stdout.write(reply.get("out", ""))
+sys.stderr.write(reply.get("err", ""))
+sys.exit(reply.get("code", 0))
+"""
+
+
+class QuizsFacts(RolesRepo):
+    """r3 第 165 轮：config quizs providers、live 只跑 Quizs 的两条只读命令，输出照 Quizs 的形状核对之后交回。"""
+
+    PROVIDERS = {"schema_version": "quizs.providers.v1", "build_id": "b1", "providers": [
+        {"provider": "stepfun", "id": "stepfun-cn-step-plan", "model": "step-5-preview", "thinking": ["low", "medium", "high"]},
+        {"provider": "deepseek", "id": "deepseek-api", "model": "deepseek-flash", "thinking": ["low", "high"],
+         "credential_import": "import-deepseek-env"}]}
+
+    def setUp(self):
+        super().setUp()
+        self.fake = self.work / "fake"
+        self.fake.mkdir()
+        (self.fake / "quizs.py").write_text(FAKE_QUIZS, encoding="utf-8")
+        self.spec({})
+        patcher = mock.patch.dict(os.environ, {"QUIZS_CMD": json.dumps([sys.executable, str(self.fake / "quizs.py")])})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in kit_roles.QUIZS_LIVE_ENV:
+            os.environ.pop(name, None)
+
+    def spec(self, replies):
+        (self.fake / "quizs.json").write_text(json.dumps(replies, ensure_ascii=False), encoding="utf-8")
+
+    def calls(self):
+        log = self.fake / "quizs.log"
+        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+
+    @staticmethod
+    def status(state, profile_id=None, **extra):
+        body = {"schema_version": "quizs.live-status.v1", "live_dir": "x", "build_id": "b1", "now_ms": 5, "state": state,
+                "problem": None, "missing": [], "profile": None if profile_id is None else {"id": profile_id}, "plan": None,
+                "certificate": None}
+        body.update(extra)
+        return {"out": json.dumps(body)}
+
+    def test_providers_lists_the_approved_routes_from_quizs(self):
+        self.spec({"providers": {"out": json.dumps(self.PROVIDERS)}})
+        code, out, err = run_config(["quizs", "providers", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out), {"build_id": "b1", "providers": self.PROVIDERS["providers"]})
+        code, out, err = run_config(["quizs", "providers"], self.repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out.splitlines(), ["stepfun    stepfun-cn-step-plan   step-5-preview   low、medium、high",
+                                            "deepseek   deepseek-api           deepseek-flash   low、high"])
+        self.assertEqual(self.calls(), [["providers", "list"], ["providers", "list"]])
+
+    def test_providers_says_what_went_wrong(self):
+        secret = "sk-" + "a" * 24
+        cases = [({"code": 2, "err": "first" + chr(10) + "USAGE bad option " + secret + chr(10)},
+                  "quizs providers list 失败（退出码 2）：USAGE bad option"),
+                 ({"out": "not json"}, "quizs providers list 失败（输出不是 quizs.providers.v1 的 JSON 对象）：not json"),
+                 ({"out": json.dumps({"schema_version": "quizs.providers.v2", "providers": []})}, "输出不是 quizs.providers.v1 的 JSON 对象"),
+                 ({"out": json.dumps({"schema_version": "quizs.providers.v1", "providers": ["x"]})},
+                  "quizs providers list 给的 providers 不是对象的列表")]
+        for reply, needle in cases:
+            self.spec({"providers": reply})
+            code, out, err = run_config(["quizs", "providers"], self.repo)
+            self.assertEqual((code, out), (1, ""), err)
+            self.assertIn(needle, err)
+            self.assertNotIn(secret, err)
+        with mock.patch.dict(os.environ, {"QUIZS_CMD": "[1]"}):
+            code, _out, err = run_config(["quizs", "providers"], self.repo)
+        self.assertEqual(code, 1)
+        self.assertIn("QUIZS_CMD 要是非空的字符串列表（JSON）", err)
+        with mock.patch.dict(os.environ, {"QUIZS_CMD": "", "PATH": os.path.dirname(shutil.which("git"))}):  # 缺省找 PATH 里的 quizs（只留 git）
+            code, _out, err = run_config(["quizs", "providers"], self.repo)
+        self.assertEqual(code, 1)
+        self.assertIn("quizs providers list 失败（退出码 127）", err)
+        self.assertEqual(len(self.calls()), len(cases))
+
+    def test_live_runs_live_status_for_every_set(self):
+        live = self.repo / ".agent" / "mailbox" / "quizs-live"
+        for name in ("minimax", "stepfun", "zz-broken", "aa-odd"):
+            (live / name).mkdir(parents=True)
+        (live / "notes.txt").write_text("不是一套", encoding="utf-8")
+        given = self.work / "env-live"
+        secret = "sk-" + "b" * 24
+        self.spec({"live:minimax": self.status("expired", "minimax-m-plan", problem="QUALIFICATION_EXPIRED"),
+                   "live:stepfun": self.status("missing", missing=["plan.json", "qualification.json"]),
+                   "live:zz-broken": {"code": 2, "err": "Unsupported live option " + secret},  # 进 stdout 的 JSON，只有这一层脱敏
+                   "live:aa-odd": self.status("weird"),
+                   "live:env-live": self.status("ready", "deepseek-api")})
+        paths = {name: str(given / file) for name, file in zip(kit_roles.QUIZS_LIVE_ENV, kit_roles.QUIZS_LIVE_NAMES)}
+        with mock.patch.dict(os.environ, paths):
+            code, out, err = run_config(["quizs", "live", "--json"], self.repo)
+            self.assertEqual(code, 0, err)
+            code, text, err = run_config(["quizs", "live"], self.repo)
+        self.assertEqual(code, 0, err)
+        rows = json.loads(out)["live"]
+        self.assertEqual([(row["source"], row["provider"]) for row in rows],
+                         [("mailbox", "aa-odd"), ("mailbox", "minimax"), ("mailbox", "stepfun"), ("mailbox", "zz-broken"),
+                          ("env", "deepseek")])
+        for row, folder in zip(rows, [live / "aa-odd", live / "minimax", live / "stepfun", live / "zz-broken", given]):
+            self.assertEqual(os.path.normcase(row["live_dir"]), os.path.normcase(str(folder)))
+        self.assertEqual([row["status"] and row["status"]["state"] for row in rows], [None, "expired", "missing", None, "ready"])
+        self.assertEqual([row["problem"] for row in rows], ["quizs live status 给的 state 不认得：'weird'", None, None,
+                                                            "quizs live status 失败（退出码 2）：Unsupported live option <redacted>", None])
+        self.assertNotIn(secret, out + text)
+        shown = [("aa-odd", "mailbox", "读不出", "quizs live status 给的 state 不认得：'weird'"),
+                 ("minimax", "mailbox", "expired", "QUALIFICATION_EXPIRED"),
+                 ("stepfun", "mailbox", "missing", "缺 plan.json、qualification.json"),
+                 ("zz-broken", "mailbox", "读不出", "quizs live status 失败（退出码 2）：Unsupported live option <redacted>"),
+                 ("deepseek", "env", "ready", None)]
+        expected = []
+        for (provider, source, state, note), row in zip(shown, rows):
+            expected.append("%-10s %-8s %-15s %s" % (provider, source, state, row["live_dir"]))
+            expected += [] if note is None else ["  " + note]
+        self.assertEqual(text.splitlines(), expected)
+        self.assertEqual(self.calls(), [["live", "status", "--live-dir", row["live_dir"]] for row in rows] * 2)
+
+    def test_live_without_sets_and_with_a_broken_environment_set(self):
+        code, out, err = run_config(["quizs", "live", "--json"], self.repo)
+        self.assertEqual((code, json.loads(out)), (0, {"live": []}), err)
+        code, out, err = run_config(["quizs", "live"], self.repo)
+        self.assertEqual(out.splitlines(), ["没有 live 文件：信箱的 quizs-live/ 下没有目录，也没有设 "
+                                            "QUIZS_LIVE_PLAN、QUIZS_PROVIDER_PROFILE、QUIZS_QUALIFICATION"])
+        one, other = self.work / "one", self.work / "other"
+        cases = [({"QUIZS_LIVE_PLAN": str(one / "plan.json")}, "没有设 QUIZS_PROVIDER_PROFILE、QUIZS_QUALIFICATION"),
+                 ({"QUIZS_LIVE_PLAN": str(one / "plan.json"), "QUIZS_PROVIDER_PROFILE": str(other / "profile.json"),
+                   "QUIZS_QUALIFICATION": str(one / "qualification.json")}, "环境给的三份 live 文件不在同一个目录"),
+                 ({"QUIZS_LIVE_PLAN": str(one / "live-plan.json"), "QUIZS_PROVIDER_PROFILE": str(one / "profile.json"),
+                   "QUIZS_QUALIFICATION": str(one / "qualification.json")}, "不叫 plan.json、profile.json、qualification.json")]
+        for env, needle in cases:
+            with mock.patch.dict(os.environ, env):
+                code, out, err = run_config(["quizs", "live", "--json"], self.repo)
+            self.assertEqual(code, 0, err)
+            (row,) = json.loads(out)["live"]
+            self.assertEqual((row["source"], row["provider"], row["live_dir"], row["status"]), ("env", None, None, None))
+            self.assertIn(needle, row["problem"])
+        self.assertEqual(self.calls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

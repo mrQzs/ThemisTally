@@ -55,6 +55,7 @@ describe("pyargs-v1 与第 ③ 步的切换", () => {
     ["config", "role", "set", "scheduler_agent", "p", "--cadence-seconds", "60"], ["config", "preset", "list"], ["config", "preset", "show", "day"],
     ["config", "hub", "show", "--json"], ["config", "hub", "set", "contract", "p", "--fallback", "q", "--yes"],
     ["config", "hub", "unset", "audit", "--dry-run", "--json"],
+    ["config", "quizs", "providers", "--json"], ["config", "quizs", "live"],
     ["config", "preset", "save", "day", "--description", "d", "--roles", "execution"], ["config", "preset", "use", "day", "--expect-state=v1;config=x"],
     ["config", "preset", "diff", "a", "b"], ["config", "preset", "remove", "day", "--dry-run", "--json"], ["config", "doctor", "--record", "t.v1"],
     ["plugins", "list", "--json"], ["plugins", "show", "x"], ["plugins", "verify"], ["plugins", "enable", "x", "--allow-permission", "a"],

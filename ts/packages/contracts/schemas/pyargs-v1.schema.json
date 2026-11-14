@@ -1976,6 +1976,102 @@
         "command": {
           "const": [
             "config",
+            "quizs",
+            "providers"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
+            "quizs",
+            "live"
+          ]
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "json": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kit_root",
+            "lock_wait_seconds"
+          ],
+          "properties": {
+            "kit_root": {
+              "type": "string"
+            },
+            "lock_wait_seconds": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "repo",
+        "json",
+        "context"
+      ],
+      "properties": {
+        "command": {
+          "const": [
+            "config",
             "preset",
             "list"
           ]

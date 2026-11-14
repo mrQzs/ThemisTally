@@ -1,11 +1,11 @@
 // kit_roles.py 里会运行本机 CLI 的配置中心命令（迁移第 ③d 片）：runtime scan [--add]、runtime probe、models、
-// doctor [--record]。只运行只读探测（--version、--help、--list-models、auth check --no-refresh），不调用模型；子进程的环境
+// doctor [--record]，以及 quizs providers、quizs live（r3 第 165 轮）。只运行只读探测（--version、--help、--list-models、auth check --no-refresh），不调用模型；子进程的环境
 // 是 child_env(config)，经 run_capture 起（@themis/dispatcher/pi-cli）。输出照 Python 的 print 与 "%-Ns" 逐字。
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { pyTruthy } from "@themis/base/pyfmt";
-import type { PyDict, PyValue } from "@themis/base/pyjson";
-import { osPathSplit } from "@themis/base/pypath";
-import { codePoints, pySplitlines, pyStrip } from "@themis/base/pyre";
+import { type PyDict, PyJsonError, type PyValue, loads } from "@themis/base/pyjson";
+import { osPathSplit, purePathName, purePathParent, purePathStr } from "@themis/base/pypath";
+import { cmpCodePoints, codePoints, pyRstrip, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
 import { redactSecrets } from "@themis/base/secrets";
 import { ensureArgvSafe } from "@themis/dispatcher/argv";
@@ -356,11 +356,144 @@ async function doctor(env: RolesEnv): Promise<number> {
   return rows.every((row) => row.get("ready")) ? EXIT_OK : EXIT_FAIL;
 }
 
+// --- quizs providers | live（Quizs 的只读事实，r3 第 165 轮）-----------------------------------------------------
+
+/** kit_roles 的 QUIZS_LIVE_ROOT、QUIZS_LIVE_NAMES、QUIZS_LIVE_ENV、QUIZS_PROFILE_IDS（与 kit_hub 的同名常量相同，那边有核对）。 */
+const QUIZS_LIVE_ROOT = "quizs-live";
+const QUIZS_LIVE_NAMES = ["plan.json", "profile.json", "qualification.json"];
+const QUIZS_LIVE_ENV = ["QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"];
+const QUIZS_PROFILE_IDS: readonly (readonly [string, string])[] = [["deepseek", "deepseek-api"], ["minimax", "minimax-m-plan"], ["stepfun", "stepfun-cn-step-plan"]];
+const QUIZS_PROVIDERS_SCHEMA = "quizs.providers.v1";
+const QUIZS_LIVE_SCHEMA = "quizs.live-status.v1";
+const QUIZS_TIMEOUT = 30;
+const QUIZS_LIVE_STATES: readonly PyValue[] = ["ready", "expired", "build_mismatch", "invalid", "missing"];
+
+/** json.loads(text)，except ValueError 时为 None（RecursionError 照抛，同 Python）。 */
+function loadsOrNone(text: string): PyValue {
+  try {
+    return loads(text);
+  } catch (error) {
+    if (!(error instanceof PyJsonError) || error.kind === "RecursionError") throw error;
+    return null;
+  }
+}
+
+/** kit_roles.quizs_command：QUIZS_CMD 是 JSON 的字符串列表，缺省是 PATH 里的 quizs。 */
+function quizsCommand(): string[] {
+  const raw = process.env["QUIZS_CMD"];
+  if (!raw) return [pyWhich("quizs") ?? "quizs"];
+  const value = loadsOrNone(raw);
+  if (!Array.isArray(value) || !value.length || !value.every((item) => typeof item === "string" && item !== "")) {
+    throw new ConfigError("QUIZS_CMD 要是非空的字符串列表（JSON）");
+  }
+  return value as string[];
+}
+
+/** kit_roles._quizs_json：跑一条 Quizs 的只读命令，交回 [输出的 JSON 对象, 问题]。 */
+async function quizsJson(command: readonly string[], words: readonly string[], env: Env, schema: string): Promise<[PyDict | null, string | null]> {
+  const [code, out, err] = await runCapture([...command, ...words], { env, timeout: QUIZS_TIMEOUT });
+  if (code === 0) {
+    const data = loadsOrNone(out);
+    if (isDict(data) && data.get("schema_version") === schema) return [data, null];
+  }
+  const lines = pySplitlines(redactSecrets(code ? err : out)).map(pyStrip).filter((line) => line !== "");
+  const detail = code ? `退出码 ${code}` : `输出不是 ${schema} 的 JSON 对象`;
+  const last = lines.at(-1);
+  return [null, `quizs ${words.slice(0, 2).join(" ")} 失败（${detail}）${last === undefined ? "" : `：${codePoints(last).slice(0, 200).join("")}`}`];
+}
+
+async function quizsProviders(env: RolesEnv): Promise<number> {
+  const { config } = openChecked(env);
+  const [childEnvironment] = childEnv(config);
+  const [data, problem] = await quizsJson(quizsCommand(), ["providers", "list"], childEnvironment, QUIZS_PROVIDERS_SCHEMA);
+  const providers = data === null ? null : data.get("providers");
+  if (data === null || !Array.isArray(providers) || !providers.every(isDict)) {
+    throw new ConfigError(problem ?? "quizs providers list 给的 providers 不是对象的列表");
+  }
+  if (env.args.json) {
+    printJson(env.out, new Map<string, PyValue>([["build_id", data.get("build_id") ?? null], ["providers", providers]]));
+    return EXIT_OK;
+  }
+  if (!providers.length) env.out.print("quizs providers list 没有列出提供方");
+  for (const item of providers as PyDict[]) {
+    const thinking = item.get("thinking");
+    const levels = Array.isArray(thinking) ? thinking.map((level) => text(level)).join("、") : text(thinking);
+    env.out.print(`${padRight(text(item.get("provider")), 10)} ${padRight(text(item.get("id")), 22)} ${padRight(text(item.get("model")), 16)} ${levels}`);
+  }
+  return EXIT_OK;
+}
+
+interface LiveSet {
+  readonly source: string;
+  readonly provider: string | null;
+  readonly live_dir: string | null;
+  readonly problem: string | null;
+}
+
+const isDir = (path: string): boolean => statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
+
+/** kit_roles._quizs_live_sets：信箱 quizs-live/ 下的每个目录，再加环境变量给的那一套。 */
+function quizsLiveSets(root: string): LiveSet[] {
+  const folder = purePathStr(root, ".agent", "mailbox", QUIZS_LIVE_ROOT);
+  const names = isDir(folder) ? readdirSync(folder).filter((name) => isDir(purePathStr(folder, name))).sort(cmpCodePoints) : [];
+  const sets: LiveSet[] = names.map((name) => ({ source: "mailbox", provider: name, live_dir: purePathStr(folder, name), problem: null }));
+  const given = QUIZS_LIVE_ENV.map((name) => process.env[name] ?? "");
+  if (!given.some((value) => value !== "")) return sets;
+  const missing = QUIZS_LIVE_ENV.filter((_name, index) => given[index] === "");
+  if (missing.length) return [...sets, { source: "env", provider: null, live_dir: null, problem: `没有设 ${missing.join("、")}` }];
+  if (new Set(given.map(purePathParent)).size > 1 || given.some((value, index) => purePathName(value) !== QUIZS_LIVE_NAMES[index])) {
+    const problem = `环境给的三份 live 文件不在同一个目录或不叫 ${QUIZS_LIVE_NAMES.join("、")}：quizs live status 只认一个目录`;
+    return [...sets, { source: "env", provider: null, live_dir: null, problem }];
+  }
+  return [...sets, { source: "env", provider: null, live_dir: purePathParent(given[0] as string), problem: null }];
+}
+
+function quizsProviderOf(status: PyDict): string | null {
+  const profile = status.get("profile");
+  const id = isDict(profile) ? profile.get("id") : null;
+  return QUIZS_PROFILE_IDS.find(([, known]) => known === id)?.[0] ?? null;
+}
+
+async function quizsLive(env: RolesEnv): Promise<number> {
+  const { ctx, config } = openChecked(env);
+  const [childEnvironment] = childEnv(config);
+  const command = quizsCommand();
+  const rows: PyDict[] = [];
+  for (const set of quizsLiveSets(ctx.repo.root)) {
+    let status: PyDict | null = null;
+    let { provider, problem } = set;
+    if (set.live_dir !== null) [status, problem] = await quizsJson(command, ["live", "status", "--live-dir", set.live_dir], childEnvironment, QUIZS_LIVE_SCHEMA);
+    if (status !== null && !QUIZS_LIVE_STATES.includes(status.get("state") ?? null)) {
+      problem = `quizs live status 给的 state 不认得：${shownValue(status.get("state"))}`;
+      status = null;
+    }
+    if (provider === null && status !== null) provider = quizsProviderOf(status);
+    rows.push(new Map<string, PyValue>([["source", set.source], ["provider", provider], ["live_dir", set.live_dir], ["problem", problem], ["status", status]]));
+  }
+  if (env.args.json) {
+    printJson(env.out, new Map<string, PyValue>([["live", rows]]));
+    return EXIT_OK;
+  }
+  if (!rows.length) env.out.print(`没有 live 文件：信箱的 ${QUIZS_LIVE_ROOT}/ 下没有目录，也没有设 ${QUIZS_LIVE_ENV.join("、")}`);
+  for (const row of rows) {
+    const status = (row.get("status") as PyDict | null) ?? new Map<string, PyValue>();
+    const state = status.get("state");
+    const head = `${padRight((row.get("provider") as string | null) || "?", 10)} ${padRight(row.get("source") as string, 8)} ${padRight(pyTruthy(state ?? null) ? text(state) : "读不出", 15)} ${(row.get("live_dir") as string | null) || ""}`;
+    env.out.print(pyRstrip(head));
+    const missing = status.get("missing");
+    const note = row.get("problem") || (Array.isArray(missing) && missing.length ? `缺 ${missing.map((name) => text(name)).join("、")}` : status.get("problem") ?? null);
+    if (pyTruthy(note ?? null)) env.out.print(`  ${text(note)}`);
+  }
+  return EXIT_OK;
+}
+
 const HANDLERS: Readonly<Record<string, (env: RolesEnv) => Promise<number>>> = {
   "runtime scan": runtimeScan,
   "runtime probe": runtimeProbe,
   models,
   doctor,
+  "quizs providers": quizsProviders,
+  "quizs live": quizsLive,
 };
 
 /** 会运行本机 CLI 的 kit_roles 子命令（config 之后的部分）。 */

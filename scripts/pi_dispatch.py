@@ -227,6 +227,8 @@ TS_CONFIG_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("config", "hub", "show"): ("repo", "json"),
     ("config", "hub", "set"): ("repo", "post", "profile", "fallback", "yes", "dry_run", "json", "expect_state"),
     ("config", "hub", "unset"): ("repo", "post", "yes", "dry_run", "json", "expect_state"),
+    ("config", "quizs", "providers"): ("repo", "json"),
+    ("config", "quizs", "live"): ("repo", "json"),
     ("config", "preset", "list"): ("repo", "json"),
     ("config", "preset", "show"): ("repo", "name", "json"),
     ("config", "preset", "save"): ("repo", "name", "description", "roles", "force", "yes", "dry_run", "json", "expect_state"),
@@ -242,7 +244,8 @@ TS_CONFIG_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
 }
 #: 配置中心命令的路径后两段由哪个 dest 给出（runtime add 的 --command 会压掉 command，路径不能读它）
 CONFIG_ACTION_DESTS = (("runtime", "runtime_action"), ("profile", "profile_action"), ("role", "role_action"),
-                       ("preset", "preset_action"), ("hub", "hub_action"))
+                       ("preset", "preset_action"), ("hub", "hub_action"),
+                       ("quizs", "quizs_action"))
 #: dispatcher 选 ts 时转交给 TS 的命令（迁移计划第 ④ 步的切换），值是交给 TS 的参数键，名单写死。status 只在带
 #: --assess 时由这份名单转交（不带的照 readonly 走 TS_READONLY_COMMANDS）；decisions 按 decisions_cmd 分成两条。
 #: config、logs、plugins、ui 各走各的名单。tests/test_kernel_impl.py 核对每条的键与 argparse 的 Namespace 一致。

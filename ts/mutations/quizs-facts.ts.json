@@ -1,0 +1,64 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/roles-probe.contract.test.ts",
+  "-t",
+  "Quizs",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 1800,
+ "mutations": [
+  {
+   "name": "R01 输出的 schema_version 不核",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "    if (isDict(data) && data.get(\"schema_version\") === schema) return [data, null];",
+   "new": "    if (isDict(data)) return [data, null];"
+  },
+  {
+   "name": "R02 环境给的那一套不看",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "  if (!given.some((value) => value !== \"\")) return sets;",
+   "new": "  if (true) return sets;"
+  },
+  {
+   "name": "R03 环境给的三份不在同一个目录也照跑",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "  if (new Set(given.map(purePathParent)).size > 1 || given.some(",
+   "new": "  if (given.some("
+  },
+  {
+   "name": "R04 state 不核",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "    if (status !== null && !QUIZS_LIVE_STATES.includes(status.get(\"state\") ?? null)) {",
+   "new": "    if (false) {"
+  },
+  {
+   "name": "R05 报错不脱敏",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "pySplitlines(redactSecrets(code ? err : out))",
+   "new": "pySplitlines(code ? err : out)"
+  },
+  {
+   "name": "R06 环境那一套不认提供方",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "    if (provider === null && status !== null) provider = quizsProviderOf(status);",
+   "new": "    if (false) provider = quizsProviderOf(status);"
+  },
+  {
+   "name": "R07 信箱里的几套不按码位排（照 NTFS 列出来的次序）",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": ".filter((name) => isDir(purePathStr(folder, name))).sort(cmpCodePoints)",
+   "new": ".filter((name) => isDir(purePathStr(folder, name)))"
+  },
+  {
+   "name": "R08 思考档位不逐个拼",
+   "file": "ts/packages/config/src/roles-probe.ts",
+   "old": "    const levels = Array.isArray(thinking) ? thinking.map((level) => text(level)).join(\"、\") : text(thinking);",
+   "new": "    const levels = text(thinking);"
+  }
+ ]
+}
