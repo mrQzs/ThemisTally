@@ -1,6 +1,7 @@
 // 只读数据层：第 9 节有示例的 13 个读函数，返回 Promise<信封>。夹具来自 src/mock/*.json，
 // 行为由 ?mock= 开关决定（src/mock/scenario.ts）。开发服务器与测试环境只走夹具（liveClient() 为 null）；
 // 生产构建里同源请求本机服务 /api/v1/…（src/live/ 下的传输层），?mock= 一律不生效。
+// 写操作（预览、执行、查终态）在真实模式下走服务的写路由，夹具模式下由 mock/writes.ts 按 ?write= 情景生成。
 import metaJson from './mock/meta.json';
 import statusJson from './mock/status.json';
 import attemptJson from './mock/attempt.json';
@@ -32,10 +33,13 @@ import {
   mockRemoveProfile,
   mockRemoveRuntime,
   mockRollback,
+  mockSetHubRole,
   mockSetPluginEnabled,
+  mockUnsetHubRole,
   mockUsePreset,
 } from './mock/writes';
 import { liveClient } from './live/mode';
+import { isEnvelope } from './live/transport';
 import { HISTORY_ENTRIES, type HistoryEntryData } from './mock/readonly2-history-entries';
 import { PLUGIN_SHOWS, type PluginShowData } from './mock/readonly2-plugin-show';
 
@@ -51,7 +55,8 @@ export interface Envelope<T> {
   elapsed_ms: number;
 }
 
-// 写动作：A 片三个（切换方案、启停插件）、B 片四个（删除方案/profile/运行时、回滚）加本片两个（新建/编辑 profile）。
+// 写动作：A 片三个（切换方案、启停插件）、B 片四个（删除方案/profile/运行时、回滚）加本片两个（新建/编辑 profile）
+// 与七端岗位两个（hub.set、hub.unset）。
 export type WriteAction =
   | 'preset.use'
   | 'plugin.enable'
@@ -61,7 +66,9 @@ export type WriteAction =
   | 'runtime.remove'
   | 'config.rollback'
   | 'profile.add'
-  | 'profile.edit';
+  | 'profile.edit'
+  | 'hub.set'
+  | 'hub.unset';
 
 // 写操作的参数：值是字符串或字符串数组（T024 新增；数组按顺序原样传给服务，不拼成字符串）。
 export type WriteArgs = Record<string, string | string[]>;
@@ -129,7 +136,7 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function okEnvelope<T>(command: string[], data: T): Envelope<T> {
+function okEnvelope<T>(command: string[], data: T | null): Envelope<T> {
   return { ok: true, exit_code: 0, data, output: [], messages: [], command, elapsed_ms: 0 };
 }
 
@@ -149,12 +156,137 @@ function errorEnvelope<T>(command: string[]): Envelope<T> {
   return { ok: false, exit_code: 2, data: null, output: [], messages: [ERROR_MESSAGE], command, elapsed_ms: 0 };
 }
 
-// 真实模式下写操作与 getOperation 一律回 501：这一片还没接通，别让用户以为写成功了。
-function unwired<T>(): Promise<HttpReply<T>> {
-  return Promise.resolve({
-    status: 501,
-    body: { ok: false, exit_code: null, data: null, output: [], messages: ['ERROR: 写操作尚未接通'], command: [], elapsed_ms: 0 },
-  });
+// 服务端时限（ts/packages/ui/src/writeroutes.ts：PREVIEW_TIMEOUT = 30、WRITE_TIMEOUT = 90；操作查询照预览的 30 秒）。
+const PREVIEW_TIMEOUT_SECONDS = 30;
+const OPERATION_TIMEOUT_SECONDS = 30;
+const WRITE_TIMEOUT_SECONDS = 90;
+
+// 绑定没有可取的值时显示的占位符。
+const DASH = '—';
+
+function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function asNumber(value: string): string | number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : value;
+}
+
+// 预览与执行共用的参数整理：值是空串或空数组不传这个键（服务侧都不合法）；number 键转成 JSON 数字
+// （转不成原样传，服务回 400）；其余键值原样传，数组按顺序原样传、不拼成字符串。
+// 预览与执行必须用同一份规则，否则服务按确认号记的 argv 与这次的 argv 对不上，回 409「参数不符」。
+function writeArgs(args: WriteArgs): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (Array.isArray(value)) {
+      if (value.length > 0) out[key] = value;
+      continue;
+    }
+    if (value === '') continue;
+    out[key] = key === 'number' ? asNumber(value) : value;
+  }
+  return out;
+}
+
+function stringsOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+// 一条绑定的显示值：profile 非空 → profile；provider 与 model 都非空 → provider/model；只有一个非空 → 那一个；
+// 都没有 → mode；再没有 → 占位符。null（绑定原来就没有）同样给占位符。
+function displayValue(value: unknown): string {
+  if (typeof value !== 'object' || value === null) return DASH;
+  const binding = value as Record<string, unknown>;
+  const profile = textOf(binding.profile);
+  const provider = textOf(binding.provider);
+  const model = textOf(binding.model);
+  const mode = textOf(binding.mode);
+  if (profile !== '') return profile;
+  if (provider !== '' && model !== '') return `${provider}/${model}`;
+  if (provider !== '') return provider;
+  if (model !== '') return model;
+  return mode === '' ? DASH : mode;
+}
+
+// 服务的预览 JSON → 前端的 PreviewData：binding_changes 的 {role, before, after} 映射成 {role, from, to}；
+// resources 取每项的 resource（按服务给的次序，不去重）；unreadable 并进 notes（前端形状里没有单独的键）；
+// command 取信封顶层（带 --dry-run --json），不取预览 JSON 里的东西。
+function toPreviewData(preview: Record<string, unknown>, command: string[], confirmation: string): PreviewData {
+  const binding_changes: BindingChange[] = [];
+  if (Array.isArray(preview.binding_changes)) {
+    for (const item of preview.binding_changes) {
+      if (typeof item !== 'object' || item === null) continue;
+      const row = item as Record<string, unknown>;
+      if (typeof row.role !== 'string') continue;
+      binding_changes.push({ role: row.role, from: displayValue(row.before), to: displayValue(row.after) });
+    }
+  }
+  const resources: string[] = [];
+  if (Array.isArray(preview.resources)) {
+    for (const item of preview.resources) {
+      if (typeof item !== 'object' || item === null) continue;
+      const resource = textOf((item as Record<string, unknown>).resource);
+      if (resource !== '') resources.push(resource);
+    }
+  }
+  return {
+    binding_changes,
+    resources,
+    notes: [...stringsOf(preview.notes), ...stringsOf(preview.unreadable)],
+    warnings: stringsOf(preview.warnings),
+    running_attempts: stringsOf(preview.running_attempts),
+    needs_yes: preview.needs_yes === true,
+    command,
+    confirmation,
+  };
+}
+
+// 预览成功（200、ok、data 带 preview 与 confirmation）时映射成 PreviewData，信封其余字段原样保留；
+// 缺任何一样（含 data 缺 preview）就原样透传，不签发确认号、不改写成 501。
+function mappedPreview(reply: HttpReply<PreviewData>): HttpReply<PreviewData> {
+  const data: unknown = reply.body.data;
+  if (reply.status !== 200 || !reply.body.ok || typeof data !== 'object' || data === null) return reply;
+  const record = data as Record<string, unknown>;
+  const preview = record.preview;
+  if (typeof record.confirmation !== 'string' || typeof preview !== 'object' || preview === null) return reply;
+  return {
+    status: reply.status,
+    body: {
+      ...reply.body,
+      data: toPreviewData(preview as Record<string, unknown>, reply.body.command, record.confirmation),
+    },
+  };
+}
+
+// 操作终态的八键投影：envelope 不是合法七字段信封就取 null；正文不是对象或缺 state 时整个视图取 null。
+function toOperationView(body: unknown): OperationView | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const row = body as Record<string, unknown>;
+  if (typeof row.state !== 'string') return null;
+  return {
+    id: textOf(row.id),
+    action: textOf(row.action),
+    state: row.state as OperationView['state'],
+    reason: textOf(row.reason) === '' ? null : textOf(row.reason),
+    created_ms: typeof row.created_ms === 'number' ? row.created_ms : 0,
+    started_ms: typeof row.started_ms === 'number' ? row.started_ms : null,
+    finished_ms: typeof row.finished_ms === 'number' ? row.finished_ms : null,
+    envelope: isEnvelope(row.envelope) ? (row.envelope as Envelope<null>) : null,
+  };
+}
+
+// profile.add / profile.edit 的执行正文：除路径参数 profile 以外的键，过同一份整理规则，再加确认号。
+function profileBody(
+  args: { runtime?: string; model?: string; thinking?: string; credential_env?: string[] },
+  confirmation: string,
+): Record<string, unknown> {
+  const w: WriteArgs = {};
+  if (args.runtime !== undefined) w.runtime = args.runtime;
+  if (args.model !== undefined) w.model = args.model;
+  if (args.thinking !== undefined) w.thinking = args.thinking;
+  if (args.credential_env !== undefined) w.credential_env = args.credential_env;
+  return { ...writeArgs(w), confirmation };
 }
 
 // meta：version 是内核 --version 的输出（pi_dispatch 2.12.0），去掉前缀才是 kit 版本；对不上格式就原样。
@@ -363,60 +495,110 @@ export function getPlugin(id: string): Promise<Envelope<PluginShowData>> {
   );
 }
 
-// 写函数：预览、查操作，加 A 片四个与 B 片四个。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
+// 写函数：预览、查操作，加 A 片四个、B 片四个与七端岗位两个。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
 // preview 的参数放宽成 WriteArgs：旧调用点传 Record<string,string> 仍然合法，行为不变。
-// 真实模式（liveClient() 非 null）下写操作尚未接通：一律回 501，不读夹具。
+// 真实模式（liveClient() 非 null）下走服务的写路由：预览 POST /api/v1/preview、执行各走自己的写路由
+// （服务端时限 90 秒）、断线时查 GET /api/v1/operations/<确认号>；拿不到回应时 reject（同桩的 drop-*）。
 export function preview(action: WriteAction, args: WriteArgs): Promise<HttpReply<PreviewData>> {
   const client = liveClient();
-  if (client) return unwired<PreviewData>();
+  if (client) {
+    return client
+      .post<PreviewData>('/api/v1/preview', { action, args: writeArgs(args) }, PREVIEW_TIMEOUT_SECONDS)
+      .then(mappedPreview);
+  }
   return mockPreview(action, args);
 }
 
 export function getOperation(id: string): Promise<HttpReply<OperationView>> {
   const client = liveClient();
-  if (client) return unwired<OperationView>();
+  if (client) {
+    return client
+      .getRaw<unknown>(`/api/v1/operations/${encodeURIComponent(id)}`, undefined, OPERATION_TIMEOUT_SECONDS)
+      .then((reply) =>
+        reply.status === 200
+          ? { status: 200, body: okEnvelope<OperationView>([], toOperationView(reply.body)) }
+          : { status: reply.status, body: reply.body as Envelope<OperationView> },
+      );
+  }
   return mockGetOperation(id);
 }
 
 export function usePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/presets/${encodeURIComponent(name)}/use`,
+      { confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockUsePreset(name, confirmation);
 }
 
 export function setPluginEnabled(id: string, enabled: boolean, confirmation: string): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    const path = enabled
+      ? `/api/v1/plugins/${encodeURIComponent(id)}/enable`
+      : `/api/v1/plugins/${encodeURIComponent(id)}/disable`;
+    return client.post<null>(path, { confirmation }, WRITE_TIMEOUT_SECONDS);
+  }
   return mockSetPluginEnabled(id, enabled, confirmation);
 }
 
 // B 片四个写函数：删除方案/profile/运行时与回滚；确认号与参数核对在 mock 侧（第二节）。
 export function removePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/presets/${encodeURIComponent(name)}/remove`,
+      { confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockRemovePreset(name, confirmation);
 }
 
 export function removeProfile(profile: string, confirmation: string): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/profiles/${encodeURIComponent(profile)}/remove`,
+      { confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockRemoveProfile(profile, confirmation);
 }
 
 export function removeRuntime(runtime: string, confirmation: string): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/runtimes/${encodeURIComponent(runtime)}/remove`,
+      { confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockRemoveRuntime(runtime, confirmation);
 }
 
+// config.rollback 的编号走路径段（十进制写法），正文只有确认号；服务从路径取这个 JSON 数字。
 export function rollback(number: number, confirmation: string): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/config/rollback/${encodeURIComponent(String(number))}`,
+      { confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockRollback(number, confirmation);
 }
 
-// 本片两个写函数：新建与编辑 profile。参数键名与服务侧 WRITE_ACTIONS 一一对应（profile/runtime/model/thinking/credential_env）。
-// credential_env 为空数组时不传这个键（服务侧空数组不合法）；数组按顺序原样传给服务，不拼成字符串。确认号与参数核对在 mock 侧。
+// 本片两个写函数：新建与编辑 profile。参数键名与服务侧 WRITE_ACTIONS 一一对应（profile/runtime/model/thinking/credential_env）；
+// profile 是路径参数，不重复传进正文；credential_env 为空数组时不传这个键（服务侧空数组不合法）；
+// 数组按顺序原样传给服务，不拼成字符串。确认号与参数核对在 mock 侧。
 export function addProfile(
   args: {
     profile: string;
@@ -428,7 +610,13 @@ export function addProfile(
   confirmation: string
 ): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/profiles/${encodeURIComponent(args.profile)}/add`,
+      profileBody(args, confirmation),
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockAddProfile(args, confirmation);
 }
 
@@ -443,6 +631,43 @@ export function editProfile(
   confirmation: string
 ): Promise<HttpReply<null>> {
   const client = liveClient();
-  if (client) return unwired<null>();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/profiles/${encodeURIComponent(args.profile)}/edit`,
+      profileBody(args, confirmation),
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
   return mockEditProfile(args, confirmation);
+}
+
+// 七端岗位两个写函数：hub.set 的正文带 profile 与可选的 fallback（post 是路径参数，不重复传）；
+// hub.unset 只有确认号。确认号与参数核对在 mock 侧。
+export function setHubRole(
+  args: { post: string; profile: string; fallback?: string },
+  confirmation: string
+): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) {
+    const w: WriteArgs = { profile: args.profile };
+    if (args.fallback !== undefined) w.fallback = args.fallback;
+    return client.post<null>(
+      `/api/v1/hub/roles/${encodeURIComponent(args.post)}`,
+      { ...writeArgs(w), confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
+  return mockSetHubRole(args, confirmation);
+}
+
+export function unsetHubRole(post: string, confirmation: string): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) {
+    return client.post<null>(
+      `/api/v1/hub/roles/${encodeURIComponent(post)}/unset`,
+      { confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
+  return mockUnsetHubRole(post, confirmation);
 }

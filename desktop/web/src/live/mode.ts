@@ -10,6 +10,10 @@ const BUILD_MODE = typeof __THEMIS_LIVE_MODE__ === 'string' ? __THEMIS_LIVE_MODE
 
 export type LiveClient = {
   get<T>(path: string, query?: Record<string, string | undefined>, timeoutSeconds?: number): Promise<Envelope<T>>;
+  // 写路由：状态码原样返回，拿不到回应时 reject（写流程靠状态码分类）。
+  post<T>(path: string, body: unknown, timeoutSeconds?: number): Promise<{ status: number; body: Envelope<T> }>;
+  // 读原始 JSON（操作终态）：不归成信封，正文原样交回。
+  getRaw<T>(path: string, query?: Record<string, string | undefined>, timeoutSeconds?: number): Promise<{ status: number; body: T }>;
 };
 
 let injected: LiveClient | null | undefined;

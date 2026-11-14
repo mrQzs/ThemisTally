@@ -62,6 +62,12 @@ function baseArgv(action: WriteAction, args: WriteArgs): string[] {
   if (action === 'profile.remove') return ['config', 'profile', 'remove', s.profile];
   if (action === 'runtime.remove') return ['config', 'runtime', 'remove', s.runtime];
   if (action === 'config.rollback') return ['config', 'rollback', s.number];
+  if (action === 'hub.set') {
+    const out = ['config', 'hub', 'set', s.post, s.profile];
+    if (s.fallback) out.push('--fallback=' + s.fallback);
+    return out;
+  }
+  if (action === 'hub.unset') return ['config', 'hub', 'unset', s.post];
   if (action === 'plugin.enable') return ['plugins', 'enable', s.id];
   if (action === 'plugin.disable') return ['plugins', 'disable', s.id];
   if (action === 'profile.add') {
@@ -96,8 +102,8 @@ const opActions = new Map<string, string>();
 const opArgs = new Map<string, { action: string; args: WriteArgs }>();
 const opPolls = new Map<string, number>();
 
-// B 片四个删除/回滚加本片两个 profile 写动作：opArgs 记下它们的 (action, args)，供写函数核对确认号与参数（第二节）。
-const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit']);
+// B 片四个删除/回滚加本片两个 profile 写动作与七端岗位两个：opArgs 记下它们的 (action, args)，供写函数核对确认号与参数（第二节）。
+const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset']);
 
 function newOpId(action: string, args: WriteArgs): string {
   opSeq += 1;
@@ -140,6 +146,19 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
     return {
       binding_changes: [],
       resources: ['profiles'],
+      notes: [],
+      warnings: [],
+      running_attempts: [],
+      needs_yes: false,
+      command,
+      confirmation,
+    };
+  }
+  if (action === 'hub.set' || action === 'hub.unset') {
+    // 七端岗位两个写动作：binding_changes 恒空（岗位绑定不在角色绑定表里）。
+    return {
+      binding_changes: [],
+      resources: ['hub'],
       notes: [],
       warnings: [],
       running_attempts: [],
@@ -363,6 +382,20 @@ export function mockEditProfile(
   confirmation: string,
 ): Promise<HttpReply<null>> {
   return confirmWrite('profile.edit', profileArgs(args), confirmation);
+}
+
+// 七端岗位两个写函数：把带类型的参数整理成 WriteArgs（fallback 传了才带），再走同一套确认号与参数核对。
+export function mockSetHubRole(
+  args: { post: string; profile: string; fallback?: string },
+  confirmation: string,
+): Promise<HttpReply<null>> {
+  const w: WriteArgs = { post: args.post, profile: args.profile };
+  if (args.fallback !== undefined) w.fallback = args.fallback;
+  return confirmWrite('hub.set', w, confirmation);
+}
+
+export function mockUnsetHubRole(post: string, confirmation: string): Promise<HttpReply<null>> {
+  return confirmWrite('hub.unset', { post }, confirmation);
 }
 
 // 操作终态的信封：连接中断后由 getOperation 查到，照当时会跑完的信封给出（WARN/ERROR 照常显示）。

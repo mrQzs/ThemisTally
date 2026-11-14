@@ -367,3 +367,182 @@ describe('live/transport：失败分类', () => {
     }
   });
 });
+
+describe('live/transport：post 与 getRaw（写操作接真实路由）', () => {
+  // 头可以是 Headers、数组或普通对象：都归成 Headers 再查（大小写不敏感）。
+  function headersOf(init: RequestInit): Headers {
+    const h = init.headers;
+    if (h instanceof Headers) return h;
+    return new Headers((h ?? undefined) as Record<string, string> | undefined);
+  }
+
+  it('post 的请求形状：POST、same-origin、两个头、JSON 正文、带 signal；不拼 Origin、不带凭据头', async () => {
+    const rec = recorder(() => jsonResponse(200, envelope(null)));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const body = { action: 'preset.use', args: { name: 'default' } };
+    const reply = await client.post('/api/v1/preview', body, 30);
+    expect(reply).toEqual({ status: 200, body: envelope(null) });
+    expect(rec.seen.length).toBe(1);
+    expect(rec.seen[0].input).toBe('/api/v1/preview');
+    expect(rec.seen[0].init.method).toBe('POST');
+    expect(rec.seen[0].init.credentials).toBe('same-origin');
+    expect(rec.seen[0].init.body).toBe(JSON.stringify(body));
+    const h = headersOf(rec.seen[0].init);
+    expect(h.get('content-type')).toBe('application/json');
+    expect(h.get('x-themis-ui')).toBe('1');
+    expect(h.get('origin')).toBeNull();
+    expect(h.get('authorization')).toBeNull();
+    const signal = rec.seen[0].init.signal as AbortSignal | undefined;
+    expect(signal && typeof signal.aborted === 'boolean').toBe(true);
+    expect(getConnectionState()).toBe('connected');
+  });
+
+  it('post：200 且正文是合法信封 → { status, body } 原样；请求结束后不留守计时器', async () => {
+    vi.useFakeTimers();
+    const want = envelope({ preview: { dry_run: true }, confirmation: 'c1' });
+    const rec = recorder(() => jsonResponse(200, want));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const reply = await client.post('/api/v1/preview', {}, 30);
+    expect(reply).toEqual({ status: 200, body: want });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('post：401 → reauth 恰好一次、状态码 401 与固定文案；下一波 401 再起一次新的', async () => {
+    let reauthCalls = 0;
+    const rec = recorder(() => jsonResponse(401, { some: 'body' }));
+    const client = createLiveClient({
+      fetch: rec.fn as unknown as typeof fetch,
+      host: {
+        reauth: () => {
+          reauthCalls += 1;
+          return Promise.resolve({ ok: true });
+        },
+      },
+    });
+    const reply = await client.post('/api/v1/preview', {});
+    expect(reply.status).toBe(401);
+    expect(reply.body).toEqual(failureEnvelope('ERROR: 会话已失效'));
+    expect(reauthCalls).toBe(1);
+    const second = await client.post('/api/v1/preview', {});
+    expect(second.status).toBe(401);
+    expect(second.body).toEqual(failureEnvelope('ERROR: 会话已失效'));
+    expect(reauthCalls).toBe(2);
+    expect(getConnectionState()).toBe('connected');
+  });
+
+  it('post：503 正文是服务自己的信封就原样用，状态码 503 原样返回', async () => {
+    const serverEnvelope = {
+      ok: false,
+      exit_code: null,
+      data: null,
+      output: [],
+      messages: ['ERROR 服务繁忙，请稍后重试'],
+      command: [],
+      elapsed_ms: 0,
+    };
+    const rec = recorder(() => jsonResponse(503, serverEnvelope));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const reply = await client.post('/x', {});
+    expect(reply).toEqual({ status: 503, body: serverEnvelope });
+  });
+
+  it('post：504 正文是合法信封 → 状态码与信封原样（执行超时的终态透传）', async () => {
+    const serverEnvelope = {
+      ok: false,
+      exit_code: null,
+      data: null,
+      output: [],
+      messages: ['ERROR: 命令超时（90 秒），子进程已结束；请改用 CLI 查看'],
+      command: ['config', 'rollback', '41'],
+      elapsed_ms: 90001,
+    };
+    const rec = recorder(() => jsonResponse(504, serverEnvelope));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const reply = await client.post('/x', {});
+    expect(reply).toEqual({ status: 504, body: serverEnvelope });
+  });
+
+  it('post：正文不是合法信封 → 合成失败信封（≥400 用 HTTP 码、200 用坏 JSON 文案），状态码不变', async () => {
+    const rec500 = recorder(() => textResponse(500, 'internal error'));
+    const c500 = createLiveClient({ fetch: rec500.fn as unknown as typeof fetch });
+    const r500 = await c500.post('/x', {});
+    expect(r500.status).toBe(500);
+    expect(r500.body).toEqual(failureEnvelope('ERROR: 服务返回 HTTP 500'));
+    const rec200 = recorder(() => jsonResponse(200, { hello: 1 }));
+    const c200 = createLiveClient({ fetch: rec200.fn as unknown as typeof fetch });
+    const r200 = await c200.post('/x', {});
+    expect(r200.status).toBe(200);
+    expect(r200.body).toEqual(failureEnvelope('ERROR: 服务的响应不是合法的 JSON（HTTP 200）'));
+    const rec503 = recorder(() => textResponse(503, 'busy', { 'Retry-After': '7' }));
+    const c503 = createLiveClient({ fetch: rec503.fn as unknown as typeof fetch });
+    const r503 = await c503.post('/x', {});
+    expect(r503.status).toBe(503);
+    expect(r503.body).toEqual(failureEnvelope('ERROR: 服务繁忙（排队过长），请 7 秒后重试'));
+  });
+
+  it('post：断线 → reject（固定文案），状态 disconnected；同一客户端的 get 绝不 reject、仍回失败信封', async () => {
+    const client = createLiveClient({
+      fetch: (() => Promise.reject(new TypeError('Failed to fetch'))) as unknown as typeof fetch,
+    });
+    await expect(client.post('/api/v1/preview', {})).rejects.toThrow('ERROR: 连不上本机服务（请求没有到达服务）');
+    expect(getConnectionState()).toBe('disconnected');
+    const env = await client.get('/api/v1/roles');
+    expect(env).toEqual(failureEnvelope('ERROR: 连不上本机服务（请求没有到达服务）'));
+  });
+
+  it('post：假计时器下的超时 → reject，文案带秒数（服务端时限 + 5），计时器清掉、状态 disconnected', async () => {
+    vi.useFakeTimers();
+    const hang = hanging();
+    const client = createLiveClient({ fetch: hang.fn as unknown as typeof fetch });
+    const pending = client.post('/api/v1/preview', {}, 30);
+    let settled = false;
+    pending.then(() => (settled = true), () => (settled = true));
+    await vi.advanceTimersByTimeAsync(34999);
+    expect(settled).toBe(false);
+    expect((hang.seen[0].init.signal as AbortSignal).aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).rejects.toThrow('ERROR: 请求超时（35 秒），没有收到服务的回应');
+    expect((hang.seen[0].init.signal as AbortSignal).aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(getConnectionState()).toBe('disconnected');
+  });
+
+  it('getRaw：200 的八键操作对象原样交回（不归成信封）；GET、查询用 URLSearchParams 拼', async () => {
+    const opView = {
+      id: 'op1',
+      action: 'config rollback',
+      state: 'succeeded',
+      reason: null,
+      created_ms: 1,
+      started_ms: 2,
+      finished_ms: 3,
+      envelope: { ok: true, exit_code: 0, data: null, output: [], messages: [], command: [], elapsed_ms: 5 },
+    };
+    const rec = recorder(() => jsonResponse(200, opView));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const reply = await client.getRaw('/api/v1/operations/op1');
+    expect(reply).toEqual({ status: 200, body: opView });
+    expect(rec.seen[0].init.method).toBe('GET');
+    expect(rec.seen[0].init.credentials).toBe('same-origin');
+    expect(rec.seen[0].init.headers).toBeUndefined();
+    await client.getRaw('/api/v1/operations/op 1', { q: 'a b' });
+    expect(rec.seen[1].input).toBe('/api/v1/operations/op 1?q=a+b');
+  });
+
+  it('getRaw：404 的错误信封原样交回（状态码 404）', async () => {
+    const notFound = {
+      ok: false,
+      exit_code: null,
+      data: null,
+      output: [],
+      messages: ['ERROR: 没有这个操作'],
+      command: [],
+      elapsed_ms: 0,
+    };
+    const rec = recorder(() => jsonResponse(404, notFound));
+    const client = createLiveClient({ fetch: rec.fn as unknown as typeof fetch });
+    const reply = await client.getRaw('/api/v1/operations/nope');
+    expect(reply).toEqual({ status: 404, body: notFound });
+    expect(getConnectionState()).toBe('connected');
+  });
+});
