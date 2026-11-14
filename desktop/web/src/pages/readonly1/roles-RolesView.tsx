@@ -1,8 +1,9 @@
-// 角色与模型视图（合同第 5 节）：当前方案条、角色卡两列网格、profile 表、方案表与差异面板。
+// 角色与模型视图（合同第 5 节）：当前方案条、角色卡两列网格、七端岗位、profile 表、方案表与差异面板。
 // 只收数据与回调（onDiff 由页面提供，视图不调 api）。
-import type { Envelope, PresetDiffData, PresetsData, ProfilesData, RolesData } from '../../api';
+import type { Envelope, HubRolesData, PresetDiffData, PresetsData, ProfilesData, RolesData } from '../../api';
 import { RoleCard } from './roles-RoleCard';
 import { PresetBar } from './roles-PresetBar';
+import { HubPosts } from './roles-HubPosts';
 import { ProfilesTable } from './roles-ProfilesTable';
 import { PresetsTable } from './roles-PresetsTable';
 import { normalizeRole } from './roles-logic';
@@ -13,6 +14,7 @@ export interface RolesViewData {
   roles: RolesData;
   profiles: ProfilesData;
   presets: PresetsData;
+  hub: Envelope<HubRolesData>;
 }
 
 export interface RolesViewProps {
@@ -34,6 +36,7 @@ export function RolesView({ data, onDiff, reload }: RolesViewProps) {
           <RoleCard key={r.role} role={r} activePreset={active} />
         ))}
       </div>
+      <HubPosts hub={data.hub} />
       <ProfilesTable profiles={data.profiles.profiles} roles={roleInfos} reload={reload} />
       {data.presets.presets.length > 0 && (
         <PresetsTable presets={data.presets.presets} active={active} totalRoles={totalRoles} onDiff={onDiff} reload={reload} />

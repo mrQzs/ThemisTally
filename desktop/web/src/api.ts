@@ -42,6 +42,7 @@ import { liveClient } from './live/mode';
 import { isEnvelope } from './live/transport';
 import { HISTORY_ENTRIES, type HistoryEntryData } from './mock/readonly2-history-entries';
 import { PLUGIN_SHOWS, type PluginShowData } from './mock/readonly2-plugin-show';
+import { HUB_ROLES_POSTS } from './mock/hub-roles';
 
 // 信封（UI 文档 8.9 :1093–1095）：ok、exit_code、data、output、messages、command、elapsed_ms。
 // exit_code 放宽成 number | null：超时（504）等信封的退出码是 null（照 ts/packages/ui 的 timeoutEnvelope）。
@@ -124,6 +125,33 @@ export type PluginsData = typeof pluginsJson;
 export type HistoryData = typeof historyJson;
 export type UsageData = typeof usageJson;
 export type SecretsData = typeof secretsJson;
+
+// 七端岗位（GET /api/v1/hub/roles → config hub show --json）的 data：六行名册。
+// 替补的 profile 与 runtime 是可选键：内核缺省行的替补只有 adapter/provider/model/thinking 四个键
+// （scripts/kit_roles.py 的 HUB_DEFAULTS），写成必填会让四键字面量过不了 tsc --noEmit；服务缺这些键时按 null 处理。
+export interface HubPostFallback {
+  adapter: string | null;
+  provider: string | null;
+  model: string | null;
+  thinking: string | null;
+  profile?: string | null;
+  runtime?: string | null;
+}
+export interface HubPostRow {
+  post: string;
+  source: 'default' | 'config';
+  allowed_adapters: string[];
+  adapter: string | null;
+  provider: string | null;
+  model: string | null;
+  thinking: string | null;
+  profile: string | null;
+  runtime: string | null;
+  fallback: HubPostFallback | null;
+}
+export interface HubRolesData {
+  posts: HubPostRow[];
+}
 
 // meta 路由给的是 {version, repo_name}，页面读的是 kit_version（归一化见 toMetaData）。
 // version 缺失或不是字符串时按「对不上格式」处理：kit_version 给空串（未知），不猜、也不回夹具。
@@ -408,6 +436,14 @@ export function getPresets(): Promise<Envelope<PresetsData>> {
   if (client) return client.get<PresetsData>('/api/v1/presets', undefined, 30);
   return read(['config', 'preset', 'list'], () =>
     okEnvelope(['config', 'preset', 'list'], clone(presetsJson)),
+  );
+}
+
+export function getHubRoles(): Promise<Envelope<HubRolesData>> {
+  const client = liveClient();
+  if (client) return client.get<HubRolesData>('/api/v1/hub/roles', undefined, 30);
+  return read(['config', 'hub', 'show', '--json'], () =>
+    okEnvelope(['config', 'hub', 'show', '--json'], clone(HUB_ROLES_POSTS)),
   );
 }
 

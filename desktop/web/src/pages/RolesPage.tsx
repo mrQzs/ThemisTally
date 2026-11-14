@@ -7,7 +7,9 @@ import {
   getPresets,
   getProfiles,
   getRoles,
+  getHubRoles,
   type Envelope,
+  type HubRolesData,
   type PresetDiffData,
   type PresetsData,
   type ProfilesData,
@@ -16,14 +18,21 @@ import {
 import { RolesView, type RolesViewData } from './readonly1/roles-RolesView';
 import { NewProfileAction } from '../writes/ProfileForm';
 
+// 并行读四个：前三个（roles/profiles/presets）里第一个坏的按 roles→profiles→presets 顺序整页返回那个失败信封；
+// hub 的信封整个放进 data.hub，不参与整页失败判定（hub 读失败只在七端岗位那一组显示）。
 const loadRoles = (): Promise<Envelope<RolesViewData>> =>
-  Promise.all([getRoles(), getProfiles(), getPresets()]).then(([roles, profiles, presets]) => {
+  Promise.all([getRoles(), getProfiles(), getPresets(), getHubRoles()]).then(([roles, profiles, presets, hub]) => {
     const firstBad = [roles, profiles, presets].find((e) => !e.ok || e.data == null);
     if (firstBad) return firstBad as unknown as Envelope<RolesViewData>;
     return {
       ok: true,
       exit_code: 0,
-      data: { roles: roles.data as RolesData, profiles: profiles.data as ProfilesData, presets: presets.data as PresetsData },
+      data: {
+        roles: roles.data as RolesData,
+        profiles: profiles.data as ProfilesData,
+        presets: presets.data as PresetsData,
+        hub,
+      },
       output: [],
       messages: [],
       command: roles.command,

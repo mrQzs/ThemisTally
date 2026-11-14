@@ -65,3 +65,8 @@
 .rl-diff__error { margin-top: var(--tt-space-2); }
 .rl-diff__errtext { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
 .rl-diff__msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }
+
+.rl-hub .tt-table { min-width: 760px; } /* 画布：七端岗位表最小宽 */
+.rl-hub-err { padding: var(--tt-space-3) var(--tt-space-4); }
+.rl-hub-errtext { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.rl-hub-msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }

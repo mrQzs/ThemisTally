@@ -95,6 +95,7 @@ const ROWS: Row[] = [
   { name: 'getRoles', run: () => api.getRoles(), path: '/api/v1/roles', timeout: 30 },
   { name: 'getProfiles', run: () => api.getProfiles(), path: '/api/v1/profiles', timeout: 30 },
   { name: 'getPresets', run: () => api.getPresets(), path: '/api/v1/presets', timeout: 30 },
+  { name: 'getHubRoles', run: () => api.getHubRoles(), path: '/api/v1/hub/roles', timeout: 30 },
   {
     name: 'diffPresets',
     run: () => api.diffPresets('x y', 'z'),
@@ -115,7 +116,7 @@ const ROWS: Row[] = [
   { name: 'getPlugin', run: () => api.getPlugin('docs-checks'), path: '/api/v1/plugins/docs-checks', timeout: 30 },
 ];
 
-describe('api.ts 的 15 个读函数（注入 fake client）', () => {
+describe('api.ts 的 16 个读函数（注入 fake client）', () => {
   for (const row of ROWS) {
     it(`${row.name} → GET ${row.path}，服务端时限 ${row.timeout}`, async () => {
       const env = await row.run();

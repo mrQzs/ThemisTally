@@ -24,6 +24,8 @@ export interface TableProps<Row> {
   /** 加在滚动容器上的类名（调用方用它限高；不用内联 style）。 */
   className?: string;
   'aria-label': string;
+  /** 每行额外的 DOM 属性（如 data-post）：不传时 <tr> 与现在完全一样。 */
+  rowAttrs?: (row: Row) => Record<string, string>;
 }
 
 export function Table<Row>({
@@ -35,6 +37,7 @@ export function Table<Row>({
   selectedKey,
   className,
   'aria-label': ariaLabel,
+  rowAttrs,
 }: TableProps<Row>) {
   const tableRef = useRef<HTMLTableElement>(null);
   const selectedIndex = selectedKey != null ? rows.findIndex((r) => rowKey(r) === selectedKey) : -1;
@@ -106,6 +109,7 @@ export function Table<Row>({
                 key={key}
                 tabIndex={i === current ? 0 : -1}
                 data-selected={isSel ? '' : undefined}
+                {...rowAttrs?.(row)}
                 onFocus={() => setActiveKey(key)}
                 onClick={() => {
                   setActiveKey(key);
