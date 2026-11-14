@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "task_id": "t040-desktop-web-writes-2",
+  "plan_version": 1,
+  "title": "桌面端前端第 6 片：写操作的真实模式收尾（T037 片 2，D6）",
+  "repository": "ThemisTally",
+  "base_sha": "2326220f6bc4d66fdc36e602d1295e4d5ffe29be",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/api.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/tests/writes-live-flow.test.tsx",
+      "desktop/web/tests/writes-live-preview.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t040_*.py",
+      "desktop/web/src/live/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/writeOutcome.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/src/writes/profileRules.ts",
+      "desktop/web/src/writes/write-flow.css",
+      "desktop/web/src/writes/profile-form.css",
+      "desktop/web/src/pages/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/App.tsx",
+      "desktop/web/tests/writes-flow.test.tsx",
+      "desktop/web/tests/writes-dialog.test.tsx",
+      "desktop/web/tests/writes-outcome.test.ts",
+      "desktop/web/tests/writes-remove.test.tsx",
+      "desktop/web/tests/writes-rollback.test.tsx",
+      "desktop/web/tests/writes-profile-api.test.ts",
+      "desktop/web/tests/writes-profile-form.test.tsx",
+      "desktop/web/tests/writes-snapshots.test.ts",
+      "desktop/web/tests/writes-snapshots-b.test.ts",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/live-transport.test.ts",
+      "desktop/web/tests/live-mode.test.ts",
+      "desktop/web/tests/live-readers.test.ts",
+      "desktop/web/tests/live-connection.test.ts",
+      "desktop/web/tests/live-events.test.ts",
+      "desktop/web/tests/live-events-hook.test.tsx",
+      "desktop/web/tests/live-app.test.tsx",
+      "desktop/web/tests/live-pages-live.test.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/tests/shell-no-network.test.ts",
+      "desktop/web/vite.config.ts",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/tsconfig.json",
+      "desktop/web/scripts/**",
+      "ts/**",
+      "docs/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t040_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "$"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "真实模式下不认 `?write=` 的重读演示情景：`readSnapshot` 的 `reread-fail` 与 `reread-fail-exit1` 只在 `liveClient() === null` 时认；真实模式的重读失败只由真的读失败（reject 或 `ok:false`）造成。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "真实服务上不因为 URL 里的演示参数造出一次假的「重新读取失败」"
+    },
+    {
+      "id": "D02",
+      "text": "`needs_yes` 为真且没有正在运行的 attempt 时，确认框的 notes 第一行是逐字的那句「有状态读不出来，不能确定没有正在运行的 attempt；这次改动需要你确认。」；running 非空时不加；`needs_yes` 为假时不加；不新增界面元素与类名。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "用户看得见为什么这次要他确认（内核的语义是「列不出来就不当作没有在运行」），而不是只看到一串路径"
+    },
+    {
+      "id": "D03",
+      "text": "`desktop/web/src/api.ts` 只改了第 246 行那一句注释，去注释后逐字不变，文件里不再出现「501」，也不出现四个网络整词。",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "站主采纳的终审意见 4 落地（将来恢复查 501 的断言时不误伤），且不碰 api.ts 的任何行为"
+    },
+    {
+      "id": "D04",
+      "text": "`desktop/web/src/writes/useLivePreview.ts` 第 2 行的注释改成「夹具模式下读演示数据，真实模式下走服务的预览。」；`DEBOUNCE_MS = 300` 与其余代码一字不变。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "注释不再说假话，同时保住 T024 S14 依赖的「300」记号"
+    },
+    {
+      "id": "D05",
+      "text": "新测试只经 `setLiveClientForTests` 注入假客户端，不 `vi.mock` 被测模块；假客户端实现 `get`/`post`/`getRaw` 并记录路径、正文与时限；两份新测试没有 `skip`/`only`/`todo`。",
+      "evidence": [
+        "V01",
+        "scope"
+      ],
+      "intent": "测的是真实现，不是把业务逻辑抄一份进测试"
+    },
+    {
+      "id": "D06",
+      "text": "真实模式下预览发 `POST /api/v1/preview`（正文 `{action, args}`），执行发 `POST /api/v1/presets/economy/use`（正文 `{confirmation}`，时限 90 秒），断线后查 `GET /api/v1/operations/<确认号>`。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "写操作真的按服务的路由发出去，且参数与预览时一致"
+    },
+    {
+      "id": "D07",
+      "text": "成功只在重读之后才说（W3）：重读挂起时整页没有「已切换」，重读兑现后才出轻提示「已切换到方案 economy」。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "界面不提前宣布成功"
+    },
+    {
+      "id": "D08",
+      "text": "状态已变、过期、繁忙、断线后轮询、轮询到 120 秒、服务出错、超时、部分写入、内核拒绝这九条各有断言，界面文案与按钮照 Behavior contract 的表。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "真窗口里碰不到的分支（断线、过期、繁忙、部分写入）从此有回归保护"
+    },
+    {
+      "id": "D09",
+      "text": "真实模式下重读失败（读 reject 或 `ok:false`）显示「命令已成功，但重新读取失败，请刷新」，与 D01 的演示情景分开。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "真的失败不会被当成演示失败，两者的处置不同"
+    },
+    {
+      "id": "D10",
+      "text": "`useLivePreview` 在真实模式下：299ms 不发预览、300ms 恰好发一次；返回的命令去掉 `--dry-run` 与 `--json`；400 信封显示 messages 原文；post reject 显示「预览失败：服务没有回应」。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "表单底部的实时预览在真实服务上也通"
+    },
+    {
+      "id": "D11",
+      "text": "夹具模式一字不变：`?write=` 的 22 个情景照旧，既有测试文件一个都没改（`desktop/web/tests/writes-flow.test.tsx` 等全绿），两条写入口过渡用例照旧。",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01",
+        "scope"
+      ],
+      "intent": "不推翻既有门禁与过渡断言，也不影响别的片"
+    },
+    {
+      "id": "D12",
+      "text": "改动都在允许集合内（3 个源文件 + 最多 2 个新测试文件）；禁改清单里的文件一个都没动；没有删除或重命名文件；依赖清单与锁文件没变；`desktop/web/src/` 下（除 `src/live/`）没有四个网络整词。",
+      "evidence": [
+        "scope",
+        "G01"
+      ],
+      "intent": "不越权、不惊动 T038 A 片"
+    },
+    {
+      "id": "D13",
+      "text": "`npm test`、`npm run typecheck`、门禁 G01 与回归 R01 全绿。",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01",
+        "R01"
+      ],
+      "intent": "既有前端行为没被写流程收尾碰坏，既有门禁不被本片推翻"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
