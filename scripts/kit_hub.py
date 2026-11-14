@@ -4300,6 +4300,11 @@ def sweep_window(hub: Hub, name: str, label: str):
 HEAVY_WAIT_SECONDS = 4 * 3600.0
 #: 落地在车道里试落地锁的时限（第 155 轮）：拿不到就让出车道、下一轮再试，不拿着车道干等。
 LAND_TRY_SECONDS = 15.0
+#: 重活车道的号牌（第 160 轮）：排车道先在这里取号，排在最前的活着的号才去拿锁。原来谁先轮询到 mkdir 谁拿到：11-13 09:59Z 到
+#: 11-14 04:30Z，73 次排队里 49 次有后排上的先进了车道，最长一次等了 370 分钟、其间 23 个后来的先进去
+HEAVY_QUEUE = ".heavy-queue"
+#: 看号牌的间隔：每看一次要问一遍排在前面那张的进程还在不在（Windows 上起一次 tasklist）
+HEAVY_TICKET_POLL_SECONDS = 1.0
 FAILED_TEST_RE = re.compile(r"^FAILED (\S+)", re.M)
 
 
@@ -4318,12 +4323,22 @@ def heavy_lane(hub: Hub, label: str, task: Optional[str] = None):
     ahead = heavy_holder(hub)
     if ahead:
         hub.append_event("heavy.queued", task=task, label=label, behind=ahead)
-    lock = DirLock(hub.root / ".heavy", wait_seconds=HEAVY_WAIT_SECONDS)
+    # 第 160 轮：先取号，排到最前才去拿锁；取的号不管拿没拿到锁都撤掉（拿到了就不算排着，没拿到就不排了）
+    deadline = time.monotonic() + HEAVY_WAIT_SECONDS
+    ticket = take_lane_ticket(hub, label, task)
+    lock = None
     try:
-        lock.__enter__()
-    except HubError as exc:
-        raise LaneBusy("重活车道排到上限（%d 秒）也没排到（车道里是 %s）：%s 没有跑，不是检查不过" % (
-            HEAVY_WAIT_SECONDS, heavy_holder(hub) or "不明", label), EXIT_BLOCKED) from exc
+        if wait_in_lane_queue(hub, ticket, deadline):
+            lock = DirLock(hub.root / ".heavy", wait_seconds=max(0.0, deadline - time.monotonic()))
+            try:
+                lock.__enter__()
+            except HubError:
+                lock = None
+    finally:
+        drop_lane_ticket(ticket)
+    if lock is None:
+        raise LaneBusy("重活车道排到上限（%d 秒）也没排到（%s）：%s 没有跑，不是检查不过" % (
+            HEAVY_WAIT_SECONDS, lane_whereabouts(hub), label), EXIT_BLOCKED)
     try:
         write_text_atomic(lock.path / "label.json",
                           json.dumps({"label": label, "task": task, "at": utc_now()}, ensure_ascii=False) + "\n")
@@ -4346,7 +4361,82 @@ def heavy_holder(hub: Hub) -> Optional[str]:
         data = json.loads(read_text(path / "label.json") or "{}")
     except ValueError:
         data = {}
+    return lane_label(data)
+
+
+def lane_label(data: Dict[str, Any]) -> str:
+    """车道里或排着车道的那一份怎么称呼：“T001 的基线检查”，站主的不带主任务。"""
     return "%s%s" % ("%s 的" % data["task"] if data.get("task") else "", data.get("label") or "重检查")
+
+
+def take_lane_ticket(hub: Hub, label: str, task: Optional[str]) -> Path:
+    """第 160 轮：排车道先取号。号牌名以取号时刻打头（utc_compact 定长），按名字排就是先后；后面带进程号与两字节随机数，
+    同一时刻取号也不重名。"""
+    path = hub.root / HEAVY_QUEUE / ("%s-%d-%s.json" % (utc_compact(), os.getpid(), os.urandom(2).hex()))
+    write_text_atomic(path, json.dumps({"pid": os.getpid(), "label": label, "task": task, "at": utc_now()},
+                                       ensure_ascii=False) + "\n")
+    return path
+
+
+def drop_lane_ticket(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def lane_tickets(hub: Hub) -> List[Tuple[Path, Dict[str, Any]]]:
+    """号牌按先后排好（按名字的码位排，与 TS 一样），带上内容；读不出来的内容是空 dict。"""
+    queue = hub.root / HEAVY_QUEUE
+    found = []
+    for path in sorted(queue.glob("*.json"), key=lambda item: item.name) if queue.is_dir() else []:
+        try:
+            data = json.loads(read_text(path) or "{}")
+        except ValueError:
+            data = {}
+        found.append((path, data if isinstance(data, dict) else {}))
+    return found
+
+
+def ticket_alive(data: Dict[str, Any]) -> bool:
+    """号牌的持有者进程还在（查不清也算在）；没写进程号的号牌不是内核写的，算不在。"""
+    pid = data.get("pid")
+    return isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 and pd.pid_alive(pid) is not False
+
+
+def first_in_lane_queue(hub: Hub, ticket: Path) -> bool:
+    """号牌里排在最前的活着的是不是自己。排在前面、持有者已经不在的号牌顺手删掉（照 DirLock 接管死锁）；自己的号牌
+    被别人删了也算排到（不让一张丢了的号牌把自己挡到时限）。"""
+    for path, data in lane_tickets(hub):
+        if path.name == ticket.name:
+            return True
+        if ticket_alive(data):
+            return False
+        drop_lane_ticket(path)
+    return True
+
+
+def wait_in_lane_queue(hub: Hub, ticket: Path, deadline: float) -> bool:
+    """等到自己的号牌排在最前；到了时限还没排到交回 False。"""
+    while not first_in_lane_queue(hub, ticket):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(HEAVY_TICKET_POLL_SECONDS)
+    return True
+
+
+def lane_queue(hub: Hub) -> List[str]:
+    """排着车道的（给 status 与“排不到”的说明看）：持有者还在的号牌，按先后。只读，不删号牌。"""
+    return [lane_label(data) for _path, data in lane_tickets(hub) if ticket_alive(data)]
+
+
+def lane_whereabouts(hub: Hub) -> str:
+    """排不到车道时说明当时的情形：车道里是谁；车道空着就说排在最前的是谁。"""
+    holder = heavy_holder(hub)
+    if holder:
+        return "车道里是 %s" % holder
+    queue = lane_queue(hub)
+    return "车道空着，排在前面的是 %s" % queue[0] if queue else "车道里是 不明"
 
 
 def regression_check_ids(hub: Hub, ts: Dict[str, Any]) -> Set[str]:
@@ -6849,7 +6939,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("并行：最多 %d 个主任务；在跑的主任务 runner：%s；在跑的执行端：%s" % (
         configured_parallel(hub, argparse.Namespace(parallel=None)), "、".join(runners) or "无",
         "、".join(executing) or "无"))
-    print("重活车道：%s" % (heavy_holder(hub) or "空"))
+    queue = lane_queue(hub)
+    print("重活车道：%s%s" % (heavy_holder(hub) or "空", "；排队 %d 份：%s" % (len(queue), "、".join(queue)) if queue else ""))
     return EXIT_OK
 
 

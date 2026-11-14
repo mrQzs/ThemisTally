@@ -313,6 +313,20 @@ describe("第 ⑤j1 片：变异补的场景（手写，各条 it 的标题里�
     expect(stdoutOf(state).trimEnd().split(LF).slice(-2)).toEqual(["并行：最多 1 个主任务；在跑的主任务 runner：T003、T006、b-x；在跑的执行端：无", "重活车道：空"]);
   }, 600_000);
 
+  // 第 160 轮：status 列出排着车道的。号牌照名字（取号时刻）排，持有者的死活照记录注入：4243 已经退出不列，4244 问不出死活照列
+  it("第 160 轮（R05、R06）：status 在重活车道那一行列出排队的号牌，按先后，持有者已经退出的不列", () => {
+    const sc = stateScene(() => undefined, (repo) => {
+      const ticket = (name: string, pid: number, label: string, task: string | null): void =>
+        put(repo, `${BOX}/.heavy-queue/${name}`, `${JSON.stringify({ pid, label, task, at: AT })}${LF}`);
+      ticket("20261113T000000000001Z-4242-0000.json", 4242, "落地检查", "T037");
+      ticket("20261113T000000000000Z-4243-0000.json", 4243, "执行检查", "T009");
+      ticket("20261113T000000000002Z-4244-0000.json", 4244, "站主：第 160 轮契约", null);
+    });
+    const [state] = agreeFlow([flow("cmd_status", sc, [command(sc.repo, "status", { json: false })],
+      { inner: [alive(4243, false), alive(4242, true), alive(4244, null)], replaced: ["pid_alive"] })]);
+    expect(stdoutOf(state).trimEnd().split(LF).at(-1)).toBe("重活车道：空；排队 2 份：T037 的落地检查、站主：第 160 轮契约");
+  }, 600_000);
+
   it("task_quiet：.runner 有人拿着、却不是 supervisor 时照样要拿总锁（J03）；暂停标记里的 pid 是命令自己的进程，别的进程问得到它活着（J11）", () => {
     const held: ChildProcess[] = [];
     const log = join(tempDir("spy"), "seen.jsonl");

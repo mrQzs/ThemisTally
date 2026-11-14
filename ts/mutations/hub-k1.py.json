@@ -107,14 +107,14 @@
   {
    "name": "P16 status 不报车道",
    "file": "scripts/kit_hub.py",
-   "old": "    print(\"重活车道：%s\" % (heavy_holder(hub) or \"空\"))",
+   "old": "    print(\"重活车道：%s%s\" % (heavy_holder(hub) or \"空\", \"；排队 %d 份：%s\" % (len(queue), \"、\".join(queue)) if queue else \"\"))",
    "new": "    pass"
   },
   {
    "name": "P17 车道不互斥",
    "file": "scripts/kit_hub.py",
-   "old": "    try:\n        lock.__enter__()\n    except HubError as exc:\n        raise LaneBusy(",
-   "new": "    try:\n        pass\n    except HubError as exc:\n        raise LaneBusy("
+   "old": "            try:\n                lock.__enter__()\n            except HubError:\n                lock = None",
+   "new": "            try:\n                pass\n            except HubError:\n                lock = None"
   },
   {
    "name": "P18 交付信不写重跑过",

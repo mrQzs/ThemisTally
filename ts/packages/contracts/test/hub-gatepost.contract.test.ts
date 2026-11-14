@@ -115,8 +115,9 @@ describe("第 ⑤f 片：pytest 的场景（样例只有 tests/test_kit_hub.py �
     const calls = samples().filter((item) => !FLOW.includes(item.fn));
     const counts = Object.fromEntries([...SNAPSHOT, ...PURE].map((fn) => [fn, calls.filter((item) => item.fn === fn).length]));
     // gate_spec、unchanged_mismatches、defect_match_problems 没有顶层调用（都在 run_mutations、accept_gate_post 里面），在第二部分手写
+    // attempt_base 74→75：第 159 轮改的 test_exec_rework_continues_from_the_reviewed_candidate 多走一次（那一轮漏改，第 160 轮补）
     expect(counts, "各函数的顶层调用次数").toEqual({
-      attempt_base: 74, unmutated_problems: 3, gate_spec: 0, mutant_timeout: 4, unchanged_mismatches: 0, expected_missed_everywhere: 3, candidate_defects: 1,
+      attempt_base: 75, unmutated_problems: 3, gate_spec: 0, mutant_timeout: 4, unchanged_mismatches: 0, expected_missed_everywhere: 3, candidate_defects: 1,
       defect_matches: 8, defect_match_problems: 0, mutation_problems: 14,
     });
     replay(calls);

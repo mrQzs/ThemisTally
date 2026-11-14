@@ -8934,6 +8934,60 @@ def test_a_blocked_landing_does_not_queue_for_the_lane(tmp_path, monkeypatch):
     assert [e["event"] for e in events_of(hub) if e["event"].startswith("heavy.")] == ["heavy.entered", "heavy.left"]
 
 
+# 第 160 轮：重活车道按号排队
+
+def lane_ticket_file(hub, name, pid, label="执行检查", task="T009"):
+    path = hub.root / kh.HEAVY_QUEUE / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"pid": pid, "label": label, "task": task, "at": "2026-11-14T00:00:00Z"}, ensure_ascii=False) + LF155,
+                    encoding="utf-8")
+    return path
+
+
+def test_the_heavy_lane_goes_by_ticket_order(tmp_path, monkeypatch):
+    # 2026-11-13：车道是轮询的目录锁，谁先轮询到谁拿。从第 155 轮合入到次日 04:30Z，73 次排队有 49 次被后排上的插了队，
+    # 最长一次等了 370 分钟
+    hub, _ts = lane_hub(tmp_path)
+    monkeypatch.setattr(kh, "HEAVY_WAIT_SECONDS", 0.3)
+    monkeypatch.setattr(kh, "HEAVY_TICKET_POLL_SECONDS", 0.05)
+    alive = {4242, os.getpid()}  # 车道锁与自己的号牌是这个进程拿的
+    monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: pid in alive)
+    earlier = lane_ticket_file(hub, "20261113T000000000000Z-4242-0000.json", 4242)
+    with pytest.raises(kh.LaneBusy) as caught:  # 车道空着，可排在前面的那张号牌的进程还在：轮不到
+        with kh.heavy_lane(hub, "基线检查", "T001"):
+            raise AssertionError("前面有人排着，不该进车道")
+    assert "（车道空着，排在前面的是 T009 的执行检查）：基线检查 没有跑" in str(caught.value)
+    assert sorted(p.name for p in (hub.root / kh.HEAVY_QUEUE).glob("*.json")) == [earlier.name]  # 自己的号牌撤掉了
+    alive.discard(4242)  # 那个进程不在了：它的号牌删掉，照常进车道
+    with kh.heavy_lane(hub, "基线检查", "T001"):
+        assert kh.heavy_holder(hub) == "T001 的基线检查"
+        assert list((hub.root / kh.HEAVY_QUEUE).glob("*.json")) == []  # 进了车道就不算排着
+    assert [e["event"] for e in events_of(hub) if e["event"].startswith("heavy.")] == ["heavy.entered", "heavy.left"]
+
+
+def test_lane_tickets_go_by_name_and_dead_ones_ahead_are_dropped(tmp_path, monkeypatch):
+    hub, _ts = lane_hub(tmp_path)
+    known = {101: True, 202: None, os.getpid(): True}  # 查不清死活（None）的算在；自己的号牌是这个进程拿的
+    monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: known.get(pid, False))
+    lane_ticket_file(hub, "20261113T000000000002Z-202-0000.json", 202, label="站主：第二个", task=None)
+    lane_ticket_file(hub, "20261113T000000000001Z-101-0000.json", 101, label="落地检查", task="T037")
+    garbage = hub.root / kh.HEAVY_QUEUE / "20261113T000000000000Z-0-0000.json"
+    garbage.write_text("不是 JSON", encoding="utf-8")
+    dead = lane_ticket_file(hub, "20261113T000000000000Z-303-0000.json", 303)
+    assert kh.lane_queue(hub) == ["T037 的落地检查", "站主：第二个"]
+    assert garbage.exists() and dead.exists()  # 只是看：不删
+    monkeypatch.setattr(kh, "utc_compact", lambda: "20261114T000000000000Z")
+    mine = kh.take_lane_ticket(hub, "执行检查", "T001")
+    assert mine.parent == hub.root / kh.HEAVY_QUEUE and mine.name.startswith("20261114T000000000000Z-%d-" % os.getpid())  # 按取号时刻排
+    assert json.loads(mine.read_text(encoding="utf-8"))["label"] == "执行检查"
+    assert not kh.first_in_lane_queue(hub, mine)  # 排在前面的 101 还在
+    assert not garbage.exists() and not dead.exists()  # 挡在前面的死号牌、读不出的号牌顺手删了
+    assert kh.lane_queue(hub) == ["T037 的落地检查", "站主：第二个", "T001 的执行检查"]
+    kh.drop_lane_ticket(mine)
+    kh.drop_lane_ticket(mine)  # 已经不在了也不报错
+    assert kh.lane_queue(hub) == ["T037 的落地检查", "站主：第二个"]
+
+
 def test_the_exec_letter_says_the_regression_passed_only_on_the_rerun(engine_env, monkeypatch):
     # 协调人看的是信：执行检查是全量回归第一次红、原样重跑才相符的，“验证”里写明哪条、红的用例名
     hub = engine_env

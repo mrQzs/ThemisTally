@@ -1,0 +1,60 @@
+{
+ "command": [
+  "python",
+  "-m",
+  "pytest",
+  "tests/test_kit_hub.py",
+  "-q",
+  "-x",
+  "-p",
+  "no:cacheprovider",
+  "-k",
+  "lane or ticket or heavy"
+ ],
+ "cwd": ".",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "P01 不看号牌（谁先轮询到谁拿）",
+   "file": "scripts/kit_hub.py",
+   "old": "    while not first_in_lane_queue(hub, ticket):\n",
+   "new": "    while False:\n"
+  },
+  {
+   "name": "P02 挡在前面的死号牌不删",
+   "file": "scripts/kit_hub.py",
+   "old": "            return False\n        drop_lane_ticket(path)\n    return True\n",
+   "new": "            return False\n        return False\n    return True\n"
+  },
+  {
+   "name": "P03 进了车道不撤号牌",
+   "file": "scripts/kit_hub.py",
+   "old": "    finally:\n        drop_lane_ticket(ticket)\n",
+   "new": "    finally:\n        pass\n"
+  },
+  {
+   "name": "P04 号牌倒着排",
+   "file": "scripts/kit_hub.py",
+   "old": "key=lambda item: item.name)",
+   "new": "key=lambda item: item.name, reverse=True)"
+  },
+  {
+   "name": "P05 查不清死活的号牌算不在",
+   "file": "scripts/kit_hub.py",
+   "old": "pd.pid_alive(pid) is not False",
+   "new": "pd.pid_alive(pid) is True"
+  },
+  {
+   "name": "P06 到了时限没排到也去拿锁",
+   "file": "scripts/kit_hub.py",
+   "old": "            return False\n        time.sleep(HEAVY_TICKET_POLL_SECONDS)",
+   "new": "            return True\n        time.sleep(HEAVY_TICKET_POLL_SECONDS)"
+  },
+  {
+   "name": "P07 号牌不按取号时刻起名",
+   "file": "scripts/kit_hub.py",
+   "old": "(\"%s-%d-%s.json\" % (utc_compact(), os.getpid(), os.urandom(2).hex()))",
+   "new": "(\"%s-%d.json\" % (os.urandom(2).hex(), os.getpid()))"
+  }
+ ]
+}

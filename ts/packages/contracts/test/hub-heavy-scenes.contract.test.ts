@@ -100,6 +100,26 @@ describe("第 155 轮：执行检查只有全量回归不符时原样重跑一�
   }, 600_000);
 });
 
+describe("第 160 轮：重活车道按号排队（手写）", () => {
+  // 号牌名以取号时刻打头：场景里先放的号牌写更早的时刻，排在探针自己取的号前面
+  const ticket = (repo: string, name: string, text: string): void => put(repo, `${BOX}/.heavy-queue/${name}`, text);
+  it("车道空着、排在前面的号牌的进程还在：照没跑成交回 3、不调调度器；排在前面的号牌读不出来：删掉、照常检查", () => {
+    const ahead = execScene((repo) => ticket(repo, `20261031T000000000000Z-${process.pid}-0000.json`,
+      `${JSON.stringify({ pid: process.pid, label: "执行检查", task: "T009", at: AT })}${LF}`));
+    const garbage = execScene((repo) => ticket(repo, "20261031T000000000000Z-0-0000.json", "不是 JSON"));
+    const states = agreeFlow([
+      { ...flow("finish_exec", ahead.sc, [execTs(ahead.sc), ahead.runDir, 0], { inner: [], replaced: ["run_pd"] }), heavy_wait: 1 },
+      { ...flow("finish_exec", garbage.sc, [execTs(garbage.sc), garbage.runDir, 0], { inner: [checked(garbage.runDir, "01", 0, [])] }), heavy_wait: 1 },
+    ]);
+    expect(states.map(errorOf)).toEqual([null, null]);
+    const exec = states.map((state) => tsAfter(state).get("exec") as PyDict);
+    expect(exec.map((item) => [item.get("check_exit"), item.get("check_ok")])).toEqual([[3n, false], [0n, true]]);
+    expect(String(exec[0]?.get("check_tail"))).toContain("重活车道排到上限（1 秒）也没排到（车道空着，排在前面的是 T009 的执行检查）：执行检查 没有跑，不是检查不过");
+    expect(kinds(states[0], "heavy.")).toEqual([]);
+    expect(kinds(states[1], "heavy.")).toEqual([["heavy.entered", "执行检查", null], ["heavy.left", "执行检查", null]]);
+  }, 600_000);
+});
+
 describe("第 155 轮：落地先排车道、再在车道里试落地锁（手写）", () => {
   const meta = { "msg-id": "20261101T000000000000Z-coordinator-000000", from: COORDINATOR, to: "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none", type: "通过" };
   function landScene(more: (repo: string) => void): { sc: Scene; path: string } {

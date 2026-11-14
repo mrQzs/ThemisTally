@@ -1,0 +1,59 @@
+{
+ "command": [
+  "node",
+  "node_modules/vitest/vitest.mjs",
+  "run",
+  "packages/contracts/test/hub-heavy-scenes.contract.test.ts",
+  "packages/contracts/test/hub-commands-scenes.contract.test.ts",
+  "-t",
+  "第 160 轮",
+  "--bail",
+  "1"
+ ],
+ "cwd": "ts",
+ "timeout_seconds": 900,
+ "mutations": [
+  {
+   "name": "R01 不看号牌（谁先轮询到谁拿）",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  while (!firstInLaneQueue(hub, ticket, lane)) {",
+   "new": "  while (false) {"
+  },
+  {
+   "name": "R02 挡在前面的死号牌不删",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "    if (ticketAlive(data, lane)) return false;\n    dropLaneTicket(path);",
+   "new": "    if (ticketAlive(data, lane)) return false;\n    return false;"
+  },
+  {
+   "name": "R03 进了车道不撤号牌",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "  } finally {\n    dropLaneTicket(ticket);\n  }",
+   "new": "  } finally {\n  }"
+  },
+  {
+   "name": "R04 号牌倒着排",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "cmpCodePoints(purePathName(left), purePathName(right))",
+   "new": "cmpCodePoints(purePathName(right), purePathName(left))"
+  },
+  {
+   "name": "R05 status 不列排队",
+   "file": "ts/packages/hub/src/commands.ts",
+   "old": "${queue.length ? `；排队 ${queue.length} 份：${queue.join(\"、\")}` : \"\"}",
+   "new": ""
+  },
+  {
+   "name": "R06 Python 的 status 不列排队",
+   "file": "scripts/kit_hub.py",
+   "old": "\"；排队 %d 份：%s\" % (len(queue), \"、\".join(queue)) if queue else \"\"",
+   "new": "\"\""
+  },
+  {
+   "name": "R07 到了时限没排到也去拿锁",
+   "file": "ts/packages/hub/src/heavy.ts",
+   "old": "    if (performance.now() >= deadline) return false;",
+   "new": "    if (performance.now() >= deadline) return true;"
+  }
+ ]
+}

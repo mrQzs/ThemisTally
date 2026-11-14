@@ -26,7 +26,7 @@ import { answersQuestion, contractPaths } from "./contract.ts";
 import { Engine, type EngineDeps, REAL_ENGINE_DEPS, releaseDependents } from "./engine.ts";
 import { HubError } from "./errors.ts";
 import { ATTEMPT_IN_FLIGHT, attemptsLeft } from "./exec.ts";
-import { heavyHolder } from "./heavy.ts";
+import { heavyHolder, laneQueue } from "./heavy.ts";
 import { git } from "./kernel.ts";
 import { landingBlockers } from "./land.ts";
 import { letterErrors, stageOf } from "./letters.ts";
@@ -644,7 +644,8 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   const executing = landingBlockers(hub, new Map<string, PyValue>([["task", null], ["contract_task", NUL]]), true, deps).map(pyStrValue);
   out.print(`并行：最多 ${configuredParallel(hub, { parallel: null })} 个主任务；在跑的主任务 runner：${runners.join("、") || "无"}；`
     + `在跑的执行端：${executing.join("、") || "无"}`);
-  out.print(`重活车道：${heavyHolder(hub, deps) || "空"}`);
+  const queue = laneQueue(hub, deps);
+  out.print(`重活车道：${heavyHolder(hub, deps) || "空"}${queue.length ? `；排队 ${queue.length} 份：${queue.join("、")}` : ""}`);
   return EXIT_OK;
 }
 
