@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "task_id": "t037-desktop-web-writes",
+  "plan_version": 1,
+  "title": "桌面端前端第 4 片：写操作接真实路由（预览、确认、执行、操作终态）（D6）",
+  "repository": "ThemisTally",
+  "base_sha": "51a41a994e526a2a4a7199377528301b2b8c2473",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/live/transport.ts",
+      "desktop/web/src/live/mode.ts",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/tests/live-transport.test.ts",
+      "desktop/web/tests/live-api.test.ts"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t037_*.py",
+      "desktop/web/src/writes/**",
+      "desktop/web/src/pages/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/live/events.ts",
+      "desktop/web/src/live/useLiveStatus.ts",
+      "desktop/web/src/live/connection.ts",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/tests/*.test.tsx",
+      "desktop/web/tests/writes-flow.test.tsx",
+      "desktop/web/tests/live-mode.test.ts",
+      "desktop/web/tests/live-readers.test.ts",
+      "desktop/web/tests/live-connection.test.ts",
+      "desktop/web/tests/live-events.test.ts",
+      "desktop/web/tests/live-events-hook.test.tsx",
+      "desktop/web/tests/live-pages-live.test.tsx",
+      "desktop/web/tests/live-app.test.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/vite.config.ts",
+      "desktop/web/scripts/**",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/tsconfig.json",
+      "ts/**"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t037_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "$"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "传输层有 `post` 与 `getRaw` 两个方法，`post` 的请求形状是 POST + `credentials: 'same-origin'` + `Content-Type: application/json` + `X-Themis-UI: 1` + JSON 正文，不带凭据头；两者都回 `{ status, body }`（状态码原样）。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务的 CSRF 三查（Origin + X-Themis-UI + Content-Type）过得去，写请求不会在门口被 403/415 拦下"
+    },
+    {
+      "id": "D02",
+      "text": "传输层把「没有回应」（断线、读体失败、我方超时）表达成 `post`/`getRaw` 的 reject，`get` 仍回失败信封、绝不 reject；超时文案与连接状态（disconnected）照现有定稿文案。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "`useWriteFlow` 的「预览失败：服务没有回应」与「转去轮询操作终态」这两条路在真实模式下走得通"
+    },
+    {
+      "id": "D03",
+      "text": "`desktop/web/src/live/transport.ts` 里 `timedOut || (error as Error)?.name === 'AbortError'` 恰好两处，`setTimeout`/`clearTimeout` 仍在，`get` 的六条定稿文案一字不改。",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "不推翻既有门禁对这两处的计数与写法要求（T027 的变异锚点钉着这两处）"
+    },
+    {
+      "id": "D04",
+      "text": "`desktop/web/src/live/mode.ts` 只改了 `LiveClient` 类型的成员，导出集合仍是四个，三个函数一字不改。",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "不推翻三处门禁对导出集合的断言（探针会 mock 掉整个模块，多导出会缺符号）"
+    },
+    {
+      "id": "D05",
+      "text": "真实模式下 `preview` 发 `POST /api/v1/preview`，正文是 `{action, args}`，参数按整理规则（`number` 变数字、空串与空数组不传）；成功时 `data` 映射成前端的 `PreviewData`（`binding_changes` 的 `{role, from, to}` 与显示格式、`resources`、`notes` 并入 `unreadable`、`warnings`、`running_attempts`、`needs_yes`、`command` 取信封顶层、`confirmation`）。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "确认框里显示的是服务真的预览，不是桩编的"
+    },
+    {
+      "id": "D06",
+      "text": "真实模式下 `getOperation` 走 `GET /api/v1/operations/<id>`，200 时 `data` 是八键 `OperationView`，404 与失败状态码原样透传。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "断线后的终态查得到，「结果未知」与「过期」两条路分得开"
+    },
+    {
+      "id": "D07",
+      "text": "真实模式下十个写函数各走自己的真实路由（路径、正文、时限 90 秒照 Behavior contract 的表），路径段 `encodeURIComponent`，预览与执行用同一份整理规则；没有回应时 reject。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "确认过的操作真的在服务上执行，且参数与预览时逐项一致（否则服务回 409「参数不符」）"
+    },
+    {
+      "id": "D08",
+      "text": "`desktop/web/src/api.ts` 里不再有 501 分支与「ERROR: 写操作尚未接通」；15 个读函数、`getMetaNow`、既有类型与夹具分支一字不改；十个写函数仍是 `export function <名>(` 的写法；文件里没有四个网络整词。",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "不推翻既有门禁对 api.ts 形状与网络词扫描的断言，也不动既有读路径"
+    },
+    {
+      "id": "D09",
+      "text": "桩模式照旧：`desktop/web/src/mock/writes.ts` 的 22 个情景值与既有 action 的行为不变；新增 `hub.set`/`hub.unset` 的 argv、`NEW_ACTIONS` 成员、两个桩写函数与预览分支。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "开发与测试模式不受影响（既有门禁对情景数与新增 action 的断言仍成立），同时七端岗位两条在桩里也能走通"
+    },
+    {
+      "id": "D10",
+      "text": "`WriteAction` 增 `'hub.set'`、`'hub.unset'` 两个成员，其余成员不动；`desktop/web/src/api.ts` 导出 `setHubRole`、`unsetHubRole` 两个写函数。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "七端岗位的写路由有前端写函数可调（界面入口是下一片的事）"
+    },
+    {
+      "id": "D11",
+      "text": "`desktop/web/tests/live-transport.test.ts` 只追加用例、既有 19 条一条不改不删；`desktop/web/tests/live-api.test.ts` 里 501 那个 describe 换成真实分支用例、其余 describe 一字不改；两份文件都没有 `skip`/`only`/`todo`。",
+      "evidence": [
+        "V01",
+        "G01",
+        "scope"
+      ],
+      "intent": "不靠削弱测试换绿（既有门禁对传输层用例条数与禁用词的断言仍成立）"
+    },
+    {
+      "id": "D12",
+      "text": "改动的文件都在允许集合内（只有那 6 个文件）；禁改清单里的文件一个都没动；没有新增、删除或重命名文件；依赖清单与锁文件没变。",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "不越权、不惊动别片"
+    },
+    {
+      "id": "D13",
+      "text": "`npm test` 与 `npm run typecheck` 全绿。",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "前端既有行为没被写操作接线碰坏，类型也自洽（`LiveClient` 加了成员，`desktop/web/src/` 仍能过 `tsc --noEmit`）"
+    },
+    {
+      "id": "D14",
+      "text": "门禁 G01 与回归 R01 全绿。",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "既有门禁（尤其对 mode 与 transport 的断言）不被本片推翻"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 3600,
+    "max_wall_seconds_total": 10800,
+    "cost_budget": null
+  }
+}
