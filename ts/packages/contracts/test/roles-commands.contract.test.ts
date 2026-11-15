@@ -245,6 +245,10 @@ const SEQUENCE: readonly Command[] = [
   hubUnset("audit", { yes: true }),
   hubShow(),
   hubShow(true),
+  // r3 第 168 轮：合同端绑到 quizs 上，一回合的预算是读整棵仓库的那一份（请求、工具调用各 128）
+  hubSet("contract", "qzp"),
+  hubShow(true),
+  hubUnset("contract"),
   profileRemove("qzp"),
   profileRemove("plain"),
   hubUnset("planner"),
@@ -329,6 +333,24 @@ describe("写命令序列", () => {
       turn("audit-sonnet", "20261114T000000000000Z-0001", true);
       turn("audit-sonnet", "20261114T000100000000Z-0002", false);
       turn("exec-step", "20261114T000200000000Z-0003", false);
+      // r3 第 168 轮：config hub show 给每个岗位最近一个跑完的回合（倒着找第一个有 result.json 的；读不出、不是对象的是 null，
+      // 空对象的各项是 null；claude 写成 claude-code）。上面审核端那个 {} 就是空对象
+      const finished = (agent: string, name: string, record: string): void => {
+        const dir = join(repo, ".agent", "mailbox", "turns", agent, name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "result.json"), record);
+      };
+      finished("womovie-c8", "20261115T000000000000Z-0011", JSON.stringify({ finished_at: "2026-11-15T00:00:09Z", adapter: "pi" }));
+      finished("womovie-c8", "20261115T000100000000Z-0012", JSON.stringify({
+        finished_at: "2026-11-15T00:01:09Z", adapter: "quizs", models: ["deepseek-flash"], binding_profile: "qzp",
+        effort_requested: "high", effort_mapped: "high", effort_effective: null, quizs_fallback: null,
+      }));
+      finished("planner-opus", "20261115T000000000000Z-0013", JSON.stringify({
+        finished_at: "2026-11-15T00:07:30Z", adapter: "claude", models: ["claude-opus-5-5"], effort_requested: "max", effort_effective: "max",
+      }));
+      finished("gate-sonnet", "20261115T000000000000Z-0014", JSON.stringify({ finished_at: "2026-11-15T00:00:01Z", adapter: "pi" }));
+      finished("gate-sonnet", "20261115T000100000000Z-0015", "{");
+      finished("contract-glm", "20261115T000000000000Z-0016", "[]");
       const steps = SEQUENCE.map((command) => ({ command: command.label, ...shown(run(runner, repo, command), repo) }));
       return { steps, state: state(repo) };
     });
@@ -360,6 +382,10 @@ describe("写命令序列", () => {
       "相同",
       "审核端（audit）：1 个回合在跑",
       "在跑的回合照旧用原来的绑定",
+      "Bash(npm view:*)",
+      "max_tool_calls",
+      "timeout_seconds",
+      "mapped",
     ]) {
       expect(output, fragment).toContain(fragment);
     }

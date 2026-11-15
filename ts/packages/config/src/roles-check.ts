@@ -87,6 +87,25 @@ export const HUB_POST_AGENTS: Readonly<Record<string, readonly [string, string]>
   gate: ["gate-sonnet", "门禁端"],
   audit: ["audit-sonnet", "审核端"],
 };
+/**
+ * kit_roles.HUB_TURN_LIMITS：岗位一回合拿到的时限（秒）与工具面（模型配置 §6 第二条，r3 第 168 轮）：抄 hub 名册的 timeout 与 tools，
+ * 名册的 allowed_rules 换掉同名的工具（规划端的 Bash 只许 npm view）。执行端的时限与工具由合同与调度器定，不列。
+ */
+export const HUB_TURN_LIMITS: Readonly<Record<string, readonly [bigint, readonly string[]]>> = {
+  coordinator: [600n, ["read", "grep", "find", "ls"]],
+  planner: [2400n, ["Read", "Grep", "Glob", "Bash(npm view:*)"]],
+  contract: [2400n, ["read", "grep", "find", "ls"]],
+  gate: [2400n, ["read", "grep", "find", "ls", "edit", "write", "bash"]],
+  audit: [2400n, ["read", "grep", "find", "ls"]],
+};
+/** kit_roles.QUIZS_TURN_BUDGETS、QUIZS_VIEW_BUDGETS、QUIZS_VIEW_POSTS：绑在 quizs 上的岗位每回合的预算，读整棵仓库的合同端、审核端用大的一份。 */
+export const QUIZS_TURN_BUDGETS: readonly (readonly [string, bigint])[] = [
+  ["max_requests", 32n], ["max_tool_calls", 48n], ["max_input_bytes", 2097152n], ["max_response_bytes", 8388608n], ["max_object_bytes", 8388608n],
+];
+export const QUIZS_VIEW_BUDGETS: readonly (readonly [string, bigint])[] = [
+  ["max_requests", 128n], ["max_tool_calls", 128n], ["max_input_bytes", 2097152n], ["max_response_bytes", 8388608n], ["max_object_bytes", 8388608n],
+];
+export const QUIZS_VIEW_POSTS = ["contract", "audit"];
 /** claude 的 --effort 取值（claude --help，2026-11-12 核对）。 */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 /** pi_dispatch.FALLBACK_THINKING_LEVELS。 */

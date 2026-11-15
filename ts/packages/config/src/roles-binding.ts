@@ -189,6 +189,35 @@ export function hubRunningTurns(agentDir: string, posts: readonly string[]): [st
   return [found, problems];
 }
 
+/**
+ * kit_roles._hub_last_turn：这个岗位最近一个跑完的回合实际拿到了什么（r3 第 168 轮）：回合目录名以开始时刻开头，倒着找第一个有
+ * result.json 的。档位照 Quizs 的写法分要求、映射（只有 quizs 回报）、生效三值；第 168 轮之前的记录没有 adapter 与 effort_mapped。
+ * 没有信箱、没跑完过、读不出时 null；执行端不看。
+ */
+export function hubLastTurn(agentDir: string, post: string): PyDict | null {
+  const spec = HUB_POST_AGENTS[post];
+  if (spec === undefined) return null;
+  const where = join(agentDir, "mailbox", "turns", spec[0]);
+  let record: PyValue;
+  try {
+    if (!plainDir(where)) return null;
+    const done = readdirSync(where).sort(pathOrder).reverse().map((name) => join(where, name, "result.json")).find((path) => lstatOrNull(path) !== null);
+    if (done === undefined) return null;
+    record = loads(pyDecodeUtf8(pyReadBytes(done)));
+  } catch {
+    return null; // OSError、UnicodeDecodeError、JSON 读不出：照 Python 的 (OSError, ValueError)
+  }
+  if (!isDict(record)) return null;
+  const field = (key: string): PyValue => (record as PyDict).get(key) ?? null;
+  const adapter = field("adapter");
+  return new Map<string, PyValue>([
+    ["at", field("finished_at")], ["adapter", adapter === "claude" ? "claude-code" : adapter], ["models", field("models")],
+    ["profile", field("binding_profile")],
+    ["thinking", new Map<string, PyValue>([["requested", field("effort_requested")], ["mapped", field("effort_mapped")], ["effective", field("effort_effective")]])],
+    ["fallback", field("quizs_fallback")],
+  ]);
+}
+
 export interface RoleExecutorError {
   readonly message: string;
   readonly code: number;

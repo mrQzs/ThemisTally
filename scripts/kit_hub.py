@@ -2219,6 +2219,8 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
     effective = (result.get("thinking") or {}).get("effective")
     if effective:
         audit["effective_levels"] = [effective]
+    # 第 168 轮：Quizs 照提供方档案把要求的档位映射成实际发出的那一档（档案不支持时封顶），生效要提供方回报了才有
+    audit["mapped_level"] = (result.get("thinking") or {}).get("mapped") or None
     usage = result.get("usage") or {}
     if usage.get("total_input") is not None:
         cache_read, cache_write = usage.get("cache_read") or 0, usage.get("cache_write") or 0
@@ -2581,9 +2583,11 @@ class TurnRunner:
             "first_turn": first, "retry_of": retry_of, "started_at": started, "finished_at": utc_now(),
             "exit_code": result.get("exit_code"), "timed_out": bool(result.get("timed_out")),
             "wall_seconds": result.get("wall_seconds"), "workspace": str(workspace),
-            "model_requested": spec.get("model"), "models": audit.get("models"),
+            # 第 168 轮：这一回合实际的载体（退回替补时是 pi）与 quizs 映射的档位，config hub show 给每个岗位显示最近一回合拿到了什么
+            "adapter": spec["adapter"], "model_requested": spec.get("model"), "models": audit.get("models"),
             "binding_profile": spec.get("binding_profile"),
-            "effort_requested": audit["effort_requested"], "effort_effective": audit["effort_effective"],
+            "effort_requested": audit["effort_requested"], "effort_mapped": audit.get("mapped_level"),
+            "effort_effective": audit["effort_effective"],
             "tool_calls": audit["tool_calls"], "violations": audit["violations"], "cost_usd": turn_cost,
             "session_cost_usd": session_cost, "usage": audit.get("usage"), "terminal": audit.get("terminal"), "output_error": output_error,
             "api_error": audit.get("api_error"), "warnings": audit.get("warnings") or [],

@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-commands.contract.test.ts",
+    "-t",
+    "写命令序列",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "M01 合同端、审核端在 quizs 上也用小的预算",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "QUIZS_VIEW_POSTS.includes(post) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS",
+      "new": "QUIZS_TURN_BUDGETS"
+    },
+    {
+      "name": "M02 取最早的回合",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "readdirSync(where).sort(pathOrder).reverse().map(",
+      "new": "readdirSync(where).sort(pathOrder).map("
+    },
+    {
+      "name": "M03 还在跑的回合也算",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": ".find((path) => lstatOrNull(path) !== null);",
+      "new": ".find(() => true);"
+    },
+    {
+      "name": "M04 claude 不改成配置中心的叫法",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "[\"adapter\", adapter === \"claude\" ? \"claude-code\" : adapter]",
+      "new": "[\"adapter\", adapter]"
+    },
+    {
+      "name": "M05 映射照抄生效",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "[\"mapped\", field(\"effort_mapped\")]",
+      "new": "[\"mapped\", field(\"effort_effective\")]"
+    },
+    {
+      "name": "M06 读不出的记录不当作没有",
+      "file": "ts/packages/config/src/roles-binding.ts",
+      "old": "    return null; // OSError、UnicodeDecodeError、JSON 读不出",
+      "new": "    throw new Error(\"x\"); // OSError、UnicodeDecodeError、JSON 读不出"
+    }
+  ]
+}

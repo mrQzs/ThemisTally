@@ -98,6 +98,22 @@ HUB_POST_AGENTS: Dict[str, Tuple[str, str]] = {
     "gate": ("gate-sonnet", "门禁端"),
     "audit": ("audit-sonnet", "审核端"),
 }
+#: 岗位一回合拿到的时限（秒）与工具面（模型配置 §6 第二条，r3 第 168 轮）：抄 hub 名册（kit_hub.ROSTER）的 timeout 与 tools，名册的
+#: allowed_rules 换掉同名的工具（规划端的 Bash 只许 npm view）。与 HUB_DEFAULTS 一样另放一份，tests/test_kit_hub.py 有一条核对。
+#: 执行端的时限与工具由合同与调度器定，不列
+HUB_TURN_LIMITS: Dict[str, Tuple[int, Tuple[str, ...]]] = {
+    "coordinator": (600, ("read", "grep", "find", "ls")),
+    "planner": (2400, ("Read", "Grep", "Glob", "Bash(npm view:*)")),
+    "contract": (2400, ("read", "grep", "find", "ls")),
+    "gate": (2400, ("read", "grep", "find", "ls", "edit", "write", "bash")),
+    "audit": (2400, ("read", "grep", "find", "ls")),
+}
+#: 绑在 quizs 上的岗位每回合的预算（抄 kit_hub 的 QUIZS_TURN_BUDGETS、QUIZS_VIEW_BUDGETS 与 QUIZS_REPO_VIEW_ROLES，同一条测试核对）：
+#: 读整棵仓库的合同端、审核端用大的一份
+QUIZS_TURN_BUDGETS: Dict[str, int] = {"max_requests": 32, "max_tool_calls": 48, "max_input_bytes": 2097152,
+                                      "max_response_bytes": 8388608, "max_object_bytes": 8388608}
+QUIZS_VIEW_BUDGETS: Dict[str, int] = dict(QUIZS_TURN_BUDGETS, max_requests=128, max_tool_calls=128)
+QUIZS_VIEW_POSTS = ("contract", "audit")
 #: claude 的 --effort 取值（claude --help，2026-11-12 核对）
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -1236,15 +1252,53 @@ def cmd_hub(args: Any) -> int:
     return _run({"show": _hub_show, "set": _hub_set, "unset": _hub_unset}[args.hub_action], args)
 
 
-def _hub_rows(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _hub_rows(config: Dict[str, Any], agent_dir: Path) -> List[Dict[str, Any]]:
     rows = []
     for post in HUB_POSTS:
         binding = hub_binding(config, post)
         row: Dict[str, Any] = {"post": post, "source": "default" if binding is None else "config",
                                "allowed_adapters": list(HUB_POST_ADAPTERS[post])}
         row.update(dict(HUB_DEFAULTS[post], profile=None, runtime=None) if binding is None else binding)
+        row["turn"] = _hub_turn(post, row["adapter"])
+        row["last_turn"] = _hub_last_turn(agent_dir, post)
         rows.append(row)
     return rows
+
+
+def _hub_turn(post: str, adapter: Any) -> Optional[Dict[str, Any]]:
+    """这个岗位一回合拿到的（模型配置 §6 第二条，r3 第 168 轮）：时限、工具面，绑在 quizs 上时还有每回合的预算。执行端是 None。"""
+    if post not in HUB_TURN_LIMITS:
+        return None
+    timeout, tools = HUB_TURN_LIMITS[post]
+    budgets = None
+    if adapter == "quizs":
+        budgets = dict(QUIZS_VIEW_BUDGETS if post in QUIZS_VIEW_POSTS else QUIZS_TURN_BUDGETS)
+    return {"timeout_seconds": timeout, "tools": list(tools), "budgets": budgets}
+
+
+def _hub_last_turn(agent_dir: Path, post: str) -> Optional[Dict[str, Any]]:
+    """这个岗位最近一个跑完的回合实际拿到了什么（r3 第 168 轮）：信箱的回合目录名以开始时刻开头，倒着找第一个有 result.json 的。
+    档位三值照 Quizs 的写法：要求、映射（只有 quizs 回报）、生效（pi 与 claude 回报的；quizs 要提供方回报了才有）。
+    第 168 轮之前的记录没有 adapter 与 effort_mapped，两项是 None。没有信箱、没跑完过、读不出时整项是 None；执行端不看"""
+    if post not in HUB_POST_AGENTS:
+        return None
+    where = agent_dir / "mailbox" / "turns" / HUB_POST_AGENTS[post][0]
+    try:
+        if not _plain_dir(where):
+            return None
+        done = next((turn / "result.json" for turn in sorted(where.iterdir(), reverse=True)
+                     if _lstat(turn / "result.json") is not None), None)
+        record = None if done is None else json.loads(done.read_bytes().decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    adapter = record.get("adapter")
+    return {"at": record.get("finished_at"), "adapter": "claude-code" if adapter == "claude" else adapter,
+            "models": record.get("models"), "profile": record.get("binding_profile"),
+            "thinking": {"requested": record.get("effort_requested"), "mapped": record.get("effort_mapped"),
+                         "effective": record.get("effort_effective")},
+            "fallback": record.get("quizs_fallback")}
 
 
 def _hub_text(row: Dict[str, Any]) -> str:
@@ -1257,8 +1311,8 @@ def _hub_text(row: Dict[str, Any]) -> str:
 
 
 def _hub_show(args: Any) -> int:
-    _kc_, _repo_, config = _open(args)
-    rows = _hub_rows(config)
+    _kc_, repo, config = _open(args)
+    rows = _hub_rows(config, repo.agent_dir)
     if args.json:
         _print_json({"posts": rows})
         return EXIT_OK

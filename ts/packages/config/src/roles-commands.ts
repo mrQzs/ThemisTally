@@ -13,8 +13,11 @@ import { TASK_ID_RE, secretLikePaths } from "@themis/base/secrets";
 import { DEFAULT_THINKING, allowedExecutorCheck, executorClass, loadBindingRecord } from "@themis/dispatcher/executor";
 import { DispatchError, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from "@themis/dispatcher/repo";
 import { joinPath } from "./decisions.ts";
-import { bindingTuple, effectiveBinding } from "./roles-binding.ts";
-import { ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, ROLES, adapterOf, entries, hubBinding, hubSide, idOk, shownValue } from "./roles-check.ts";
+import { bindingTuple, effectiveBinding, hubLastTurn } from "./roles-binding.ts";
+import {
+  ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, HUB_TURN_LIMITS, QUIZS_TURN_BUDGETS, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_POSTS, ROLES,
+  adapterOf, entries, hubBinding, hubSide, idOk, shownValue,
+} from "./roles-check.ts";
 import { LOCAL_NAME, LOCAL_REL, type LocalRepo, checkLocal, lexists, localErrors, readLocal, runtimeCommand, shownCommand } from "./roles-local.ts";
 import { type ConfigTransaction, type WriteContext, withConfigTransaction, withConfigTransactions } from "./transaction.ts";
 import { ConfigError, loadConfig, validateConfig } from "./validate.ts";
@@ -493,7 +496,7 @@ function presetRoles(presets: PyDict, name: string): Map<string, PyValue> {
 
 // --- hub（七端的岗位绑定，r3 第 154 轮）------------------------------------------------------------
 
-export function hubRows(config: PyDict): PyDict[] {
+export function hubRows(config: PyDict, agentDir: string): PyDict[] {
   return HUB_POSTS.map((post) => {
     const binding = hubBinding(config, post);
     const row = new Map<string, PyValue>([
@@ -501,26 +504,35 @@ export function hubRows(config: PyDict): PyDict[] {
       ["source", binding === null ? "default" : "config"],
       ["allowed_adapters", [...(HUB_POST_ADAPTERS[post] ?? [])]],
     ]);
+    const preset = HUB_DEFAULTS[post];
     if (binding !== null) {
       for (const [key, value] of binding) row.set(key as string, value);
-      return row;
+    } else if (preset !== undefined) {
+      row.set("adapter", preset.adapter);
+      row.set("provider", preset.provider);
+      row.set("model", preset.model);
+      row.set("thinking", preset.thinking);
+      row.set("fallback", preset.fallback === null ? null : new Map<string, PyValue>([
+        ["adapter", preset.fallback.adapter],
+        ["provider", preset.fallback.provider],
+        ["model", preset.fallback.model],
+        ["thinking", preset.fallback.thinking],
+      ]));
+      row.set("profile", null);
+      row.set("runtime", null);
     }
-    const preset = HUB_DEFAULTS[post];
-    if (preset === undefined) return row;
-    row.set("adapter", preset.adapter);
-    row.set("provider", preset.provider);
-    row.set("model", preset.model);
-    row.set("thinking", preset.thinking);
-    row.set("fallback", preset.fallback === null ? null : new Map<string, PyValue>([
-      ["adapter", preset.fallback.adapter],
-      ["provider", preset.fallback.provider],
-      ["model", preset.fallback.model],
-      ["thinking", preset.fallback.thinking],
-    ]));
-    row.set("profile", null);
-    row.set("runtime", null);
+    row.set("turn", hubTurn(post, row.get("adapter") ?? null));
+    row.set("last_turn", hubLastTurn(agentDir, post));
     return row;
   });
+}
+
+/** kit_roles._hub_turn：这个岗位一回合拿到的（模型配置 §6 第二条，r3 第 168 轮）：时限、工具面，绑在 quizs 上时还有每回合的预算。执行端是 null。 */
+function hubTurn(post: string, adapter: PyValue): PyDict | null {
+  const limits = HUB_TURN_LIMITS[post];
+  if (limits === undefined) return null;
+  const budgets = adapter === "quizs" ? new Map<string, PyValue>(QUIZS_VIEW_POSTS.includes(post) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS) : null;
+  return new Map<string, PyValue>([["timeout_seconds", limits[0]], ["tools", [...limits[1]]], ["budgets", budgets]]);
 }
 
 function hubOne(spec: PyDict): string {
@@ -539,8 +551,8 @@ export function hubText(row: PyDict): string {
 }
 
 function hubShow(env: RolesEnv): number {
-  const { config } = openChecked(env);
-  const rows = hubRows(config);
+  const { ctx, config } = openChecked(env);
+  const rows = hubRows(config, ctx.repo.agentDir);
   if (env.args.json) return printJson(env.out, new Map<string, PyValue>([["posts", rows]]));
   for (const row of rows) env.out.print(`${padRight(text(row.get("post")), 12)} ${hubText(row)}`);
   return EXIT_OK;

@@ -81,7 +81,7 @@
 
 | 命令 | 作用 |
 |---|---|
-| `config hub show --json` | 六个岗位的生效绑定：岗位、profile、适配器、提供方、模型、思考档位、来源（配置或内核缺省）、替补、允许的适配器 |
+| `config hub show --json` | 六个岗位的生效绑定：岗位、profile、适配器、提供方、模型、思考档位、来源（配置或内核缺省）、替补、允许的适配器；每个岗位一回合拿到的时限、工具面与 quizs 的预算（`turn`），最近一个跑完的回合实际的载体、模型、profile 与档位三值（`last_turn`，r3 第 168 轮） |
 | `config hub set <岗位> <profile> [--fallback <profile>]` | 改一个岗位的绑定 |
 | `config hub unset <岗位>` | 回到内核缺省 |
 
@@ -112,8 +112,8 @@ Quizs 是独立仓库，改动由规划端直接做（用户 2026-11-06 的决�
 | `quizs live status --live-dir <目录> --json` | 这一套 live 文件的状态：档案、模型、证书的状态与到期时刻、能力上限、与当前构建是否对得上 |
 | `quizs live renew --live-dir <目录> --policy <文件> --json` | 跑一批资格认证并换发证书（现在的 `scripts/renew-deepseek-worker.mjs` 收成正式命令，不再只认 DeepSeek） |
 
-- **live 目录按 profile 分**：`.agent/quizs/<profile 的 id>/`（Git 忽略）。内核按岗位绑定的 profile 找目录，不再用三个环境变量；环境变量留作过渡期的兜底。
-- **配置中心里 quizs 的 profile**：`runtime` 是 quizs 的运行时，`model` 写 `<提供方档案 id>/<模型>`（例如 `deepseek-api/deepseek-flash`），`options.thinking` 取档案允许的档位，`credential_env` 不用（凭据按引用名在系统凭据库里）。
+- **live 目录按提供方分**（r3 第 156 轮）：信箱的 `quizs-live/<提供方>/`（Git 忽略）。内核按这一回合的提供方找目录；三份不全时退回三个环境变量给的那一套，那一套的档案认得出是别家的就不用。
+- **配置中心里 quizs 的 profile**：`runtime` 是 quizs 的运行时，`model` 写 `<提供方>/<模型>`（例如 `deepseek/deepseek-flash`；提供方与 Quizs 档案 id 的对应在 kit_hub.py 的 QUIZS_PROFILE_IDS），`options.thinking` 取档案允许的档位，`credential_env` 不用（凭据按引用名在系统凭据库里）。
 - **“不同的 AI 模型”要靠 Quizs 多接提供方**：现在只有 StepFun 与 DeepSeek。下一批按 hub 现在在用的来：智谱 GLM、MiniMax（都是 OpenAI 兼容的接口）。每接一个要过 Quizs 自己的资格流程，这是持续的工作，不卡界面：界面按登记表里有什么显示什么；pi 与 claude 上的模型照旧可选。
 
 ### 4.1 按岗位定制：每个岗位的长处在 Quizs 里放到最大
@@ -160,7 +160,7 @@ Quizs 是独立仓库，改动由规划端直接做（用户 2026-11-06 的决�
 ## 6. 界面
 
 - **“角色与模型”页加一组“七端岗位”**：六行，每行是岗位、当前的运行时与模型、思考档位（要求与生效并列，照 D11 的规则）、来源（配置或缺省）、替补。点一行改绑定：从允许的 profile 里选，走现有的确认框。
-- **每个岗位拿到了什么要看得见**（第 4.1 节）：“七端岗位”每一行除了运行时与模型，还显示这个岗位在该运行时上的档位三值（要求、映射、生效）、回合预算与工具面；绑在 Quizs 上的岗位另显示证书状态。数据来自 `config hub show` 与 Quizs 的只读命令，缺的字段先由内核与 Quizs 补上再接界面。
+- **每个岗位拿到了什么要看得见**（第 4.1 节）：“七端岗位”每一行除了运行时与模型，还显示这个岗位在该运行时上的档位三值（要求、映射、生效）、回合预算与工具面；绑在 Quizs 上的岗位另显示证书状态。数据来自 `config hub show` 与 Quizs 的只读命令，缺的字段先由内核与 Quizs 补上再接界面。内核这一半已落地（r3 第 168 轮）：`config hub show` 的 `turn` 与 `last_turn`；证书状态按岗位的提供方对 `config quizs live` 的行。
 - **“CLI 运行时”页加 Quizs 一块**：
   - 提供方档案列表（来自 `providers list`）；
   - 每个 quizs profile 的证书状态：有效、快到期、过期、与当前构建对不上；能力上限；
@@ -202,6 +202,6 @@ M0 与 M1、M2 并行：M0 走 hub，M1、M2 由规划端在 hub 跑的间隙做
 | M1 | 已落地（r3 第 154 轮）：`hub_roles` 的校验，`config hub` 的 show、set、unset 三条命令，适配器表加 quizs，hub 每回合读绑定；Python 与 TS 各一份，契约三边一致，变异 28 条全部抓住 |
 | M2 | 已合入 Quizs（2026-11-13，54f3438、d71b740）：`providers list`、`live status --live-dir`；`auth check` 原本就输出 JSON。live 目录按提供方分改在内核做（r3 第 156 轮：信箱的 `quizs-live/<提供方>/`，三份不全退回环境变量那一套） |
 | M3 | 七端岗位的读写路由已落地（T031，2026-11-13）。Quizs 两条读路由的内核一半已落地（r3 第 165 轮）：`config quizs providers`、`config quizs live`，quizs 的命令照 hub 取 QUIZS_CMD（缺省 PATH 里的 quizs），不认配置中心登记的 quizs 运行时；本机服务的两条路由与“CLI 运行时”页的 Quizs 一块在 T041 之后另登记 |
-| M4 | T038（“七端岗位”一组的只读部分）在跑；改绑定（B 片）与“CLI 运行时页：手动登记运行时”在它之后另登记。r3 第 162 轮：预览给出岗位的前后（`hub_changes`，本机服务的白名单放行）与“合同端、审核端同一个模型”的警告（第 8 节第 2 条），给 B 片的确认框用；r3 第 163 轮：“岗位此刻有回合在跑”（§3.3，预览的 `running_turns`，本机服务的白名单放行） |
+| M4 | T038（“七端岗位”一组的只读部分，11-14）、T041（CLI 运行时页手动登记运行时，11-15）、T042（本机服务的 Quizs 两条读路由，11-15）落地；T043–T046（“CLI 运行时”页的 Quizs 一块、改绑定的写流程与入口、quizs profile 的表单）在做。r3 第 162 轮：预览给出岗位的前后（`hub_changes`，本机服务的白名单放行）与“合同端、审核端同一个模型”的警告（第 8 节第 2 条），给 B 片的确认框用；r3 第 163 轮：“岗位此刻有回合在跑”（§3.3，预览的 `running_turns`，本机服务的白名单放行）；r3 第 168 轮：`config hub show` 给每个岗位一回合拿到的（时限、工具面、quizs 的预算）与最近一回合实际的载体、模型、档位三值（§6 第二条的内核一半） |
 | M5 | Quizs 接了 MiniMax（分支 `tt-m5-minimax`，没合入）；r3 第 156 轮：合同端、审核端可以绑到 quizs（读整棵仓库的视图）。等用户录 key，之后资格认证与重放；重放跑完之前不绑，绑定要用户同意 |
 | M6 | 未开始 |

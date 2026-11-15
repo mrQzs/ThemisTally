@@ -1854,6 +1854,58 @@ class HubRoles(RolesRepo):
         self.assertEqual(len(out.splitlines()), 6)
         self.assertIn("（内核缺省）", out)
 
+    def rows(self):
+        code, out, err = run_config(["hub", "show", "--json"], self.repo)
+        self.assertEqual(code, 0, err)
+        return {row["post"]: row for row in json.loads(out)["posts"]}
+
+    def test_show_gives_each_post_its_turn_limits_and_quizs_budgets(self):
+        # 模型配置 §6 第二条（r3 第 168 轮）：每个岗位一回合拿到的时限与工具面；绑在 quizs 上的另有每回合的预算，
+        # 读整棵仓库的合同端、审核端用大的一份。执行端的时限与工具由合同与调度器定
+        self.write(self.hub(contract={"profile": "qz-step"}))
+        rows = self.rows()
+        self.assertEqual(rows["coordinator"]["turn"], {"timeout_seconds": 600, "tools": ["read", "grep", "find", "ls"],
+                                                       "budgets": kit_roles.QUIZS_TURN_BUDGETS})  # 缺省就在 quizs 上
+        self.assertEqual(rows["contract"]["turn"]["budgets"], dict(kit_roles.QUIZS_TURN_BUDGETS, max_requests=128, max_tool_calls=128))
+        self.assertEqual(rows["planner"]["turn"], {"timeout_seconds": 2400, "tools": ["Read", "Grep", "Glob", "Bash(npm view:*)"],
+                                                   "budgets": None})
+        self.assertEqual(rows["gate"]["turn"]["tools"], ["read", "grep", "find", "ls", "edit", "write", "bash"])
+        self.assertIsNone(rows["audit"]["turn"]["budgets"])  # 缺省在 pi 上
+        self.assertIsNone(rows["exec"]["turn"])
+        self.write(self.hub(coordinator={"profile": "pi-flash"}))
+        self.assertIsNone(self.rows()["coordinator"]["turn"]["budgets"])  # 绑到 pi 上就没有 quizs 的预算
+
+    def finished_turn(self, agent, name, record):
+        where = self.repo / ".agent" / "mailbox" / "turns" / agent / name
+        where.mkdir(parents=True)
+        (where / "result.json").write_text(record if isinstance(record, str) else json.dumps(record), encoding="utf-8")
+
+    def test_show_gives_each_post_its_last_finished_turn(self):
+        # r3 第 168 轮：最近一个跑完的回合实际拿到了什么，档位照要求、映射、生效三值；还在跑的（没有 result.json）跳过，
+        # 读不出或不是对象的整项是 None；claude 的载体照配置中心的叫法写成 claude-code；执行端不看
+        self.write(self.hub())
+        self.assertEqual({post: row["last_turn"] for post, row in self.rows().items()}, dict.fromkeys(kit_roles.HUB_POSTS))
+        self.finished_turn("womovie-c8", "20261115T000000000000Z-0001", {"finished_at": "2026-11-15T00:00:09Z", "adapter": "pi"})
+        self.finished_turn("womovie-c8", "20261115T000100000000Z-0002", {
+            "finished_at": "2026-11-15T00:01:09Z", "adapter": "quizs", "models": ["deepseek-flash"], "binding_profile": "qz-flash",
+            "effort_requested": "high", "effort_mapped": "high", "effort_effective": None, "quizs_fallback": None})
+        self.turn("womovie-c8", "20261115T000200000000Z-0003")  # 还在跑
+        self.finished_turn("planner-opus", "20261115T000000000000Z-0004", {
+            "finished_at": "2026-11-15T00:07:30Z", "adapter": "claude", "models": ["claude-opus-5-5"], "effort_requested": "max",
+            "effort_effective": "max"})
+        self.finished_turn("gate-sonnet", "20261115T000000000000Z-0005", {"finished_at": "2026-11-15T00:00:01Z", "adapter": "pi"})
+        self.finished_turn("gate-sonnet", "20261115T000100000000Z-0006", "{")
+        self.finished_turn("audit-sonnet", "20261115T000000000000Z-0007", "[]")
+        self.finished_turn("exec-step", "20261115T000000000000Z-0008", {"adapter": "pi"})
+        rows = self.rows()
+        self.assertEqual(rows["coordinator"]["last_turn"], {
+            "at": "2026-11-15T00:01:09Z", "adapter": "quizs", "models": ["deepseek-flash"], "profile": "qz-flash",
+            "thinking": {"requested": "high", "mapped": "high", "effective": None}, "fallback": None})
+        self.assertEqual(rows["planner"]["last_turn"], {
+            "at": "2026-11-15T00:07:30Z", "adapter": "claude-code", "models": ["claude-opus-5-5"], "profile": None,
+            "thinking": {"requested": "max", "mapped": None, "effective": "max"}, "fallback": None})
+        self.assertEqual([rows[post]["last_turn"] for post in ("contract", "gate", "audit", "exec")], [None] * 4)
+
     def test_set_and_unset_one_post_leave_the_rest_alone(self):
         self.write(dict(self.hub(), roles={"contract": {"mode": "manual"}}))
         del_key = self.cfg()

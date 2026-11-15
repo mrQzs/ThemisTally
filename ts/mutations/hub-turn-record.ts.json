@@ -1,0 +1,26 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "M07 hub 不记 Quizs 映射的档位",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "audit.set(\"mapped_level\", pyTruthy(mapped) ? mapped : null);",
+      "new": "audit.set(\"mapped_level\", null);"
+    },
+    {
+      "name": "M08 hub 记名册的载体，不记这一回合实际的",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "[\"adapter\", spec.adapter], [\"model_requested\"",
+      "new": "[\"adapter\", (ROSTER[agent] as RosterSpec).adapter], [\"model_requested\""
+    }
+  ]
+}

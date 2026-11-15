@@ -264,9 +264,11 @@ export class TurnRunner {
       ["first_turn", first], ["retry_of", retryOf], ["started_at", started], ["finished_at", utcNow()],
       ["exit_code", pyGet(result, "exit_code")], ["timed_out", pyTruthy(pyGet(result, "timed_out"))],
       ["wall_seconds", pyGet(result, "wall_seconds")], ["workspace", where],
-      ["model_requested", spec.model ?? null], ["models", pyGet(audit, "models")],
+      // 第 168 轮：这一回合实际的载体（退回替补时是 pi）与 quizs 映射的档位，config hub show 给每个岗位显示最近一回合拿到了什么
+      ["adapter", spec.adapter], ["model_requested", spec.model ?? null], ["models", pyGet(audit, "models")],
       ["binding_profile", spec.binding_profile ?? null],
-      ["effort_requested", pyItem(audit, "effort_requested")], ["effort_effective", pyItem(audit, "effort_effective")],
+      ["effort_requested", pyItem(audit, "effort_requested")], ["effort_mapped", pyGet(audit, "mapped_level")],
+      ["effort_effective", pyItem(audit, "effort_effective")],
       ["tool_calls", pyItem(audit, "tool_calls")], ["violations", pyItem(audit, "violations")], ["cost_usd", turnCost],
       ["session_cost_usd", sessionCost], ["usage", pyGet(audit, "usage")], ["terminal", pyGet(audit, "terminal")], ["output_error", outputError],
       ["api_error", pyGet(audit, "api_error")], ["warnings", pyTruthy(pyGet(audit, "warnings")) ? pyItem(audit, "warnings") : []],

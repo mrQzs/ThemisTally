@@ -4076,6 +4076,7 @@ def test_turn_with_api_error_says_so(tmp_path):
     assert "接口报错" in turn["output_error"] and "json" not in turn["output_error"]
     record = json.loads(Path(turn["turn_dir"], "result.json").read_text(encoding="utf-8"))
     assert "403" in record["api_error"]
+    assert (record["adapter"], record["effort_mapped"]) == ("claude", None)  # 第 168 轮：只有 quizs 回报映射的档位
 
 
 def test_cli_output_survives_a_non_utf8_console(monkeypatch):
@@ -6423,7 +6424,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     block = newline.join(["好的", "```json", json.dumps(delivery, ensure_ascii=False), "```", ""])
     outputs += [
         [init, {"type": "tool_call", "name": "read"}, result(final_text=block)],
-        [init, result(final_text="交差了，没有代码块")],
+        [init, result(final_text="交差了，没有代码块", thinking={"requested": "high", "mapped": "medium", "effective": None,
+                                                              "verification_status": "mapped_only"})],
         [init, result(exit_code=3, error_class="RATE_LIMIT", retry_at="2026-11-07T10:44:51Z")],
         [init, {"type": "tool_call", "name": "write"}, result(final_text=block)],
         [init, result(exit_code=5, error_class="QUEUE_TIMEOUT")],
@@ -6464,6 +6466,10 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert seen[1][seen[1].index("--live-plan") + 1] == str(turn_plan)
     assert json.loads(turn_plan.read_text(encoding="utf-8")) == {"plan_id": "tt-coordinator-1." + missing["turn_id"], "max_requests": 400}
     assert missing["output"] is None and "json 代码块" in missing["output_error"]
+    # 第 168 轮：记下实际的载体与 Quizs 映射的档位（只映射、提供方没回报生效的，生效是 None），config hub show 照它显示档位三值
+    record = json.loads((Path(missing["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert (record["adapter"], record["effort_requested"], record["effort_mapped"], record["effort_effective"]) == (
+        "quizs", "high", "medium", None)
     assert missing["session_id"] != ok["session_id"] and ok["session_id"].startswith("T001-")  # 每回合一个新会话
     limited = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     reset = int(kh._dt.datetime(2026, 11, 7, 10, 44, 51, tzinfo=kh._dt.timezone.utc).timestamp())
@@ -8083,6 +8089,8 @@ def test_a_coordinator_turn_hands_in_through_deliver(tmp_path):
     assert turn["output"] == good and turn["output_error"] is None
     record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"deliver.ts", "guard.ts", "coordinator.json"}
+    # 第 168 轮：名册是 quizs，没设 quizs 的文件退回了替补，记下的载体是这一回合实际的 pi
+    assert (record["adapter"], record["effort_mapped"], record["quizs_fallback"] is not None) == ("pi", None, True)
 
 
 def test_an_audit_turn_hands_in_through_deliver(tmp_path):
@@ -8775,6 +8783,19 @@ def test_config_defaults_for_the_posts_match_the_roster():
         assert default["fallback"] == (None if substitute is None else {
             "adapter": substitute["adapter"], "provider": substitute["provider"], "model": spec["model"],
             "thinking": spec["thinking"]}), post
+    # r3 第 168 轮：config hub show 给的一回合时限与工具面抄名册（allowed_rules 换掉同名的工具），quizs 的预算抄 hub 的常量
+    assert sorted(kit_roles.HUB_TURN_LIMITS) == sorted(post for post in kit_roles.HUB_POSTS if post != "exec")
+    for post, (timeout, tools) in kit_roles.HUB_TURN_LIMITS.items():
+        spec = by_post[post]
+        rules = spec.get("allowed_rules") or []
+        listed = tuple(next((rule for rule in rules if rule.startswith(tool + "(")), tool) for tool in spec["tools"])
+        assert (timeout, tools) == (spec["timeout"], listed), post
+
+    def flags(budgets):
+        return [("--" + name.replace("_", "-"), str(value)) for name, value in budgets.items()]
+    assert flags(kit_roles.QUIZS_TURN_BUDGETS) == list(kh.QUIZS_TURN_BUDGETS)
+    assert flags(kit_roles.QUIZS_VIEW_BUDGETS) == list(kh.QUIZS_VIEW_BUDGETS)
+    assert kit_roles.QUIZS_VIEW_POSTS == kh.QUIZS_REPO_VIEW_ROLES
 
 
 def test_config_quizs_mirrors_the_hub_quizs_constants_and_command(monkeypatch):

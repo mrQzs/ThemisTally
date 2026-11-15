@@ -2581,6 +2581,52 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 内核不从检查日志里自己认“门禁文件里报 AttributeError、NameError”这类夹具报错。候选也可能让夹具读到意外的内容而抛错，认错了会把执行端的问题推给门禁端；执行端说了、正则认得出就够。
   - 门禁交付时内核不替它放桩自证：桩要照本片的测试文件写，内核写不出通用的。先放进自查清单，再出现再说。
 
+### 第 168 轮：`config hub show` 给每个岗位一回合拿到的时限、工具面与 quizs 预算，和最近一回合实际的载体、模型、档位三值（模型配置 §6 第二条的内核一半）
+
+- **起因**：
+  - 模型配置 §6 第二条：“七端岗位”每一行除了运行时与模型，还要显示这个岗位的档位三值（要求、映射、生效）、回合预算与工具面，绑在 Quizs 上的另显示证书状态；缺的字段先由内核补上再接界面。用户 11-13 定的方向是每个岗位的长处在 Quizs 里放到最大（§4.1），界面要先看得见每个岗位拿到了什么。
+  - `config hub show --json` 原来只有绑定：岗位、来源、允许的适配器、载体、提供方、模型、档位、替补、profile、运行时。时限、工具面与 quizs 每回合的预算只在 hub 的名册与常量里；每回合实际的模型与生效档位记在信箱的回合记录里，界面都读不到。
+  - quizs 回合的档位只记了“生效”。Quizs 交回的是要求、映射、生效三值，生效要提供方回报了才有：协调人的 DeepSeek 回合记录里 effort_effective 一直是 None。映射是实际发出的那一档，档案不支持时会封顶，内核没有记下来。
+- **改法**：
+  - hub 每回合的 result.json 加两项，Python 与 TS 各一处：
+    - `adapter`：这一回合实际的载体，退回替补时是 pi；
+    - `effort_mapped`：quizs 回报的映射档位，pi 与 claude 不回报，是 null。
+    - turn.finished 事件不动。
+  - `config hub show --json` 每个岗位加两项，kit_roles 与 TS 的 config 各一份：
+    - `turn`：一回合的时限（秒）与工具面；绑在 quizs 上时还有每回合的预算（请求、工具调用、单次输入、单次回应、单个对象五项），读整棵仓库的合同端、审核端用 128/128 那一份。
+      - 时限与工具面抄名册，名册的 allowed_rules 换掉同名的工具：规划端的 Bash 只许 npm view。
+      - 与 HUB_DEFAULTS 一样在配置层另放一份（没装 kit_hub.py 的仓库里也要能显示），tests/test_kit_hub.py 的同一条测试逐项核对名册与 hub 的常量。
+      - 执行端是 null：时限与工具由合同与调度器定。
+    - `last_turn`：这个岗位最近一个跑完的回合。
+      - 在信箱的 turns/<工人>/ 下倒着找第一个有 result.json 的，还在跑的跳过。
+      - 给出时刻、载体（claude 照配置中心写成 claude-code）、模型、profile、档位三值与替补的原因。
+      - 没有信箱、没跑完过、记录读不出或不是对象时是 null；执行端是 null。
+      - 第 168 轮之前的记录没有 adapter 与 effort_mapped，这两项是 null。
+  - 证书状态不进 `hub show`：`config quizs live` 的每一行都带着提供方，界面按岗位的提供方对上即可，`hub show` 不必起 Quizs 子进程。
+  - 文字输出（不带 --json）不变。
+- **测试**：
+  - test_kit_roles 加两条：
+    - 时限、工具面与预算：缺省的协调人在 quizs 上，合同端绑到 quizs 用大的一份，绑到 pi 上没有预算，执行端是 null；
+    - 最近一回合：quizs 的三值，claude 改名，在跑的跳过，读不出的与不是对象的整项是 null，执行端不看。
+  - test_kit_hub：
+    - 名册一致性那条加时限、工具面、两份预算与读仓库的岗位；
+    - quizs 回合记下载体与映射（一回合映射 medium、生效 null）；claude 回合、退回替补的协调人回合记下实际的载体。
+- **契约**：
+  - roles-commands 的写命令序列（四种实现逐步比）：开头多造回合记录（quizs 三值、claude、读不出的、不是对象的、空对象、在跑的），另加“合同端绑到 quizs、hub show、取消”一段。
+  - hub-turn 照常采样 quizs 回合的用例，三边比回合摘要。
+- **变异**：
+  - Python 9 条（`config-hub-turns.py.json`）、TS 的 config 6 条（`config-hub-turns.ts.json`）、TS 的 hub 2 条（`hub-turn-record.ts.json`）：预算不分读仓库的岗位、别的载体也给预算、取最早的回合、在跑的也算、claude 不改名、映射照抄生效、hub 不记映射、hub 记名册的载体、名册的时限改了配置层不跟、读不出的记录不当作没有。
+  - 结果：全部抓住，Python 9 条、TS 6 条与 2 条。
+- **检查**：每段都进重活车道。
+  - 类型检查 0 错；test_kit_hub.py 402 条全过；配置的四个测试文件（test_kit_roles、test_kit_config、test_config_profiles、test_config_policy_boundaries）178 条全过。
+  - 本机服务的 hub-routes-real（读路由与真内核的 `config hub show` 逐字段比）、hub-routes、redaction，3 份 24 条全过：新字段照缺省口径原样放行。
+  - roles-commands、config-launcher、config-readonly 三份契约加 mutation-specs、source-hygiene，5 份 17 条全过。
+  - 比回合摘要的 hub-turn、hub-engine-scenes、hub-commands-scenes、hub-runexec-scenes、hub-shadow、events，6 份 94 条全过。
+- **没做**：
+  - 界面：本机服务的白名单（HUB_ROLES_ALLOW）没有登记新字段，照 redactJson 的缺省口径放行。键名与值都不像凭据，值原样通过，T031 的“读路由与 `config hub show` 逐字段一致”照旧成立。登记白名单、前端类型与“七端岗位”一行的显示另登记一片：同样改 roles 页，排在 T045 之后。
+  - 回合用了多少（请求数、工具调用数、墙钟）不进 `hub show`：这里要的是“拿到了什么”，用量在 coordinator_report 与账本里。
+  - 不给 pi 记映射：pi 不回报它把档位换成了提供方的哪个参数，内核写不出来。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

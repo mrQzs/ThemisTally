@@ -258,6 +258,9 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
   const thinking = pyGet(result, "thinking");
   const effective = thinking instanceof Map ? pyGet(thinking, "effective") : null;
   if (pyTruthy(effective)) audit.set("effective_levels", [effective]);
+  // 第 168 轮：Quizs 照提供方档案把要求的档位映射成实际发出的那一档（档案不支持时封顶），生效要提供方回报了才有
+  const mapped = thinking instanceof Map ? pyGet(thinking, "mapped") : null;
+  audit.set("mapped_level", pyTruthy(mapped) ? mapped : null);
   const usage = pyGet(result, "usage");
   if (usage instanceof Map && pyGet(usage, "total_input") !== null) {
     const count = (key: string): bigint => (pyTruthy(pyGet(usage, key)) ? (pyGet(usage, key) as bigint) : 0n);

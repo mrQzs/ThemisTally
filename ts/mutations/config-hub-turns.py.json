@@ -1,0 +1,73 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_roles.py",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "turn_limits or last_finished_turn or the_posts_match_the_roster or quizs_turn_reads_a_frozen or api_error_says_so or coordinator_turn_hands_in_through_deliver"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "L01 合同端、审核端在 quizs 上也用小的预算",
+      "file": "scripts/kit_roles.py",
+      "old": "budgets = dict(QUIZS_VIEW_BUDGETS if post in QUIZS_VIEW_POSTS else QUIZS_TURN_BUDGETS)",
+      "new": "budgets = dict(QUIZS_TURN_BUDGETS)"
+    },
+    {
+      "name": "L02 绑在别的载体上也给 quizs 的预算",
+      "file": "scripts/kit_roles.py",
+      "old": "    if adapter == \"quizs\":\n        budgets = dict(",
+      "new": "    if adapter:\n        budgets = dict("
+    },
+    {
+      "name": "L03 取最早的回合",
+      "file": "scripts/kit_roles.py",
+      "old": "sorted(where.iterdir(), reverse=True)",
+      "new": "sorted(where.iterdir())"
+    },
+    {
+      "name": "L04 还在跑的回合也算",
+      "file": "scripts/kit_roles.py",
+      "old": "                     if _lstat(turn / \"result.json\") is not None), None)",
+      "new": "                     ), None)"
+    },
+    {
+      "name": "L05 claude 不改成配置中心的叫法",
+      "file": "scripts/kit_roles.py",
+      "old": "\"adapter\": \"claude-code\" if adapter == \"claude\" else adapter,",
+      "new": "\"adapter\": adapter,"
+    },
+    {
+      "name": "L06 映射照抄生效",
+      "file": "scripts/kit_roles.py",
+      "old": "\"mapped\": record.get(\"effort_mapped\")",
+      "new": "\"mapped\": record.get(\"effort_effective\")"
+    },
+    {
+      "name": "L07 hub 不记 Quizs 映射的档位",
+      "file": "scripts/kit_hub.py",
+      "old": "audit[\"mapped_level\"] = (result.get(\"thinking\") or {}).get(\"mapped\") or None",
+      "new": "audit[\"mapped_level\"] = None"
+    },
+    {
+      "name": "L08 hub 记名册的载体，不记这一回合实际的",
+      "file": "scripts/kit_hub.py",
+      "old": "\"adapter\": spec[\"adapter\"], \"model_requested\"",
+      "new": "\"adapter\": ROSTER[agent][\"adapter\"], \"model_requested\""
+    },
+    {
+      "name": "L09 名册的时限改了，config 那份不跟",
+      "file": "scripts/kit_hub.py",
+      "old": "\"timeout\": 600, \"workspace\": \"base\", \"routing\": \"kernel\"",
+      "new": "\"timeout\": 900, \"workspace\": \"base\", \"routing\": \"kernel\""
+    }
+  ]
+}
