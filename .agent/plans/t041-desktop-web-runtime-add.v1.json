@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "task_id": "t041-desktop-web-runtime-add",
+  "plan_version": 1,
+  "title": "桌面端前端第 7 片：CLI 运行时页手动登记运行时（模型配置 M4 之二）",
+  "repository": "ThemisTally",
+  "base_sha": "5ae6d32cca561f39ea2cd4a1590917afa3126fb9",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/live-api.test.ts",
+      "ts/packages/ui/src/writeroutes.ts",
+      "ts/packages/ui/test/write-argv.test.ts",
+      "ts/packages/ui/README.md",
+      "ts/packages/ui/src/redaction.ts"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/RuntimeForm.tsx",
+      "desktop/web/src/writes/runtimeRules.ts",
+      "desktop/web/src/writes/runtime-form.css",
+      "desktop/web/tests/writes-runtime-form.test.tsx",
+      "desktop/web/tests/writes-runtime-api.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t041_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/shellWindowRoute.ts",
+      "desktop/web/vite.config.ts",
+      "desktop/web/scripts/check-live-build.mjs",
+      "desktop/web/tests/shellpages-*.test.*",
+      "desktop/web/tests/cleanup2-static.test.ts",
+      "desktop/web/src/live/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/src/writes/profileRules.ts",
+      "scripts/kit_roles.py",
+      "scripts/kit_config.py"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test/write-argv.test.ts"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": false,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t041_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "写路由接通——点页头[手动登记…]出表单，合法时出实时预览（显示的命令与服务的 `buildWriteArgv` 逐字一致、同带 `--dry-run --json`），[确认…] 进确认框（标题「登记运行时 X？」、变化区摘要「已登记表里加上 X（适配器 A）」），执行 runtime.add 后重读并出终态与成功轻提示「已登记运行时 X」；`WriteAction` 含 `'runtime.add'`；真实模式与桩模式两条路都有用例覆盖",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "界面真能登记一个运行时，而不是只多了一个按钮"
+    },
+    {
+      "id": "D02",
+      "text": "适配器下拉含五个值 pi、claude-code、codex、opencode、quizs，与 `writeroutes.ts` 的 ADAPTERS、`kit_roles.py` 的 ADAPTERS 一致；命令留空不传 `command`，非空按 JSON 字符串数组校验",
+      "evidence": [
+        "V01",
+        "V03"
+      ],
+      "intent": "选 quizs 的运行时不会在预览就被 400 拒掉，命令写错时在本地就被拦下"
+    },
+    {
+      "id": "D03",
+      "text": "同一个 id 已登记为别的适配器时，界面原样显示 `ERROR: runtime <id> 已登记为 <adapter>；改 adapter 要加 --force`，[确认…] 不可点；界面任何位置没有 force",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不越权替用户改适配器，也不让用户以为界面能改"
+    },
+    {
+      "id": "D04",
+      "text": "命令输入的本地校验与服务 `validCommand` 一致（非空数组、每项非空、不超过 1024 码点、不含控制字符），不强制绝对路径",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "不把内核一定会拒的值发到服务"
+    },
+    {
+      "id": "D05",
+      "text": "所有修改都在允许集合内；门禁文件、T032 禁改名单、内核、components、readonly1/2、`src/mock/*.json`、snapshots.ts 一个字没动",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "这片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D06",
+      "text": "没有删除、跳过或弱化既有测试；`desktop/web` 与 `ts` 的既有用例原样通过",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "review"
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "门禁在站主放宽（R1、R2、R3、R4）之后照样过——T009 的页头探针（次序、PlusIcon、primary、可用按钮白名单、仍禁用按钮的「第二阶段接入」悬停）、T023 的 S08/S10/S11/S13、T024 的 S06/S11、T031 的适配器检查、T037 的写函数与导出检查",
+      "evidence": [
+        "R01",
+        "G01",
+        "review"
+      ],
+      "intent": "本片接入口以后，早先为「入口还没接」而写的断言不该被顺手改掉"
+    },
+    {
+      "id": "D08",
+      "text": "服务只改了站主拍板的四处（ADAPTERS 加 quizs、:53 注释、写路由用例、README 与 redaction.ts 的注释），其余服务代码一字未动",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "改适配器表是登记运行时的前提，不是扩范围"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 2400,
+    "max_wall_seconds_total": 4800,
+    "cost_budget": null
+  }
+}
