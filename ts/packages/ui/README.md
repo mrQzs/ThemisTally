@@ -20,8 +20,8 @@
 | `src/kernelenv.ts` | 内核子进程的环境：从 `process.env` 按名字排序复制，一律去掉 `TYPESAFE_API_KEY`，设 `CODEKIT_ACTOR=user-ui`，保留 `NoDefaultCurrentDirectoryInExePath` |
 | `src/kernel.ts` | 子进程执行器：`runSupervised`、并发上限 4、FIFO 队列 16、路由时限、手工合成的取消信号、临时目录与输出上限 |
 | `src/kernelenvelope.ts` | 信封七字段的拼装：`messages` 只留 `ERROR`/`WARN` 开头的行、`command` 是显示用 argv（游标与 transcript 打码）、`data` 用 pyjson 写出 |
-| `src/redaction.ts` | 每条路由的脱敏白名单（`/config`、`/profiles`、`/secrets`）与 `usedByShape`；不合约束的白名单值照样遮成 `<redacted>` |
-| `src/readroutes.ts` | 20 条读路由的表：参数校验、时限、白名单登记、合成 `/secrets` 的编排 |
+| `src/redaction.ts` | 每条路由的脱敏白名单（`/config`、`/profiles`、`/secrets`、`/hub/roles`、两份 Quizs 白名单）与 `usedByShape`；不合约束的白名单值照样遮成 `<redacted>` |
+| `src/readroutes.ts` | 22 条读路由的表：参数校验、时限、白名单登记、合成 `/secrets` 的编排 |
 | `src/watch.ts` | SSE 的输入监视：从 `@themis/contracts/status-inputs.json` 取名单，只 stat 名单上的路径生成指纹，跳过重解析点 |
 | `src/events.ts` | SSE 广播中枢 `EventHub` 与 SSE 路由 `eventRoutes()`：快照与序号、去抖与共享、心跳、连接上限、会话失效断流 |
 | `src/jobs.ts` | 作业表 `JobTable`：43 位随机作业号、容量 100 与淘汰、四种终态、取消 |
@@ -51,7 +51,7 @@ GET  /api/v1/ping         要会话：200 信封 data 为 { posts }
 POST /api/v1/ping         要会话、CSRF、JSON 对象正文（不超过 64 KiB）：posts 加 1
 ```
 
-本片加的 20 条只读数据路由：全部 GET、全部要会话，每条起一个内核子进程；查询参数与路径参数在起子进程之前校验，不合格回 400（所有位置参数都由正则保证不以 `-` 开头，选项的值一律写成 `--opt=值`）。括号里是该路由的时限。
+本片加的 22 条只读数据路由：全部 GET、全部要会话，每条起一个内核子进程；查询参数与路径参数在起子进程之前校验，不合格回 400（所有位置参数都由正则保证不以 `-` 开头，选项的值一律写成 `--opt=值`）。括号里是该路由的时限。
 
 ```
 GET /api/v1/meta                                          --version                                  （15 秒）
@@ -74,6 +74,8 @@ GET /api/v1/plugins/<id>                                  plugins show <id> --js
 GET /api/v1/secrets                                       合成：config show --json 与 config profile show --json 收名单，再逐条 config secret check（每条 30 秒、整条 120 秒）
 GET /api/v1/secrets/<name>                                config secret check <name>                  （30 秒）
 GET /api/v1/hub/roles                                    config hub show --json                      （30 秒）
+GET /api/v1/quizs/providers                               config quizs providers --json                  （60 秒）
+GET /api/v1/quizs/live                                    config quizs live --json                       （150 秒）
 ```
 
 `meta` 与 `/secrets` 的 `data` 由服务合成（分别是 `{version, repo_name}` 与 `{"secrets":[…]}`），其余路由的 `data` 是内核 stdout 的 JSON。`/api/v1/attempts/<task>/<attempt>/file` 给界面的 `next_cursor` 是 43 个字符的随机不透明句柄，内核游标只存在服务内存里（服务退出全部失效）。
@@ -113,7 +115,7 @@ GET /api/v1/events   要会话：text/event-stream，先发一份全量快照并
 - **序号**：hub 内单调递增，服务启动后从 1 起；每产生一份内容不同的信封加 1，内容相同就不推也不加号。每次订阅（含重连、带 `Last-Event-ID`）第一条都是 snapshot，带当时的序号。
 - **监视与去抖**：只 stat `@themis/contracts/status-inputs.json` 名单上的输入（`.agent/runs` 之下），每 2 秒一轮、去抖 300 毫秒、同一时刻最多一次 status，多个订阅者共用一次 status；没有订阅者就停。
 - **心跳与订阅上限**：每 15 秒写一行 `: hb`。**订阅上限**：全局同时开着 16 个、每个会话 4 个；超限回 503 带 `Retry-After: 2`，不挤掉已有的订阅，关掉一条名额立刻还回来。会话作废（`revokeAll`，含控制令牌换发引导地址）、服务关停与空闲退出时主动关流并清定时器；心跳写失败（客户端消失）立刻清理。
-- **连接空闲超时**：SSE 订阅，与由内核子进程应答的请求（20 条读路由、预览、14 条写路由）对这一条请求调 `server.timeout(req, 0)`，只关掉这条连接的空闲超时；全局 `idleTimeout` 生产路径保持缺省（服务端写数据不重置空闲计时）。
+- **连接空闲超时**：SSE 订阅，与由内核子进程应答的请求（22 条读路由、预览、14 条写路由）对这一条请求调 `server.timeout(req, 0)`，只关掉这条连接的空闲超时；全局 `idleTimeout` 生产路径保持缺省（服务端写数据不重置空闲计时）。
 
 ## 作业
 

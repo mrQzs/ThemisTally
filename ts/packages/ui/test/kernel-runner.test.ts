@@ -1,4 +1,4 @@
-// 内核子进程执行器与 20 条读路由的替身用例（桌面端 §5.3、D05/D06/D08/D09/D10/D12/D13、U28）：每条路由各一条
+// 内核子进程执行器与 22 条读路由的替身用例（桌面端 §5.3、D05/D06/D08/D09/D10/D12/D13、U28）：每条路由各一条
 // （argv、时限、错误映射），加并发上限与排队、队列满 503 带 Retry-After、超时 504、断开与关停的取消、开始之前就
 // 取消、输出超限、起不了子进程、meta 的 data 合成与合成的 /secrets 的编排。子进程是 node 跑的 fake-kernel.mjs。
 import { pidAlive } from "@themis/base/process";
@@ -72,9 +72,11 @@ const CASES: readonly { readonly name: string; readonly path: string; readonly a
   { name: "api.secrets.list", path: "/api/v1/secrets", argv: READ_ROUTE_ARGV["api.secrets.list"] ?? [] },
   { name: "api.secrets.show", path: "/api/v1/secrets/EXAMPLE_KEY", argv: READ_ROUTE_ARGV["api.secrets.show"] ?? [] },
   { name: "api.hub.roles.get", path: "/api/v1/hub/roles", argv: READ_ROUTE_ARGV["api.hub.roles.get"] ?? [] },
+  { name: "api.quizs.providers.get", path: "/api/v1/quizs/providers", argv: READ_ROUTE_ARGV["api.quizs.providers.get"] ?? [] },
+  { name: "api.quizs.live.get", path: "/api/v1/quizs/live", argv: READ_ROUTE_ARGV["api.quizs.live.get"] ?? [] },
 ];
 
-describe("20 条读路由各一条替身用例", () => {
+describe("22 条读路由各一条替身用例", () => {
   it("每条路由跑一次内核子进程，argv 与时限照合同", async () => {
     started = await startApp({ transcript: ["transcript.jsonl"] });
     const seen = new Set<string>();
@@ -93,19 +95,21 @@ describe("20 条读路由各一条替身用例", () => {
         expect(last?.argv, item.name).toEqual([...item.argv]);
       }
     }
-    // 表里正好覆盖 20 条读路由
+    // 表里正好覆盖 22 条读路由
     expect([...seen].sort()).toEqual(READ_ROUTE_SPECS.map((spec) => spec.name).sort());
-    expect(READ_ROUTE_SPECS.map((spec) => spec.timeoutSeconds)).toEqual([15, 30, 30, 30, 60, 120, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 120, 30, 30]);
+    expect(READ_ROUTE_SPECS.map((spec) => spec.timeoutSeconds)).toEqual([15, 30, 30, 30, 60, 120, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 120, 30, 30, 60, 150]);
   });
 
-  it("时限照合同：15/30/60/120 四档（meta 15、file 60、usage 与 secrets 120、其余 30）", () => {
+  it("时限照合同：15/30/60/120/150 五档（meta 15、file 60、usage 与 secrets 120、quizs 60 与 150、其余 30）", () => {
     const byName = new Map(READ_ROUTE_SPECS.map((spec) => [spec.name, spec.timeoutSeconds]));
     expect(byName.get("api.meta.get")).toBe(15);
     expect(byName.get("api.attempts.file")).toBe(60);
     expect(byName.get("api.usage.get")).toBe(120);
     expect(byName.get("api.secrets.list")).toBe(120);
+    expect(byName.get("api.quizs.providers.get")).toBe(60);
+    expect(byName.get("api.quizs.live.get")).toBe(150);
     for (const spec of READ_ROUTE_SPECS) {
-      if (spec.timeoutSeconds === 15 || spec.timeoutSeconds === 60 || spec.timeoutSeconds === 120) continue;
+      if (spec.timeoutSeconds === 15 || spec.timeoutSeconds === 60 || spec.timeoutSeconds === 120 || spec.timeoutSeconds === 150) continue;
       expect(spec.timeoutSeconds, spec.name).toBe(30);
     }
   });

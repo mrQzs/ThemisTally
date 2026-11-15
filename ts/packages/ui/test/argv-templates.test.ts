@@ -1,4 +1,4 @@
-// 20 条读路由的 argv 模板都能被内核真正的解析器解析（桌面端 §5.3、D05、U4）：起真 Python，用内核自己的
+// 22 条读路由的 argv 模板都能被内核真正的解析器解析（桌面端 §5.3、D05、U4）：起真 Python，用内核自己的
 // build_parser（pi_dispatch、kit_config、kit_logs、kit_plugins）逐条解析模板；解析不了即失败，模板带 --json 时
 // 断言解析结果的 json 为真；--version 的 SystemExit(0) 算通过。不新增或修改内核的命令与选项。
 import { spawnSync } from "node:child_process";
@@ -70,11 +70,11 @@ describe("argv 模板过内核真正的解析器（U4）", () => {
     expect(done.stdout).toContain("pi_dispatch");
   });
 
-  it("20 条读路由一条不少，每条都有 argv 模板", () => {
+  it("22 条读路由一条不少，每条都有 argv 模板", () => {
     for (const spec of READ_ROUTE_SPECS) {
       expect(READ_ROUTE_ARGV[spec.name], spec.name).toBeDefined();
     }
-    expect(READ_ROUTE_SPECS).toHaveLength(20);
+    expect(READ_ROUTE_SPECS).toHaveLength(22);
   });
 
   it("模板里的选项值一律写成 --opt=值，位置参数不以 - 开头", () => {

@@ -1,4 +1,4 @@
-// 20 条只读数据路由（桌面端设计第 7 版 §5.3、D05/D11/D12/D13）：每条起一个内核子进程跑只读 CLI，全部 GET、全部要
+// 22 条只读数据路由（桌面端设计第 7 版 §5.3、D05/D11/D12/D13）：每条起一个内核子进程跑只读 CLI，全部 GET、全部要
 // 会话（T17），查询参数与路径参数在起子进程之前校验，不合格回 400。命令行是 [python, kernel, "--repo", repo, ...argv]
 // （组装在 kernel.ts），argv 是列表、不经 shell；选项的值一律写成 --opt=值；所有位置参数都由正则保证不以 - 开头。
 // 响应先过 redactJson，再按路由登记的白名单做约束校验（redaction.ts）；file 路由给界面的是随机不透明句柄，内核
@@ -19,7 +19,16 @@ import {
   statusEnvelope,
   timeoutEnvelope,
 } from "./kernelenvelope.ts";
-import { CONFIG_ALLOW, EVIDENCE_ALLOW, HUB_ROLES_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW } from "./redaction.ts";
+import {
+  CONFIG_ALLOW,
+  EVIDENCE_ALLOW,
+  HUB_ROLES_ALLOW,
+  PROFILES_ALLOW,
+  QUIZS_LIVE_ALLOW,
+  QUIZS_PROVIDERS_ALLOW,
+  SECRETS_ALLOW,
+  SECRET_SHOW_ALLOW,
+} from "./redaction.ts";
 
 /** meta 的时限（秒）。 */
 export const META_TIMEOUT = 15;
@@ -33,6 +42,10 @@ export const USAGE_TIMEOUT = 120;
 export const SECRET_ITEM_TIMEOUT = 30;
 /** 合成的 /secrets 整条路由的时限（秒）。 */
 export const SECRETS_TOTAL_TIMEOUT = 120;
+/** quizs providers 的时限（秒）：内核每次调 Quizs 是 30 秒，这里比它长，内核自己的报错先回来。 */
+export const QUIZS_PROVIDERS_TIMEOUT = 60;
+/** quizs live 的时限（秒）：每套 live 各跑一次 quizs live status（每套 30 秒），所以比 providers 长。 */
+export const QUIZS_LIVE_TIMEOUT = 150;
 
 /** attempt 目录名：attempt- 加至少三位编号（内核的 ATTEMPT_DIR_RE）。 */
 const ATTEMPT_RE = /^attempt-[0-9]{3,}$/u;
@@ -101,6 +114,8 @@ export const READ_ROUTE_ARGV: Readonly<Record<string, readonly string[]>> = {
   "api.secrets.list.check": ["config", "secret", "check", "EXAMPLE_KEY"],
   "api.secrets.show": ["config", "secret", "check", "EXAMPLE_KEY"],
   "api.hub.roles.get": ["config", "hub", "show", "--json"],
+  "api.quizs.providers.get": ["config", "quizs", "providers", "--json"],
+  "api.quizs.live.get": ["config", "quizs", "live", "--json"],
 };
 
 /**
@@ -431,7 +446,7 @@ function withHandle(state: ReadRoutesState, task: string, attempt: string, path:
 }
 
 /**
- * 建 20 条读路由（server.ts 把它们接进 createApp 的 extraRoutes）。timeouts 是测试入口的时限覆盖
+ * 建 22 条读路由（server.ts 把它们接进 createApp 的 extraRoutes）。timeouts 是测试入口的时限覆盖
  * （路由名 → 秒），CLI 与环境变量碰不到。
  */
 export function readRoutes(state: ReadRoutesState, timeouts: Readonly<Record<string, number>> = {}): readonly Route[] {
@@ -611,12 +626,28 @@ export function readRoutes(state: ReadRoutesState, timeouts: Readonly<Record<str
       pattern: exact("/api/v1/hub/roles"),
       handle: (_state, _params, input) => jsonRoute(state, ["config", "hub", "show", "--json"], at("api.hub.roles.get", DEFAULT_TIMEOUT), input, HUB_ROLES_ALLOW),
     },
+    {
+      name: "api.quizs.providers.get",
+      method: "GET",
+      pattern: exact("/api/v1/quizs/providers"),
+      handle: (_state, _params, input) =>
+        jsonRoute(state, ["config", "quizs", "providers", "--json"], at("api.quizs.providers.get", QUIZS_PROVIDERS_TIMEOUT), input, QUIZS_PROVIDERS_ALLOW),
+    },
+    {
+      name: "api.quizs.live.get",
+      method: "GET",
+      pattern: exact("/api/v1/quizs/live"),
+      handle: (_state, _params, input) =>
+        jsonRoute(state, ["config", "quizs", "live", "--json"], at("api.quizs.live.get", QUIZS_LIVE_TIMEOUT), input, QUIZS_LIVE_ALLOW),
+    },
   ];
 }
 
 /**
- * 20 条读路由的登记表：一条不多、一条不少（顺序即上面 readRoutes() 的路由表顺序）。api.hub.roles.get 是第 20 条
- * （追加在表末）：GET /api/v1/hub/roles → config hub show --json，时限 30 秒（DEFAULT_TIMEOUT）。
+ * 22 条读路由的登记表：一条不多、一条不少（顺序即上面 readRoutes() 的路由表顺序）。api.hub.roles.get 是第 20 条
+ * （追加在表末）：GET /api/v1/hub/roles → config hub show --json，时限 30 秒（DEFAULT_TIMEOUT）。后面两条是本片加的
+ * Quizs 读路由（第 21、22 条）：GET /api/v1/quizs/providers → config quizs providers --json（60 秒）与
+ * GET /api/v1/quizs/live → config quizs live --json（150 秒）。
  */
 export const READ_ROUTE_SPECS: readonly ReadRouteSpec[] = [
   { name: "api.meta.get", path: "/api/v1/meta", timeoutSeconds: META_TIMEOUT },
@@ -639,4 +670,6 @@ export const READ_ROUTE_SPECS: readonly ReadRouteSpec[] = [
   { name: "api.secrets.list", path: "/api/v1/secrets", timeoutSeconds: SECRETS_TOTAL_TIMEOUT },
   { name: "api.secrets.show", path: "/api/v1/secrets/EXAMPLE_KEY", timeoutSeconds: DEFAULT_TIMEOUT },
   { name: "api.hub.roles.get", path: "/api/v1/hub/roles", timeoutSeconds: DEFAULT_TIMEOUT },
+  { name: "api.quizs.providers.get", path: "/api/v1/quizs/providers", timeoutSeconds: QUIZS_PROVIDERS_TIMEOUT },
+  { name: "api.quizs.live.get", path: "/api/v1/quizs/live", timeoutSeconds: QUIZS_LIVE_TIMEOUT },
 ];

@@ -117,6 +117,66 @@ export const HUB_ROLES_ALLOW: AllowList = [
 ];
 
 /**
+ * Quizs 的思考档位（scripts/kit_roles.py 的 Quizs 段与站主核实的 Quizs providers 输出形状）：六个取值。 */
+export const QUIZS_THINKING_ENUM = allowEnum("off", "low", "medium", "high", "xhigh", "max");
+/** Quizs 的计费方式（站主核实的 Quizs providers 输出形状）：三个取值。 */
+export const QUIZS_BILLING_ENUM = allowEnum("none_test_only", "step_plan_credits", "deepseek_prepaid_balance");
+/** live 一套的来源（scripts/kit_roles.py 的 _quizs_live_sets）：信箱目录下的与三个环境变量给的那一套。 */
+export const QUIZS_LIVE_SOURCE_ENUM = allowEnum("mailbox", "env");
+/** live status 的 state（scripts/kit_roles.py 的 QUIZS_LIVE_STATES）：五个取值。 */
+export const QUIZS_LIVE_STATE_ENUM = allowEnum("ready", "expired", "build_mismatch", "invalid", "missing");
+/** live status 的 missing 里的文件名（scripts/kit_roles.py 的 QUIZS_LIVE_NAMES）：三个名字。 */
+export const QUIZS_LIVE_FILE_ENUM = allowEnum("plan.json", "profile.json", "qualification.json");
+
+/** live 的逐套 problem：null 放行（那一套没有问题）；否则沿用 allowPreviewText 的口径（本来就不像凭据的自由文字）。 */
+export function allowNullablePreviewText(value: PyValue): boolean {
+  return value === null || allowPreviewText(value);
+}
+
+/** live 的证书到期毫秒：null 放行；bigint 与 number 都接（pyjson 把大整数解析成 bigint），number 要是整数且不小于 0。 */
+export function allowNonNegativeMs(value: PyValue): boolean {
+  if (value === null) return true;
+  if (typeof value === "bigint") return value >= 0n;
+  if (typeof value !== "number") return false;
+  return Number.isInteger(value) && value >= 0;
+}
+
+/** 带毫秒的 ISO 8601 UTC 字符串：null 放行；形如 2026-11-14T08:00:00.000Z，Z 与 +00:00 两种结尾、三位毫秒。 */
+const ISO_MS_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|\+00:00)$/u;
+export function allowIsoMsUtc(value: PyValue): boolean {
+  return value === null || (typeof value === "string" && ISO_MS_UTC_RE.test(value));
+}
+
+/**
+ * /quizs/providers 的白名单（config quizs providers --json 的 {"build_id": …, "providers": […]}）：逐字段只放四个能显示的
+ * 字段——提供方与模型（名字形状，内核会给 null）用 allowBindingName，思考档位与计费方式过枚举；取值抄自
+ * scripts/kit_roles.py 的 Quizs 段与站主核实的 Quizs 输出形状。build_id、id、credential_*、*_tokens 一类键不登记，照
+ * redactJson 的默认口径走（键名像凭据的一律 <redacted>）。
+ */
+export const QUIZS_PROVIDERS_ALLOW: AllowList = [
+  [["providers", "*", "provider"], allowBindingName],
+  [["providers", "*", "model"], allowBindingName],
+  [["providers", "*", "thinking", "*"], QUIZS_THINKING_ENUM],
+  [["providers", "*", "billing"], QUIZS_BILLING_ENUM],
+];
+
+/**
+ * /quizs/live 的白名单（config quizs live --json 的 {"live": […]}）：每一套的来源、提供方、逐套 problem，以及 status 的
+ * problem、state、missing、证书到期毫秒与 profile 的 valid_until；取值抄自 scripts/kit_roles.py 的 QUIZS_LIVE_* 与站主
+ * 核实的 live 输出形状。live_dir、plan.*、implementation_digest、capabilities 不登记，照默认口径走。
+ */
+export const QUIZS_LIVE_ALLOW: AllowList = [
+  [["live", "*", "source"], QUIZS_LIVE_SOURCE_ENUM],
+  [["live", "*", "provider"], allowBindingName],
+  [["live", "*", "problem"], allowNullablePreviewText],
+  [["live", "*", "status", "problem"], allowNullablePreviewText],
+  [["live", "*", "status", "state"], QUIZS_LIVE_STATE_ENUM],
+  [["live", "*", "status", "missing", "*"], QUIZS_LIVE_FILE_ENUM],
+  [["live", "*", "status", "certificate", "expires_at_ms"], allowNonNegativeMs],
+  [["live", "*", "status", "profile", "valid_until"], allowIsoMsUtc],
+];
+
+/**
  * /preview 的白名单（内核预览 JSON，state 令牌在进白名单之前就被拿掉）：只放 binding_changes.*.before|after 的六个绑定
  * 字段（profile/runtime/adapter/provider/model/thinking；mode 是枚举，不进白名单，照 redactSecrets 处理）、
  * hub_changes.*（岗位名，两侧的 source、六个绑定字段与替补的六个字段；r3 第 162 轮）、
