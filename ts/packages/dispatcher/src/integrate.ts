@@ -4,6 +4,7 @@
 //     未暂存，与 check --fresh 同一布局），主工作区只做最后一步 git merge --ff-only，有会被覆盖的本地改动时 git 拒绝。
 //   - 落地要合同 integration 含 merge（建分支要 local_branch）；没有 merge 时做到验证为止，建好提交并打印落地命令，退出码 3。
 //   - 尾注规则在 config 包，由 cli 交进来（同 branch）。
+//   - --skip-if-tree（第 172 轮）：豁免只在合并后的树就是给的那棵时生效（hub 的落地预演已在那棵树上跑过全部门禁基准）。
 import { readdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
@@ -37,6 +38,8 @@ export interface IntegrateArgs extends Pick<BranchArgs, "repo" | "run_dir" | "na
   readonly dry_run: boolean;
   readonly skip: string | null;
   readonly reason: string | null;
+  /** 第 172 轮：--skip 只在合并后的树就是这棵时生效。 */
+  readonly skip_if_tree: string | null;
   readonly recheck: boolean;
   readonly keep_worktree: boolean;
   readonly keep_workspace: boolean;
@@ -72,7 +75,7 @@ export async function cmdIntegrate(args: IntegrateArgs, out: PyOut, rules: Trail
       "规划端补完的候选照旧 branch --rework、手工集成，再 mark SUPERSEDED", EXIT_BLOCKED);
   }
   const checks = pyIter(pyItem(contract, "checks")) as PyDict[];
-  const skip = checkSkips(args, checks);
+  let skip = checkSkips(args, checks);
   const symbolic = git(["symbolic-ref", "-q", "HEAD"], repo.root);
   if (symbolic.status !== 0) throw new DispatchError("主工作区是游离 HEAD：integrate 只落到当前分支，先切到要集成的分支", EXIT_USAGE);
   const target = pyStrip(pyDecodeUtf8Replace(symbolic.stdout));
@@ -118,6 +121,17 @@ export async function cmdIntegrate(args: IntegrateArgs, out: PyOut, rules: Trail
     return EXIT_FAIL;
   }
   record.set("merged_tree", mergedTree);
+  if (args.skip_if_tree) {
+    const applied = mergedTree === args.skip_if_tree;
+    record.set("skip_if_tree", new Map<string, PyValue>([["tree", args.skip_if_tree], ["applied", applied]]));
+    if (!applied) {
+      // 豁免的理由是“这几条已在那棵树上跑过”：要落地的不是那棵树，理由就不成立
+      skip = [];
+      record.set("skipped_checks", []);
+      record.set("skip_reason", null);
+      out.print(`NOTE  合并后的树 ${head12(mergedTree)} 不是 --skip-if-tree 给的 ${head12(args.skip_if_tree)}：豁免不生效，照常全跑`, { flush: true });
+    }
+  }
   const config = repoConfig(repo);
   const [env, removed] = childEnv(config);
   const grace = pyFloatOf(pyGet(config, "kill_grace_seconds", 15n));
@@ -235,6 +249,7 @@ function checkSkips(args: IntegrateArgs, checks: readonly PyDict[]): string[] {
   if (skip.length && !pyStrip(args.reason ?? "")) {
     throw new DispatchError("--skip 需要 --reason：写明这项检查为什么在当前末端上不成立（例如只对基线成立）", EXIT_USAGE);
   }
+  if (args.skip_if_tree && !skip.length) throw new DispatchError("--skip-if-tree 需要 --skip：它只决定豁免在哪棵树上生效", EXIT_USAGE);
   return skip;
 }
 

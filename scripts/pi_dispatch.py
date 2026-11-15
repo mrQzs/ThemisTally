@@ -271,8 +271,8 @@ TS_DISPATCHER_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("metrics",): ("repo", "out"),
     ("branch",): ("repo", "run_dir", "name", "rework", "trailer", "no_config_trailers"),
     ("review-draft",): ("repo", "run_dir", "out", "force"),
-    ("integrate",): ("repo", "run_dir", "dry_run", "skip", "reason", "recheck", "name", "trailer", "no_config_trailers",
-                     "keep_worktree", "keep_workspace", "while_running"),
+    ("integrate",): ("repo", "run_dir", "dry_run", "skip", "reason", "skip_if_tree", "recheck", "name", "trailer",
+                     "no_config_trailers", "keep_worktree", "keep_workspace", "while_running"),
     ("mark",): ("repo", "run_dir", "state", "ref", "reason", "force"),
     ("cleanup",): ("repo", "run_dir", "force"),
 }
@@ -7460,6 +7460,9 @@ def cmd_integrate(args: argparse.Namespace) -> int:
 
     2.10.0：最近一次 check --fresh 干净、要落地的树相对它只多了规划路径下的文件时，沿用那次的结果，不建验证
     副本、不重跑（--recheck 强制重跑；--skip 也意味着重跑）。
+
+    --skip-if-tree（第 172 轮）：豁免只在合并后的树就是给的那棵时生效。hub 的落地预演已在那棵树上跑过全部
+    门禁基准，落地检查不必再跑一遍全量回归；树不是那棵就当没有 --skip。
     """
     repo = Repo.discover(args.repo)
     run_dir = resolve_run_dir(repo, args.run_dir)
@@ -7486,6 +7489,8 @@ def cmd_integrate(args: argparse.Namespace) -> int:
         raise DispatchError("未知检查：%s" % ", ".join(unknown), EXIT_USAGE)
     if skip and not (args.reason or "").strip():
         raise DispatchError("--skip 需要 --reason：写明这项检查为什么在当前末端上不成立（例如只对基线成立）", EXIT_USAGE)
+    if args.skip_if_tree and not skip:
+        raise DispatchError("--skip-if-tree 需要 --skip：它只决定豁免在哪棵树上生效", EXIT_USAGE)
     symbolic = git(["symbolic-ref", "-q", "HEAD"], repo.root, check=False)
     if symbolic.returncode != 0:
         raise DispatchError("主工作区是游离 HEAD：integrate 只落到当前分支，先切到要集成的分支", EXIT_USAGE)
@@ -7533,6 +7538,15 @@ def cmd_integrate(args: argparse.Namespace) -> int:
               % ("（只多了本地分支 %s）" % branch["branch"] if branch["branch"] else ""))
         return EXIT_FAIL
     record["merged_tree"] = merged_tree
+    if args.skip_if_tree:
+        applied = merged_tree == args.skip_if_tree
+        record["skip_if_tree"] = {"tree": args.skip_if_tree, "applied": applied}
+        if not applied:
+            # 豁免的理由是“这几条已在那棵树上跑过”：要落地的不是那棵树，理由就不成立
+            skip = []
+            record.update(skipped_checks=[], skip_reason=None)
+            print("NOTE  合并后的树 %s 不是 --skip-if-tree 给的 %s：豁免不生效，照常全跑" % (
+                merged_tree[:12], args.skip_if_tree[:12]), flush=True)
     config = repo.config()
     env, removed = child_env(config)
     grace = float(config.get("kill_grace_seconds", 15))
@@ -8788,6 +8802,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="只验证，不建分支与提交、不落地（等于在当前末端上跑检查）")
     p.add_argument("--skip", help="豁免的检查 ID，逗号分隔（只对基线成立、在当前末端上不成立的检查）；需要 --reason")
     p.add_argument("--reason", help="--skip 的理由，写进记录")
+    p.add_argument("--skip-if-tree", help="--skip 只在合并后的树就是这棵时生效（这几条已在这棵树上跑过，例如 hub 的落地预演）；"
+                                          "不是就照常全跑，记录里写明；需要 --skip")
     p.add_argument("--recheck", action="store_true",
                    help="不沿用 check --fresh 的结果，在当前末端上重跑全部检查（2.10.0；例如环境变了）")
     p.add_argument("--name", help="候选分支名（缺省 pi/<task>-v<N>-a<NNN>；已指向这个候选时复用）")

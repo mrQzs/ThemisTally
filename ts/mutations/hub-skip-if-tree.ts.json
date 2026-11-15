@@ -1,0 +1,72 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/integrate.contract.test.ts",
+    "packages/contracts/test/hub-land-scenes.contract.test.ts",
+    "packages/contracts/test/hub-sweep-scenes.contract.test.ts",
+    "-t",
+    "skip-if-tree|第 172 轮|rehearse_landing（手写）",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "T01 不核树就豁免",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "const applied = mergedTree === args.skip_if_tree;",
+      "new": "const applied = true;"
+    },
+    {
+      "name": "T02 树不对时不撤豁免",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "      skip = [];\n",
+      "new": ""
+    },
+    {
+      "name": "T03 树不对时记录里还写着豁免",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "      record.set(\"skipped_checks\", []);\n",
+      "new": ""
+    },
+    {
+      "name": "T04 没有 --skip 也收 --skip-if-tree",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "if (args.skip_if_tree && !skip.length) throw",
+      "new": "if (false) throw"
+    },
+    {
+      "name": "T05 预演没过也豁免",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "if (!(pyTruthy(pyGet(seen, \"ok\")) && pyTruthy(pyGet(seen, \"tree\")) && ran.size)) return [];",
+      "new": "if (!(pyTruthy(pyGet(seen, \"tree\")) && ran.size)) return [];"
+    },
+    {
+      "name": "T06 不看预演跑了哪几份",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": " && argv.slice(3, -1).every((item) => ran.has(item))) {",
+      "new": ") {"
+    },
+    {
+      "name": "T07 不看工作目录",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "pyEq(pyGet(check, \"cwd\"), \".\")",
+      "new": "true"
+    },
+    {
+      "name": "T08 结项不把豁免交给 integrate",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "[\"integrate\", runDir, ...rehearsedWaiver(hub, ts)]",
+      "new": "[\"integrate\", runDir]"
+    },
+    {
+      "name": "T09 预演过了不记跑了哪几份",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "    record.set(\"tests\", [...ranTests]);",
+      "new": "    void ranTests;"
+    }
+  ]
+}

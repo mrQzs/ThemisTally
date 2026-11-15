@@ -2766,6 +2766,45 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 落地检查（integrate 在末端上重跑合同的检查，含 R01）不动：它还跑合同自己的 V 类检查，是调度器落地之前的关口。
   - 末端就是 attempt 的基线时预演不跑、没有记下的树，照旧跑合入后回归：integrate 的 R01 只跑合同当时的门禁名单。
 
+### 第 172 轮：落地检查不再重跑落地预演已在同一棵树上跑过的全量回归（候选 #42）
+
+- **起因**：
+  - 结项时 integrate 在“末端 + 候选”上把合同的检查全跑一遍（落地检查），这段在每片结项的关键路径上。实测 T042：落地检查 09:41–10:05，其中 R01（之前各片的全部门禁基准，973 条）22 分 02 秒，G01 22 秒，V 类不到一分钟。
+  - 落地预演在这之前已在同一末端、同一候选拼出的树上跑过全部门禁基准。第 171 轮实测：21/23 次落地前的最后一次预演就在落地的末端上，拼出的树与 integrate 落下的树逐字节相同。
+  - integrate 现成的 --skip 是给“只对基线成立”的检查用的，调度器自己不核树。拿它常规地豁免落地关口的 R01，改了它的意思，而调度器也给人用。
+- **改法**：
+  - 调度器（pi_dispatch.py 与 TS 的 integrate.ts）：integrate 加 `--skip-if-tree <树>`，要配 --skip。
+    - 只有调度器自己算出的合并后的树就是这棵时，豁免才生效。
+    - 不是这棵：当没有 --skip（能沿用 check --fresh 就沿用），打印 NOTE，记录里 skipped_checks 为空、skip_reason 为 null。
+    - 记录多一项 skip_if_tree（tree、applied）；没有 --skip 时是用法错误。
+    - 参数表、pyargs-v1 的 Schema 与 schemas 的样例跟着加。
+  - hub（kit_hub.py 与 TS 的 land.ts、sweep.ts）：
+    - 落地预演过了，连同跑了哪几份门禁基准（tests）记进 ts["rehearsal"]。
+    - 结项调 integrate 时（rehearsed_waiver），把回归检查里逐字是 `python -m pytest <预演跑过的门禁基准> -q`、在仓库根跑的那几条，连同 `--reason "落地预演（时刻）已在这棵树上跑过全部门禁基准"` 与 `--skip-if-tree <预演记下的树>` 一起交过去。
+    - 预演没过、没记树、没记跑了哪几份、文件对不上的，都不交。树对不对由调度器核。
+  - 本片自己的门禁（G01）与合同的 V 类检查照旧在落地检查里跑。加上第 171 轮，落地的树与预演的树相同时，合入后回归也不跑。
+- **测试**：
+  - test_dispatch 加一个场景：没有 --skip 时用法错误；同一棵树上豁免生效（其余照常重跑）；换一棵树豁免不生效、沿用 check --fresh，记录写明。
+  - test_kit_hub 加一条，真走预演（基线上有先前一片的门禁）：
+    - rehearsed_waiver 只认 R01；多了参数、不在仓库根、末尾不是 -q、不是 pytest 的，以及本片自己的门禁，都不认；
+    - 预演没过、没记树、没记跑了哪几份、没跑 R01 那份，都不交；
+    - 结项交给 integrate 的就是这份豁免。
+- **契约**：
+  - integrate 契约加四个场景：树相同时生效；树不同时不生效、照常全跑；树不同而沿用 check --fresh；没有 --skip。schemas 的样例带上新选项。
+  - hub-land-scenes 加一段：rehearsed_waiver 五种情形，结项交给 integrate 的参数逐字比。
+  - hub-sweep-scenes 补：没过不记 tests，过了记 tests。
+  - Python、Node、Bun 三边一致。
+- **变异**：
+  - Python 12 条（`hub-skip-if-tree.py.json`），TS 9 条（`hub-skip-if-tree.ts.json`）。改坏的是：不核树就豁免、树不对时不撤豁免、记录里还写着豁免、没有 --skip 也收、记录不写生效与否；预演没过也豁免、不看跑了哪几份、不看工作目录、不要求以 -q 结尾、不看是不是 pytest、结项不交豁免、预演过了不记跑了哪几份。
+  - hub-h1.ts.json 的 L24、hub-rehearsed-tree.ts.json 的 S01、S02，锚点跟着挪到新写法。
+  - 结果：全部抓住，Python 12 条、TS 9 条；挪了锚点的 L24、S01、S02 照样抓住。
+- **检查**：每段都进重活车道。
+  - 类型检查 0 错；test_kit_hub.py 408 条全过；test_dispatch、test_kit_v280、test_kit_v2100、test_kernel_impl 四份 298 条全过。
+  - 契约：integrate 与 schemas 两份 56 条，hub-land-scenes 与 hub-land 20 条，hub-sweep-scenes 与 hub-sweep 20 条，mutation-specs 与 source-hygiene 5 条，全过。
+- **没做**：
+  - 不豁免本片自己的门禁（G01，二十来秒）与 V 类检查：预演只跑门禁基准，V 类是合同自己的检查。
+  - --skip 的原意不动，不带 --skip-if-tree 时照旧。review-pi 技能里 integrate 的用法不改：新选项由 hub 自动传，人一般用不到。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

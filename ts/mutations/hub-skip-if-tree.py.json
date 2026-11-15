@@ -1,0 +1,91 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_dispatch.py",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "skip_if_tree or regression_checks_the_rehearsal_ran"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "D01 不核树就豁免",
+      "file": "scripts/pi_dispatch.py",
+      "old": "applied = merged_tree == args.skip_if_tree",
+      "new": "applied = True"
+    },
+    {
+      "name": "D02 树不对时不撤豁免",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            skip = []\n            record.update(skipped_checks=[], skip_reason=None)",
+      "new": "            record.update(skipped_checks=[], skip_reason=None)"
+    },
+    {
+      "name": "D03 树不对时记录里还写着豁免",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            record.update(skipped_checks=[], skip_reason=None)\n",
+      "new": ""
+    },
+    {
+      "name": "D04 没有 --skip 也收 --skip-if-tree",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if args.skip_if_tree and not skip:\n",
+      "new": "    if False:\n"
+    },
+    {
+      "name": "D05 记录不写豁免生效与否",
+      "file": "scripts/pi_dispatch.py",
+      "old": "record[\"skip_if_tree\"] = {\"tree\": args.skip_if_tree, \"applied\": applied}",
+      "new": "record[\"skip_if_tree\"] = {\"tree\": args.skip_if_tree}"
+    },
+    {
+      "name": "H01 预演没过也豁免",
+      "file": "scripts/kit_hub.py",
+      "old": "if not (seen.get(\"ok\") and seen.get(\"tree\") and ran):",
+      "new": "if not (seen.get(\"tree\") and ran):"
+    },
+    {
+      "name": "H02 不看预演跑了哪几份",
+      "file": "scripts/kit_hub.py",
+      "old": "               and set((check.get(\"argv\") or [])[3:-1]) <= ran]",
+      "new": "               and True]"
+    },
+    {
+      "name": "H03 不看工作目录",
+      "file": "scripts/kit_hub.py",
+      "old": "and check.get(\"cwd\") == \".\"",
+      "new": "and True"
+    },
+    {
+      "name": "H04 不要求以 -q 结尾",
+      "file": "scripts/kit_hub.py",
+      "old": " and (check.get(\"argv\") or [])[-1:] == [\"-q\"]",
+      "new": ""
+    },
+    {
+      "name": "H05 不看是不是 pytest",
+      "file": "scripts/kit_hub.py",
+      "old": "(check.get(\"argv\") or [])[:3] == [\"python\", \"-m\", \"pytest\"] and",
+      "new": "True and"
+    },
+    {
+      "name": "H06 结项不把豁免交给 integrate",
+      "file": "scripts/kit_hub.py",
+      "old": "[\"integrate\", str(run_dir)] + rehearsed_waiver(hub, ts)",
+      "new": "[\"integrate\", str(run_dir)]"
+    },
+    {
+      "name": "H07 预演过了不记跑了哪几份",
+      "file": "scripts/kit_hub.py",
+      "old": "        ts[\"rehearsal\"][\"tests\"] = tests",
+      "new": "        pass"
+    }
+  ]
+}

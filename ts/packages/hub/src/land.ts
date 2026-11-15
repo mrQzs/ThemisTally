@@ -20,11 +20,12 @@ import { pathArg } from "@themis/dispatcher/evidence";
 import { getState } from "@themis/dispatcher/status";
 import { type ContractDeps, REAL_DEPS } from "./accept.ts";
 import { comparePaths, pyDictOf } from "./audit.ts";
-import { tail } from "./contract.ts";
+import { contractPaths, tail } from "./contract.ts";
 import { HubError } from "./errors.ts";
 import { removeInputs } from "./inputs.ts";
 import { ATTEMPT_IN_FLIGHT, emptyCommit, pySliceHead } from "./exec.ts";
 import { attemptBase } from "./gatepost.ts";
+import { regressionCheckIds } from "./heavy.ts";
 import { git, workspaceStatus } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 import { argText, execMarks, runGit, runMerged, writeReview } from "./runexec.ts";
@@ -140,7 +141,7 @@ export async function finalize(hub: Hub, ts: PyDict, deps: LandDeps = REAL_LAND_
   let problem = (await landOracle(hub, ts)) || (await landReworkChain(hub, ts));
   let out = "";
   if (!problem) {
-    const [code, text] = await deps.runPd(hub, ["integrate", runDir], 3600);
+    const [code, text] = await deps.runPd(hub, ["integrate", runDir, ...rehearsedWaiver(hub, ts)], 3600);
     out = text;
     ts.set("integrated", new Map<string, PyValue>([["exit", BigInt(code)], ["tail", tail(out, 15n)], ["at", utcNow()]]));
     if (code !== 0) problem = `integrate 没有落地（退出码 ${code}）：${LF}${tail(out, 15n)}${landedMeanwhile(hub, ts, headBefore)}`;
@@ -167,6 +168,37 @@ export async function finalize(hub: Hub, ts: PyDict, deps: LandDeps = REAL_LAND_
     }
   }
   return [true, detail];
+}
+
+/**
+ * 第 172 轮：落地预演过了，就把它已在那棵树上跑过的全量回归豁免给 integrate，由调度器核对合并后的树就是那棵（--skip-if-tree，
+ * 不是就照常全跑）。T042 的落地检查 24 分钟，其中 R01 22 分钟，跑的正是预演跑过的那些门禁基准。只认逐字是
+ * “python -m pytest <预演跑过的门禁基准> -q”、在仓库根跑的回归检查。
+ */
+export function rehearsedWaiver(hub: Hub, ts: PyDict): string[] {
+  const seen = or(pyGet(ts, "rehearsal"), new Map());
+  const ran = new Set(pyIter(or(pyGet(seen, "tests"), [])));
+  if (!(pyTruthy(pyGet(seen, "ok")) && pyTruthy(pyGet(seen, "tree")) && ran.size)) return [];
+  let data: PyValue;
+  try {
+    data = loads(readText(contractPaths(hub, ts)[1]) || "{}");
+  } catch (error) {
+    if (!pyCaught(error, ["ValueError"])) throw error;
+    return [];
+  }
+  const regression = regressionCheckIds(hub, ts);
+  const covered: string[] = [];
+  for (const check of pyIter(or(pyGet(data, "checks"), []))) {
+    const id = pyStrValue(pyGet(check, "id"));
+    const argv = pyIter(or(pyGet(check, "argv"), []));
+    const pytest = argv.length >= 3 && argv[0] === "python" && argv[1] === "-m" && argv[2] === "pytest";
+    if (regression.has(id) && pyEq(pyGet(check, "cwd"), ".") && pytest && argv.at(-1) === "-q" && argv.slice(3, -1).every((item) => ran.has(item))) {
+      covered.push(id);
+    }
+  }
+  if (!covered.length) return [];
+  return ["--skip", covered.join(","), "--reason", `落地预演（${pyStrValue(pyGet(seen, "at"))}）已在这棵树上跑过全部门禁基准`,
+    "--skip-if-tree", pyStrValue(pyItem(seen, "tree"))];
 }
 
 /** 结项前要带上分支的提交的记录：门禁的基准测试，以及返工链上的每一轮。 */

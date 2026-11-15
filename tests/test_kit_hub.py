@@ -4444,11 +4444,14 @@ def test_regression_sweep_runs_every_gate_baseline_on_the_new_tip(tmp_path, monk
     assert list((tmp_path / "wt").iterdir()) == []  # 临时 worktree 收掉了
 
 
-def rehearsal_setup(tmp_path, monkeypatch):
-    """T006 的情形：门禁与候选在本任务的基线上都过，任务期间先落地的提交让门禁在末端上红。"""
+def rehearsal_setup(tmp_path, monkeypatch, earlier_gate=False):
+    """T006 的情形：门禁与候选在本任务的基线上都过，任务期间先落地的提交让门禁在末端上红。
+    earlier_gate：基线上另有先前一片的门禁基准（合同的全量回归跑它）。"""
     repo, _head = git_repo(tmp_path)
     monkeypatch.setattr(kh, "worktree_root", lambda repo_: tmp_path / "wt")
     (tmp_path / "wt").mkdir()
+    if earlier_gate:
+        land_on_main(repo, "tests/test_gate_t000_baseline.py", "def test_earlier():\n    pass\n", "先前一片的门禁")
     head = land_on_main(repo, "notes.txt", "一\n二\n三\n四\n五\n", "五行的共享文件")
     branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
     kh.git(["checkout", "-q", "-b", "task"], repo)
@@ -4737,6 +4740,42 @@ def test_a_landing_on_the_rehearsed_tree_skips_the_post_landing_sweep(tmp_path, 
         assert swept == [] and hub.unread(kh.OWNER) == []
     events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
     assert [e["tree"] for e in events if e["event"] == "regression.skipped"] == [seen["tree"]]
+
+
+def test_finalize_hands_integrate_the_regression_checks_the_rehearsal_ran(tmp_path, monkeypatch):
+    # 第 172 轮：T042 的落地检查 24 分钟，其中 R01 22 分钟，跑的正是落地预演已在同一棵树上跑过的门禁基准
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch, earlier_gate=True)
+    land_on_main(repo, "unrelated.txt", "x\n", "并行的一片先落地")
+    ok, _summary = kh.rehearse_landing(hub, ts)
+    seen = dict(ts["rehearsal"])
+    assert ok and seen["tests"] == ["tests/test_gate_t000_baseline.py", "tests/test_gate_t001_baseline.py"]
+    gate = ["python", "-m", "pytest", "tests/test_gate_t000_baseline.py"]
+    checks = [{"id": "G01", "argv": ["python", "-m", "pytest", "tests/test_gate_t001_baseline.py", "-q"], "cwd": "."},  # 本片的门禁不算回归
+              {"id": "R01", "argv": gate + ["-q"], "cwd": "."},
+              {"id": "R02", "argv": gate + ["-x", "-q"], "cwd": "."},  # 多了别的参数：不认
+              {"id": "R03", "argv": gate + ["-q"], "cwd": "desktop"},  # 不在仓库根：不认
+              {"id": "R04", "argv": gate + ["-x"], "cwd": "."},  # 末尾不是 -q：不认
+              {"id": "R05", "argv": ["python", "-m", "other"] + gate[3:] + ["-q"], "cwd": "."}]  # 不是 pytest：不认
+    (repo / ".agent" / "plans").mkdir(parents=True, exist_ok=True)
+    (repo / ".agent" / "plans" / "t001-doc.v1.json").write_text(json.dumps({"checks": checks}), encoding="utf-8")
+    waiver = ["--skip", "R01", "--reason", "落地预演（%s）已在这棵树上跑过全部门禁基准" % seen["at"], "--skip-if-tree", seen["tree"]]
+    assert kh.rehearsed_waiver(hub, ts) == waiver
+    for change in ({"ok": False}, {"tree": None}, {"tests": []}, {"tests": ["tests/test_gate_t001_baseline.py"]}):
+        ts["rehearsal"] = dict(seen, **change)  # 预演没过、没记树、没记跑了哪几份、没跑 R01 的那份：都不豁免
+        assert kh.rehearsed_waiver(hub, ts) == [], change
+    ts["rehearsal"] = seen
+    calls = []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args)
+        kh.git(["apply", "--index", str(run_dir / "candidate.patch")], repo)
+        kh.git(["commit", "-q", "-m", "候选"], repo)
+        return 0, "integrated"
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")  # verdict 已经记过
+    ok, _detail = kh.finalize(hub, ts)
+    assert ok and calls == [["integrate", str(run_dir)] + waiver]  # 树对不对由调度器核（--skip-if-tree）
 
 
 def test_exclusive_runs_the_command_once_executors_are_done(tmp_path, monkeypatch):

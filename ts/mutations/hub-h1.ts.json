@@ -134,8 +134,8 @@
   {
    "name": "L24 integrate 的时限不是 3600",
    "file": "ts/packages/hub/src/land.ts",
-   "old": "[\"integrate\", runDir], 3600)",
-   "new": "[\"integrate\", runDir], 600)"
+   "old": "[\"integrate\", runDir, ...rehearsedWaiver(hub, ts)], 3600)",
+   "new": "[\"integrate\", runDir, ...rehearsedWaiver(hub, ts)], 600)"
   },
   {
    "name": "L25 没落地不撤回",

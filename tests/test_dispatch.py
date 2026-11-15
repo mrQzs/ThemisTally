@@ -3308,6 +3308,39 @@ def test_v2100_integrate_reuse_self_checks_and_interpretations():
     check("an in-place check after the fresh one does not hide it", code == 0 and "检查沿用 checks/03" in out, out)
 
 
+def test_integrate_skip_if_tree_waives_only_on_that_tree():
+    """第 172 轮：--skip-if-tree 让豁免只在合并后的树就是给的那棵时生效（hub 的落地预演已在那棵树上跑过全量回归）；
+    不是那棵就当没有 --skip（能沿用 check --fresh 就沿用），记录里写明；没有 --skip 时是用法错误。"""
+    landing = {"executor": ["local_edit", "local_test"], "integration": ["local_branch", "merge"]}
+    probe = {"id": "V02", "argv": [PY, "-c", "print('PROBE_OK')"], "cwd": ".", "timeout_seconds": 60,
+             "required": False, "expected_exit_code": 0, "output_must_match": ["PROBE_OK"]}
+    repo, _base = make_repo("v172-skip-if-tree", authorization=landing, checks=default_checks() + [probe])
+    run_ok(repo)
+    code, out = tool(repo, "check", "normalize-query/attempt-001", "--fresh")
+    assert code == 0, out
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", review(repo, "PASS"))
+    assert code == 0, out
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run", "--skip-if-tree", "f" * 40)
+    check("--skip-if-tree without --skip is a usage error", code == pd.EXIT_USAGE and "--skip-if-tree 需要 --skip" in out, out)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run")
+    tree = jload(rd(repo) / "integrations/01/integration.json")["merged_tree"]
+    reason = "落地预演已在这棵树上跑过"
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run", "--skip", "V01", "--reason", reason,
+                     "--skip-if-tree", tree)
+    record = jload(rd(repo) / "integrations/02/integration.json")
+    check("on that very tree the waiver holds (and the rest reruns, as with any --skip)",
+          code == 0 and "CHECK V01 skipped（%s）" % reason in out and "CHECK V02 passed" in out
+          and record["skip_if_tree"] == {"tree": tree, "applied": True} and record["skipped_checks"] == ["V01"]
+          and record["skip_reason"] == reason, out)
+    code, out = tool(repo, "integrate", "normalize-query/attempt-001", "--dry-run", "--skip", "V01", "--reason", reason,
+                     "--skip-if-tree", "f" * 40)
+    record = jload(rd(repo) / "integrations/03/integration.json")
+    check("on another tree the waiver is dropped and said so; with no waiver left the fresh check is reused",
+          code == 0 and "豁免不生效" in out and "CHECK V01 skipped" not in out and "检查沿用 checks/01" in out
+          and record["skip_if_tree"] == {"tree": "f" * 40, "applied": False} and record["skipped_checks"] == []
+          and record["skip_reason"] is None, out)
+
+
 # ---------------------------------------------------------------------------
 # 3.0 第二轮：角色绑定（docs/themis-tally-3.0-r2-角色绑定与配置中心.md D3–D6；测试计划 9.4 的 K1–K17）
 # ---------------------------------------------------------------------------

@@ -4672,7 +4672,7 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     records_before = [dict(record) for record in landing_records(ts)]
     problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
     if not problem:
-        code, out = run_pd(hub, ["integrate", str(run_dir)], timeout=3600)
+        code, out = run_pd(hub, ["integrate", str(run_dir)] + rehearsed_waiver(hub, ts), timeout=3600)
         ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
         if code != 0:
             problem = "integrate 没有落地（退出码 %d）：\n%s%s" % (code, tail(out, 15),
@@ -4699,6 +4699,29 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
             detail += "\n任务期间分支前进了（%s → %s）：放开落地锁之后在新末端上跑全部门禁回归" % (
                 ts["base_head"][:12], head_before[:12])
     return True, detail
+
+
+def rehearsed_waiver(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """第 172 轮：落地预演过了，就把它已在那棵树上跑过的全量回归豁免给 integrate，由调度器核对合并后的树就是那棵
+    （--skip-if-tree，不是就照常全跑）。T042 的落地检查 24 分钟，其中 R01 22 分钟，跑的正是预演跑过的那些门禁基准。
+    只认逐字是“python -m pytest <预演跑过的门禁基准> -q”、在仓库根跑的回归检查。"""
+    seen = ts.get("rehearsal") or {}
+    ran = set(seen.get("tests") or [])
+    if not (seen.get("ok") and seen.get("tree") and ran):
+        return []
+    try:
+        data = json.loads(read_text(contract_paths(hub, ts)[1]) or "{}")
+    except ValueError:
+        return []
+    regression = regression_check_ids(hub, ts)
+    covered = [str(check.get("id")) for check in data.get("checks") or []
+               if str(check.get("id")) in regression and check.get("cwd") == "."
+               and (check.get("argv") or [])[:3] == ["python", "-m", "pytest"] and (check.get("argv") or [])[-1:] == ["-q"]
+               and set((check.get("argv") or [])[3:-1]) <= ran]
+    if not covered:
+        return []
+    return ["--skip", ",".join(covered), "--reason", "落地预演（%s）已在这棵树上跑过全部门禁基准" % seen.get("at"),
+            "--skip-if-tree", seen["tree"]]
 
 
 def landing_records(ts: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -4912,6 +4935,7 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
     ts["rehearsal"] = {"head": head, "run_dir": str(run_dir), "ok": ok, "at": utc_now()}
     if ok:
         ts["rehearsal"]["tree"] = tree
+        ts["rehearsal"]["tests"] = tests  # 第 172 轮：结项时只豁免跑的正是这些文件的回归检查
     hub.append_event("landing.rehearsed", task=ts["task"], head=head, run_dir=str(run_dir), ok=ok)
     return (True, summary) if ok else (False, problem + landed_meanwhile(hub, ts, head))
 

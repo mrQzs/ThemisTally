@@ -193,6 +193,7 @@ export async function rehearseLanding(hub: Hub, ts: PyDict, deps: SweepDeps = RE
   let problem: string | null = null;
   let summary = "";
   let tree = "";
+  let ranTests: string[] = [];
   await scratchWorktree(hub, "rehearse", tip, async (path) => {
     for (const sha of commits) {
       if (onBranch(hub, sha, path) || emptyCommit(hub, sha as string)) continue;
@@ -212,13 +213,17 @@ export async function rehearseLanding(hub: Hub, ts: PyDict, deps: SweepDeps = RE
       // 拼好就取（git apply --3way 把候选也写进了索引）：门禁在这个 worktree 里跑，跑完的索引不一定还是这棵树
       tree = pyStrip(git(["write-tree"], path));
       const [code, out, tests] = await withHeavyLane(hub, "落地预演", pyItem(ts, "task"), async () => deps.sweepGates(path, deps.sweepSeconds), deps);
-      summary = `末端 ${short(tip)} 加上 ${purePathName(runDir)} 的候选，全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n)) || "没有输出"}`;
+      ranTests = tests;
+      summary =`末端 ${short(tip)} 加上 ${purePathName(runDir)} 的候选，全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n)) || "没有输出"}`;
       if (code !== 0) problem = `${summary}${LF}${tail(out, 15n)}`;
     }
   }, deps);
   const ok = problem === null;
   const record = new Map<string, PyValue>([["head", tip], ["run_dir", runDir], ["ok", ok], ["at", utcNow()]]);
-  if (ok) record.set("tree", tree);
+  if (ok) {
+    record.set("tree", tree);
+    record.set("tests", [...ranTests]); // 第 172 轮：结项时只豁免跑的正是这些文件的回归检查
+  }
   ts.set("rehearsal", record);
   await hub.appendEvent("landing.rehearsed", [["task", pyItem(ts, "task")], ["head", tip], ["run_dir", runDir], ["ok", ok]]);
   return ok ? [true, summary] : [false, `${problem as string | null}${landedMeanwhile(hub, ts, tip)}`];

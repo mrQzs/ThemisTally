@@ -164,10 +164,11 @@ describe("第 ⑤h1 片：landing_blockers（手写）", () => {
 describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
   /** B0（场景的 head）上分出基准测试 O；主分支在 B0 上前进了一个“并行主任务”的提交 M；attempt 的状态与 run_dir。 */
   interface Landing { readonly sc: Scene; readonly oracle: string; readonly meanwhile: string }
-  const landing = (state: string, advance: "none" | "meanwhile" | "conflict", plans = false, more: (repo: string, head: string) => void = () => undefined): Landing => {
+  const landing = (state: string, advance: "none" | "meanwhile" | "conflict", plans = false, more: (repo: string, head: string) => void = () => undefined,
+    base: Record<string, string> = BASE_FILES, after: (repo: string) => void = () => undefined): Landing => {
     let oracle = "";
     let meanwhile = "";
-    const sc = scene(BASE_FILES, (repo, _wt, head) => {
+    const sc = scene(base, (repo, _wt, head) => {
       oracle = commitOn(repo, head, { [GATE]: lines("def test_title():", "    assert False") }, "门禁基准测试");
       more(repo, head);
       meanwhile = advance === "none" ? head
@@ -175,6 +176,7 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
       branchTo(repo, meanwhile);
       put(repo, `${RUNS}/attempt-001/state.json`, JSON.stringify({ state }));
       if (plans) put(repo, ".agent/plans/t001-doc.v1.md", lines("# TASK: t001-doc"));
+      after(repo);
     }, false);
     return { sc, oracle, meanwhile };
   };
@@ -248,6 +250,32 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
       py({ pending: true, head_before: other.meanwhile }), py({ pending: true, head_before: red.meanwhile }),
     ]);
     expect([skipped(states[1]), skipped(states[2])]).toEqual([[], []]);
+  }, 600_000);
+
+  it("第 172 轮：rehearsed_waiver 只豁免逐字是 python -m pytest <预演跑过的门禁基准> -q、在仓库根跑的回归检查；结项时交给 integrate", () => {
+    const EARLIER = "tests/test_gate_t000_baseline.py";
+    const gate = ["python", "-m", "pytest", EARLIER];
+    const checks = [
+      { id: "G01", argv: ["python", "-m", "pytest", GATE, "-q"], cwd: "." }, // 本片的门禁不算回归
+      { id: "R01", argv: [...gate, "-q"], cwd: "." },
+      { id: "R02", argv: [...gate, "-x", "-q"], cwd: "." }, // 多了别的参数：不认
+      { id: "R03", argv: [...gate, "-q"], cwd: "desktop" }, // 不在仓库根：不认
+      { id: "R04", argv: [...gate, "-x"], cwd: "." }, // 末尾不是 -q：不认
+      { id: "R05", argv: ["python", "-m", "other", EARLIER, "-q"], cwd: "." }, // 不是 pytest：不认
+    ];
+    const tree = "a".repeat(40);
+    const item = landing("PASS", "meanwhile", true, () => undefined, { ...BASE_FILES, [EARLIER]: lines("def test_earlier():", "    pass") },
+      (repo) => put(repo, ".agent/plans/t001-doc.v1.json", JSON.stringify({ checks })));
+    const rehearsal = { head: item.meanwhile, run_dir: runDirOf(item.sc), ok: true, at: AT, tree, tests: [EARLIER, GATE] };
+    const variant = (extra: Record<string, unknown> | null): PyDict => ts(item, extra === null ? {} : { rehearsal: { ...rehearsal, ...extra } });
+    // 预演过了；没过；没记树；没跑 R01 的那份；没有预演
+    const results = agreeCalls([{}, { ok: false }, { tree: null }, { tests: [GATE] }, null].map((extra) =>
+      call("rehearsed_waiver", item.sc, [item.sc.repo, variant(extra)])));
+    const waiver = ["--skip", "R01", "--reason", `落地预演（${AT}）已在这棵树上跑过全部门禁基准`, "--skip-if-tree", tree];
+    expect(results.map(valueOf)).toEqual([waiver, [], [], [], []]);
+    const states = agreeFlow([flow("finalize", item.sc, [variant({})], { inner: [pd(["integrate", runDirOf(item.sc), ...waiver], 0, many("integrated", 8), 3600)] })]);
+    injectedCleanly(states);
+    expect((returned(states[0]) as PyValue[])[0], "结项交给 integrate 的就是这份豁免（树由调度器核）").toBe(true);
   }, 600_000);
 
   it("undo_landing 的四种结局：末端没动、已经不是祖先、reset --keep 被本地改动挡住、撤回并恢复记录；记录是列表时撤回之后照样崩", () => {

@@ -5121,6 +5121,7 @@
         "dry_run",
         "skip",
         "reason",
+        "skip_if_tree",
         "recheck",
         "name",
         "trailer",
@@ -5163,6 +5164,16 @@
           ]
         },
         "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skip_if_tree": {
           "anyOf": [
             {
               "type": "string"

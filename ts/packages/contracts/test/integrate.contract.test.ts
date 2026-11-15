@@ -43,6 +43,8 @@ interface Flags {
   readonly dryRun?: boolean;
   readonly skip?: string;
   readonly reason?: string;
+  /** CANDIDATE_TREE 在跑的时候换成这份 attempt 的候选树（末端没动时就是合并后的树）。 */
+  readonly skipIfTree?: string;
   readonly recheck?: boolean;
   readonly name?: string;
   readonly trailer?: readonly string[];
@@ -79,7 +81,8 @@ const scenario = (label: string, o: Scenario["o"], flags: Flags, status: number,
 function argvOf(flags: Flags): string[] {
   return [
     "integrate", "t1", ...(flags.dryRun ? ["--dry-run"] : []), ...(flags.skip !== undefined ? ["--skip", flags.skip] : []),
-    ...(flags.reason !== undefined ? ["--reason", flags.reason] : []), ...(flags.recheck ? ["--recheck"] : []),
+    ...(flags.reason !== undefined ? ["--reason", flags.reason] : []), ...(flags.skipIfTree !== undefined ? ["--skip-if-tree", flags.skipIfTree] : []),
+    ...(flags.recheck ? ["--recheck"] : []),
     ...(flags.name !== undefined ? ["--name", flags.name] : []), ...(flags.trailer ?? []).flatMap((item) => ["--trailer", item]),
     ...(flags.noConfig ? ["--no-config-trailers"] : []), ...(flags.keepWorktree ? ["--keep-worktree"] : []),
     ...(flags.keepWorkspace ? ["--keep-workspace"] : []), ...(flags.whileRunning ? ["--while-running"] : []),
@@ -89,7 +92,7 @@ function argvOf(flags: Flags): string[] {
 function pyargsOf(flags: Flags): Record<string, unknown> {
   return {
     command: ["integrate"], run_dir: "t1", dry_run: flags.dryRun ?? false, skip: flags.skip ?? null, reason: flags.reason ?? null,
-    recheck: flags.recheck ?? false, name: flags.name ?? null, trailer: [...(flags.trailer ?? [])], no_config_trailers: flags.noConfig ?? false,
+    skip_if_tree: flags.skipIfTree ?? null, recheck: flags.recheck ?? false, name: flags.name ?? null, trailer: [...(flags.trailer ?? [])], no_config_trailers: flags.noConfig ?? false,
     keep_worktree: flags.keepWorktree ?? false, keep_workspace: flags.keepWorkspace ?? false, while_running: flags.whileRunning ?? false,
     context: TS_CONTEXT,
   };
@@ -110,6 +113,9 @@ function freshRecord(runDir: string, extra: Record<string, unknown> = {}, number
     results: [{ id: "V01", required: true, passed: true, status: "passed" }], modified_by_checks: [], unexpected_files_by_checks: [], ...extra,
   }));
 }
+
+/** --skip-if-tree 的占位：跑的时候换成候选树。 */
+const CANDIDATE_TREE = "<CANDIDATE_TREE>";
 
 const SCENARIOS: Scenario[] = [
   // --- 落地 ---
@@ -147,6 +153,15 @@ const SCENARIOS: Scenario[] = [
     ["CHECK V02 skipped（只对基线成立）", "，豁免 V02"]),
   scenario("--skip 不带 --reason：用法错误", landable(), { skip: "V01" }, 2, "--skip 需要 --reason"),
   scenario("--skip 有未知的检查：按码点排序报出", landable(), { skip: "V9,V01,V10", reason: "r" }, 2, "未知检查：V10, V9"),
+  // --- 第 172 轮：--skip-if-tree ---
+  scenario("--skip-if-tree 正是合并后的树：豁免生效", landable({ checks: [OK(), FAIL("V02")] }),
+    { skip: "V02", reason: "落地预演已在这棵树上跑过", skipIfTree: CANDIDATE_TREE }, 0, ["CHECK V02 skipped（落地预演已在这棵树上跑过）", "，豁免 V02"]),
+  scenario("--skip-if-tree 不是合并后的树：豁免不生效，照常全跑", landable({ checks: [OK(), FAIL("V02")] }),
+    { skip: "V02", reason: "落地预演已在这棵树上跑过", skipIfTree: "f".repeat(40) }, 1,
+    ["不是 --skip-if-tree 给的 ffffffffffff：豁免不生效，照常全跑", "CHECK V02 failed", "没有全部通过（1/2）"]),
+  scenario("--skip-if-tree 不是那棵树、能沿用 check --fresh：沿用", landable({ checks: [OK()], after: ({ runDir }) => freshRecord(runDir) }),
+    { skip: "V01", reason: "r", skipIfTree: "f".repeat(40) }, 0, ["豁免不生效", "检查沿用 checks/02"]),
+  scenario("--skip-if-tree 不带 --skip：用法错误", landable(), { skipIfTree: "f".repeat(40) }, 2, "--skip-if-tree 需要 --skip"),
   // --- 沿用 check --fresh ---
   scenario("沿用 check --fresh：树完全相同", landable({ after: ({ runDir }) => freshRecord(runDir) }), {}, 0,
     ["检查沿用 checks/02（check --fresh，<AT> 结束）：当前末端 + 候选与那次测过的树完全相同", "，沿用 checks/02"]),
@@ -220,7 +235,9 @@ function runScenario(item: Scenario): void {
     const paths = { "<REPO>": repo, ...fullAttempt(repo, head, runner, options) };
     // ⑤-影子的输出照真的布局放一份：列 runs 下任务目录的地方（integrate 的 _running_attempts）要跳过它，几套实现的输出照样相同
     put(repo, ".agent/runs/_shadow/latest.json", `{"mismatches": []}${LF}`);
-    const result = withEnv({ ...IDENTITY, ...item.env }, () => runCommand(runner, repo, argvOf(item.flags), pyargsOf(item.flags)));
+    const candidateTree = (): string => (JSON.parse(readFileSync(join(repo, ".agent", "runs", "t1", "attempt-001", "candidate.json"), "utf8")) as { tree: string }).tree;
+    const flags = item.flags.skipIfTree === CANDIDATE_TREE ? { ...item.flags, skipIfTree: candidateTree() } : item.flags;
+    const result = withEnv({ ...IDENTITY, ...item.env }, () => runCommand(runner, repo, argvOf(flags), pyargsOf(flags)));
     const stderr = result.stderr.toString("utf8");
     const show = (text: string): string => scrub(normalize(text, paths));
     const evidence = item.crash ? {} : Object.fromEntries(Object.entries(snapshotDir(join(repo, ".agent", "runs"), paths)).map(([key, value]) => [scrub(key), scrub(value)]));

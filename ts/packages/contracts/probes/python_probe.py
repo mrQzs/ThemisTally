@@ -1551,6 +1551,8 @@ def op_hub_contract(request):
             value = getattr(kit_hub, fn)(*args)
         elif fn == "landing_records":  # ⑤h1
             value = kit_hub.landing_records(*args)
+        elif fn == "rehearsed_waiver":  # 第 172 轮
+            value = kit_hub.rehearsed_waiver(kit_hub.Hub(Path(args[0])), *args[1:])
         elif fn == "landed_meanwhile":
             value = kit_hub.landed_meanwhile(kit_hub.Hub(Path(args[0])), *args[1:])
         elif fn == "read_owner_sweep":  # ⑤h2

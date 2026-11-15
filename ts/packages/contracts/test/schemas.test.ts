@@ -109,8 +109,8 @@ describe("pyargs-v1 与第 ④ 步的切换", () => {
     ["release-check"], ["release-check", "--allow", "a", "--allow", "b", "--denylist", "d.txt"], ["metrics"], ["metrics", "--out", "o.json"],
     ["branch", "t"], ["branch", "t", "--name", "n", "--rework", "--trailer", "K: v", "--no-config-trailers"],
     ["review-draft", "t"], ["review-draft", "t", "--out", "r.md", "--force"],
-    ["integrate", "t"], ["integrate", "t", "--dry-run", "--skip", "V01", "--reason", "r", "--recheck", "--name", "n", "--trailer", "K: v",
-      "--no-config-trailers", "--keep-worktree", "--keep-workspace", "--while-running"],
+    ["integrate", "t"], ["integrate", "t", "--dry-run", "--skip", "V01", "--reason", "r", "--skip-if-tree", "x", "--recheck", "--name", "n",
+      "--trailer", "K: v", "--no-config-trailers", "--keep-worktree", "--keep-workspace", "--while-running"],
     ["mark", "t", "ABANDONED"], ["mark", "t", "INTEGRATED", "--ref", "abc", "--reason", "r", "--force"], ["cleanup", "t"], ["cleanup", "t", "--force"],
   ];
 

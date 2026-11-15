@@ -27,7 +27,7 @@ import {
 } from "@themis/hub/runexec";
 import {
   type LandDeps, REAL_LAND_DEPS, commitRecords, finalize, landOracle, landReworkChain, landedMeanwhile, landingBlockers, landingChain, landingRecords, onBranch,
-  recordPass, removeWorkspaces, retireAttempts, tidyFinished, undoLanding,
+  recordPass, rehearsedWaiver, removeWorkspaces, retireAttempts, tidyFinished, undoLanding,
 } from "@themis/hub/land";
 import {
   LAND_WAIT_SECONDS, REAL_SWEEP_DEPS, SWEEP_SECONDS, SWEEP_WAIT_SECONDS, type SweepDeps, gateBaselines, markOwnerMoved, ownerSweep, readOwnerSweep, regressionSweep,
@@ -786,6 +786,9 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
         break;
       case "landing_records": // ⑤h1
         value = landingRecords(dictOf(a));
+        break;
+      case "rehearsed_waiver": // 第 172 轮
+        value = rehearsedWaiver(new Hub(textOf(a)), dictOf(b));
         break;
       case "landed_meanwhile":
         value = landedMeanwhile(new Hub(textOf(a)), dictOf(b), textOf(args[2]));

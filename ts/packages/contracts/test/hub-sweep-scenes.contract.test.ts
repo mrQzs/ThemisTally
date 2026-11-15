@@ -540,7 +540,8 @@ describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
     injectedCleanly(states);
     const [ok, problem] = returned(states[0]) as [boolean, string];
     expect([ok, problem.includes("FAILED 第 20"), problem.includes("FAILED 第 5 "), problem.includes("并行主任务先落地")]).toEqual([false, true, false, true]);
-    expect((tsAfter(states[0]).get("rehearsal") as PyDict).has("tree"), "没过不记树（第 171 轮）").toBe(false);
+    const red0 = tsAfter(states[0]).get("rehearsal") as PyDict;
+    expect([red0.has("tree"), red0.has("tests")], "没过不记树（第 171 轮）、不记跑了哪几份（第 172 轮）").toEqual([false, false]);
     expect(String((returned(states[1]) as PyValue[])[1])).toContain(`提交 ${clash.oracle.slice(0, 12)} 挑不到末端`);
     expect(String((returned(states[2]) as PyValue[])[1])).toContain("候选补丁（attempt-001）打不到末端");
     expect((states[3]?.["result"] as Record<string, unknown>)["error"]).toBe("KeyError");
@@ -584,6 +585,7 @@ describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
     injectedCleanly(states);
     const rehearsed = tsAfter(states[0]).get("rehearsal") as PyDict;
     expect([(returned(states[0]) as PyValue[])[0], rehearsed.get("ok"), rehearsed.get("tree") === expected]).toEqual([true, true, true]);
+    expect(rehearsed.get("tests"), "过了记下跑了哪几份门禁基准（第 172 轮）").toEqual([GATE_OK]);
     expect(expected).not.toBe(git(item.sc.repo, "rev-parse", "HEAD^{tree}"));
   }, 600_000);
 });

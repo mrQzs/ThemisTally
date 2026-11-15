@@ -16,14 +16,14 @@
     {
       "name": "S01 预演过了也不记树",
       "file": "ts/packages/hub/src/sweep.ts",
-      "old": "if (ok) record.set(\"tree\", tree);",
-      "new": "if (false) record.set(\"tree\", tree);"
+      "old": "  if (ok) {\n    record.set(\"tree\", tree);",
+      "new": "  if (false) {\n    record.set(\"tree\", tree);"
     },
     {
       "name": "S02 预演没过也记树",
       "file": "ts/packages/hub/src/sweep.ts",
-      "old": "if (ok) record.set(\"tree\", tree);",
-      "new": "record.set(\"tree\", tree);"
+      "old": "  if (ok) {\n    record.set(\"tree\", tree);",
+      "new": "  if (true) {\n    record.set(\"tree\", tree);"
     },
     {
       "name": "S03 预演记的是末端的树（不含候选补丁）",
