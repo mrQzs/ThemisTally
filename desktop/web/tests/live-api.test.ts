@@ -2,6 +2,7 @@
 // 归一化（kit_version、resource/diff、allowed_permissions）；写函数与 getOperation 走真实路由
 // （预览、执行、操作终态，桩分支由 mock/writes.ts 的 ?write= 情景负责）；
 // 真实模式下 ?mock= 不生效，夹具分支逐字不变。
+// 读函数表从 T037 基线的 16 个读函数加起（readFile 占两行，既有行一条不删），本片加 Quizs 两个，共 18 个。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as api from '../src/api';
 import { setLiveClientForTests, type LiveClient } from '../src/live/mode';
@@ -114,9 +115,11 @@ const ROWS: Row[] = [
     timeout: 30,
   },
   { name: 'getPlugin', run: () => api.getPlugin('docs-checks'), path: '/api/v1/plugins/docs-checks', timeout: 30 },
+  { name: 'getQuizsProviders', run: () => api.getQuizsProviders(), path: '/api/v1/quizs/providers', timeout: 60 },
+  { name: 'getQuizsLive', run: () => api.getQuizsLive(), path: '/api/v1/quizs/live', timeout: 150 },
 ];
 
-describe('api.ts 的 16 个读函数（注入 fake client）', () => {
+describe('api.ts 的 18 个读函数（注入 fake client）', () => {
   for (const row of ROWS) {
     it(`${row.name} → GET ${row.path}，服务端时限 ${row.timeout}`, async () => {
       const env = await row.run();

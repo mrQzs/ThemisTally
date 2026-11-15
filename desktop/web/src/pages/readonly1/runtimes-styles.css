@@ -18,3 +18,12 @@
   margin: 0;
   width: 100%;
 }
+
+/* Quizs 一块：两张表的容器覆盖与区块里的提示文字。照 .rt-table 的容器覆盖，但不设 min-width 900px、
+   不把最后一列右对齐（下一步列是长文字）；圆角不声明——合同第 8 步要求 border-radius 只用令牌，
+   而这里要的是直角，令牌里没有 0 圆角，容器保留 .tt-table-wrap 自己的圆角。 */
+.rt-quizs-table.tt-table-wrap { border: 0; border-top: 1px solid var(--tt-border); }
+.rt-quizs-err { padding: var(--tt-space-3) var(--tt-space-4); }
+.rt-quizs-errtext { margin: 0; font: var(--tt-text-sm); color: var(--tt-text-2); }
+.rt-quizs-msg { margin: var(--tt-space-2) 0 0; font: var(--tt-mono-sm); color: var(--tt-text-1); white-space: pre-wrap; word-break: break-all; }
+.rt-quizs-empty { margin: 0; padding: var(--tt-space-5); text-align: center; font: var(--tt-text-sm); color: var(--tt-text-3); }

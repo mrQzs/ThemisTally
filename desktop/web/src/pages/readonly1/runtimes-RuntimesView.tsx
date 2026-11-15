@@ -1,11 +1,12 @@
-// CLI 运行时视图（合同第 6 节）：已登记表（七列）与就绪检查区；版本一律「—」；操作全部禁用。
+// CLI 运行时视图（合同第 6 节）：已登记表（七列）、就绪检查区与 Quizs 一块；版本一律「—」；操作全部禁用。
 // 只收数据，不调 api。
 import type { ReactNode } from 'react';
-import type { RuntimesData } from '../../api';
+import type { Envelope, QuizsLiveData, QuizsProvidersData, RuntimesData } from '../../api';
 import { Button, Table, Tag, type TableColumn } from '../../components';
 import { CircleXIcon, PlayIcon } from '../../icons';
 import { DisabledAction } from '../../shell/DisabledAction';
 import { Section } from './common-Section';
+import { QuizsBlock } from './runtimes-QuizsBlock';
 import { useWriteFlow } from '../../writes/useWriteFlow';
 import { WriteFlow } from '../../writes/WriteConfirmDialog';
 import {
@@ -44,10 +45,11 @@ const COLUMNS: readonly TableColumn<RuntimeRowData>[] = [
 
 export interface RuntimesViewProps {
   runtimes: RuntimesData['runtimes'];
+  quizs: { providers: Envelope<QuizsProvidersData>; live: Envelope<QuizsLiveData> };
   reload?: () => Promise<void>;
 }
 
-export function RuntimesView({ runtimes, reload }: RuntimesViewProps) {
+export function RuntimesView({ runtimes, quizs, reload }: RuntimesViewProps) {
   const { start, flow } = useWriteFlow(reload);
   const rows: RuntimeRowData[] = runtimes.map((rt) => {
     const full = commandFull(rt.command);
@@ -104,6 +106,7 @@ export function RuntimesView({ runtimes, reload }: RuntimesViewProps) {
           </p>
         </div>
       </Section>
+      <QuizsBlock quizs={quizs} />
       <WriteFlow flow={flow} />
     </div>
   );

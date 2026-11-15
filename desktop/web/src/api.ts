@@ -44,6 +44,7 @@ import { isEnvelope } from './live/transport';
 import { HISTORY_ENTRIES, type HistoryEntryData } from './mock/readonly2-history-entries';
 import { PLUGIN_SHOWS, type PluginShowData } from './mock/readonly2-plugin-show';
 import { HUB_ROLES_POSTS } from './mock/hub-roles';
+import { quizsLiveEnvelope, quizsProvidersEnvelope } from './mock/quizs';
 
 // 信封（UI 文档 8.9 :1093–1095）：ok、exit_code、data、output、messages、command、elapsed_ms。
 // exit_code 放宽成 number | null：超时（504）等信封的退出码是 null（照 ts/packages/ui 的 timeoutEnvelope）。
@@ -153,6 +154,38 @@ export interface HubPostRow {
 }
 export interface HubRolesData {
   posts: HubPostRow[];
+}
+
+// Quizs 提供方档案一行（GET /api/v1/quizs/providers 的 data.providers[]）：字段只用 T042 白名单登记的
+// （provider、model、thinking[*]、billing）；id、build_id 一类键服务不登记，前端拿不到也就不显示。
+// 枚举值越界时服务遮成 <redacted>，所以按普通字符串收，不用字面量联合把它挡在类型外。
+export interface QuizsProviderRow {
+  provider: string | null;
+  model: string | null;
+  thinking: string[];
+  billing: string;
+}
+export interface QuizsProvidersData {
+  providers: QuizsProviderRow[];
+}
+
+// Quizs live 一套的状态（data.live[].status）：null 表示这一套读不出状态（不解析 problem 的文字来判定）。
+// live_dir、plan.*、issued_at_ms、capabilities 服务未登记，这里一个都不写。
+export interface QuizsLiveStatus {
+  state: string;
+  problem: string | null;
+  missing: string[];
+  certificate: { expires_at_ms: number | null } | null;
+  profile: { valid_until: string | null } | null;
+}
+export interface QuizsLiveRow {
+  source: 'mailbox' | 'env';
+  provider: string | null;
+  problem: string | null;
+  status: QuizsLiveStatus | null;
+}
+export interface QuizsLiveData {
+  live: QuizsLiveRow[];
 }
 
 // meta 路由给的是 {version, repo_name}，页面读的是 kit_version（归一化见 toMetaData）。
@@ -469,6 +502,21 @@ export function getRuntimes(): Promise<Envelope<RuntimesData>> {
   return read(['config', 'runtime', 'list'], (mode) =>
     okEnvelope(['config', 'runtime', 'list'], mode === 'empty' ? clone(EMPTY_RUNTIMES) : clone(runtimesJson)),
   );
+}
+
+// Quizs 两个读函数：真实模式分别 GET /api/v1/quizs/providers（60 秒）与 /api/v1/quizs/live（150 秒），
+// 服务的信封原样透传、失败不回落桩；桩模式走 read()（?mock= 的 loading/error 先于情景），情景由 mock/quizs.ts
+// 按 ?quizs= 给出（broken 时 providers 是 ok:false、退出码 1 的错误信封）。
+export function getQuizsProviders(): Promise<Envelope<QuizsProvidersData>> {
+  const client = liveClient();
+  if (client) return client.get<QuizsProvidersData>('/api/v1/quizs/providers', undefined, 60);
+  return read(['config', 'quizs', 'providers', '--json'], () => quizsProvidersEnvelope());
+}
+
+export function getQuizsLive(): Promise<Envelope<QuizsLiveData>> {
+  const client = liveClient();
+  if (client) return client.get<QuizsLiveData>('/api/v1/quizs/live', undefined, 150);
+  return read(['config', 'quizs', 'live', '--json'], () => quizsLiveEnvelope());
 }
 
 export function getPlugins(): Promise<Envelope<PluginsData>> {

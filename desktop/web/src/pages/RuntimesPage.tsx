@@ -1,19 +1,53 @@
-// CLI 运行时页（合同第 2、6 条）：读 getRuntimes，空态「还没有登记的 runtime」；页头 [扫描 PATH] 仍禁用
-// （服务没有 config runtime scan 写路由），[手动登记…] 由 src/writes 的 AddRuntimeAction 接上。
+// CLI 运行时页（合同第 2、6 条）：并行读 getRuntimes 与两个 Quizs 读函数；只有 runtimes 失败才整页失败，
+// 两个 Quizs 信封整个放进 data.quizs（Quizs 读失败只在区块里显示，页面其余照常）。空态「还没有登记的
+// runtime」；页头 [扫描 PATH] 仍禁用（服务没有 config runtime scan 写路由），[手动登记…] 由 src/writes 的
+// AddRuntimeAction 接上。
 import { PageFrame } from '../shell/PageFrame';
 import { DisabledAction } from '../shell/DisabledAction';
 import { SearchIcon } from '../icons';
-import { getRuntimes, type Envelope, type RuntimesData } from '../api';
+import {
+  getQuizsLive,
+  getQuizsProviders,
+  getRuntimes,
+  type Envelope,
+  type QuizsLiveData,
+  type QuizsProvidersData,
+  type RuntimesData,
+} from '../api';
 import { RuntimesView } from './readonly1/runtimes-RuntimesView';
 import { AddRuntimeAction } from '../writes/RuntimeForm';
 
-const loadRuntimes = (): Promise<Envelope<RuntimesData>> => getRuntimes();
+// 并行读三条：runtimes 失败（!ok 或 data 为空）时整页返回那个信封；成功时两个 Quizs 信封整个放进 data.quizs，
+// 不参与整页失败判定。
+const loadRuntimes = (): Promise<
+  Envelope<{ runtimes: RuntimesData; quizs: { providers: Envelope<QuizsProvidersData>; live: Envelope<QuizsLiveData> } }>
+> =>
+  Promise.all([getRuntimes(), getQuizsProviders(), getQuizsLive()]).then(([runtimes, providers, live]) => {
+    if (!runtimes.ok || runtimes.data == null) {
+      // 整页失败：命令、退出码与 messages 原样带回（失败信封的 data 与成功态形状不同，按七个字段重建）。
+      const { ok, exit_code, output, messages, command, elapsed_ms } = runtimes;
+      return { ok, exit_code, output, messages, command, elapsed_ms, data: null };
+    }
+    return {
+      ok: true,
+      exit_code: 0,
+      data: { runtimes: runtimes.data, quizs: { providers, live } },
+      output: [],
+      messages: [],
+      command: runtimes.command,
+      elapsed_ms: 0,
+    };
+  });
 
-const isRuntimesEmpty = (d: RuntimesData) => d.runtimes.length === 0;
+// 空态仍只看 runtimes 的长度（Quizs 读失败不影响空态判定）；参数只要够读到 runtimes 就行。
+const isRuntimesEmpty = (d: { runtimes: RuntimesData }) => d.runtimes.runtimes.length === 0;
 
 export default function RuntimesPage() {
   return (
-    <PageFrame<RuntimesData>
+    <PageFrame<{
+      runtimes: RuntimesData;
+      quizs: { providers: Envelope<QuizsProvidersData>; live: Envelope<QuizsLiveData> };
+    }>
       title="CLI 运行时"
       description="每个 runtime 是一个 CLI 的一份安装；命令来源依次是环境变量（只对 pi）、本机文件、PATH"
       load={loadRuntimes}
@@ -26,7 +60,7 @@ export default function RuntimesPage() {
         </>
       )}
     >
-      {(data, reload) => <RuntimesView runtimes={data.runtimes} reload={reload} />}
+      {(data, reload) => <RuntimesView runtimes={data.runtimes.runtimes} quizs={data.quizs} reload={reload} />}
     </PageFrame>
   );
 }

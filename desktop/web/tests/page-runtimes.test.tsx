@@ -33,6 +33,40 @@ const RUNTIMES = [
   { id: 'custom', adapter: 'custom', source: 'zzz', command: ['custom-cli', '--x'], notes: ['n'] },
 ] as any;
 
+// Quizs 两个信封（ok 情景的取值照 src/mock/quizs.ts）：视图的 quizs 属性是必填的，四处渲染都带上。
+const QUIZS = {
+  providers: {
+    ok: true, exit_code: 0, output: [], messages: [], command: ['config', 'quizs', 'providers', '--json'], elapsed_ms: 0,
+    data: {
+      providers: [
+        { provider: 'stepfun', model: 'step-5-preview', thinking: ['low', 'medium', 'high'], billing: 'step_plan_credits' },
+        { provider: 'deepseek', model: 'deepseek-chat', thinking: ['low', 'high'], billing: 'deepseek_prepaid_balance' },
+      ],
+    },
+  },
+  live: {
+    ok: true, exit_code: 0, output: [], messages: [], command: ['config', 'quizs', 'live', '--json'], elapsed_ms: 0,
+    data: {
+      live: [
+        {
+          source: 'mailbox', provider: 'deepseek', problem: null,
+          status: {
+            state: 'ready', problem: null, missing: [],
+            certificate: { expires_at_ms: 1790000000000 }, profile: { valid_until: '2026-11-20T08:00:00.000Z' },
+          },
+        },
+        {
+          source: 'env', provider: 'deepseek', problem: null,
+          status: {
+            state: 'ready', problem: null, missing: [],
+            certificate: { expires_at_ms: 1790000000000 }, profile: { valid_until: '2026-11-20T08:00:00.000Z' },
+          },
+        },
+      ],
+    },
+  },
+} as any;
+
 function shortCommand(full: string): string {
   const cps = Array.from(full);
   return cps.length > 40 ? cps.slice(0, 22).join('') + ' … ' + cps.slice(-15).join('') : full;
@@ -40,7 +74,7 @@ function shortCommand(full: string): string {
 
 describe('CLI 运行时表', () => {
   it('七列、行序、能担任、来源标签与 notes title', () => {
-    const { container } = render(<RuntimesView runtimes={RUNTIMES} />);
+    const { container } = render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     const table = sectionNamed(container, '已登记').querySelector('table[aria-label="已登记的 runtime"]') as any;
     expect(qa(table, 'thead th').map(text)).toEqual(['ID', '适配器', '能担任', '命令来源', '命令', '版本', '操作']);
     const rows = tableRows(table);
@@ -54,7 +88,7 @@ describe('CLI 运行时表', () => {
   });
 
   it('命令截断与 title，版本一律 —', () => {
-    const { container } = render(<RuntimesView runtimes={RUNTIMES} />);
+    const { container } = render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     const rows = tableRows(sectionNamed(container, '已登记').querySelector('table'));
     const full = 'C:/tools/node/node.exe C:/tools/pi/dist/cli.js --flag-with-a-rather-long-name --another';
     expect(text(rows[0]['命令'])).toBe(shortCommand(full));
@@ -65,7 +99,7 @@ describe('CLI 运行时表', () => {
   });
 
   it('操作规则：[删除…] 可点，其余禁用', () => {
-    const { container } = render(<RuntimesView runtimes={RUNTIMES} />);
+    const { container } = render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     const rows = tableRows(sectionNamed(container, '已登记').querySelector('table'));
     const want = [['探测', '模型', '删除…'], ['探测', '删除…'], ['探测', '删除…'], ['删除…'], ['探测', '删除…']];
     rows.forEach((r, i) => {
@@ -80,7 +114,7 @@ describe('CLI 运行时表', () => {
 
 describe('就绪检查区', () => {
   it('[运行就绪检查] 禁用 secondary 带 PlayIcon，虚线空框，无按版本核验下拉', () => {
-    const { container } = render(<RuntimesView runtimes={RUNTIMES} />);
+    const { container } = render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     const sec = sectionNamed(container, '就绪检查');
     const b = btn(sec, '运行就绪检查');
     expect(b?.disabled).toBe(true);

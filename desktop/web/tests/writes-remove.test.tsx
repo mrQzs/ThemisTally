@@ -83,6 +83,40 @@ const RUNTIMES = [
   { id: 'opencode', adapter: 'opencode', source: 'missing', command: null, notes: [] },
 ] as any;
 
+// Quizs 两个信封（ok 情景的取值照 src/mock/quizs.ts）：视图的 quizs 属性是必填的，直接渲染时带上。
+const QUIZS = {
+  providers: {
+    ok: true, exit_code: 0, output: [], messages: [], command: ['config', 'quizs', 'providers', '--json'], elapsed_ms: 0,
+    data: {
+      providers: [
+        { provider: 'stepfun', model: 'step-5-preview', thinking: ['low', 'medium', 'high'], billing: 'step_plan_credits' },
+        { provider: 'deepseek', model: 'deepseek-chat', thinking: ['low', 'high'], billing: 'deepseek_prepaid_balance' },
+      ],
+    },
+  },
+  live: {
+    ok: true, exit_code: 0, output: [], messages: [], command: ['config', 'quizs', 'live', '--json'], elapsed_ms: 0,
+    data: {
+      live: [
+        {
+          source: 'mailbox', provider: 'deepseek', problem: null,
+          status: {
+            state: 'ready', problem: null, missing: [],
+            certificate: { expires_at_ms: 1790000000000 }, profile: { valid_until: '2026-11-20T08:00:00.000Z' },
+          },
+        },
+        {
+          source: 'env', provider: 'deepseek', problem: null,
+          status: {
+            state: 'ready', problem: null, missing: [],
+            certificate: { expires_at_ms: 1790000000000 }, profile: { valid_until: '2026-11-20T08:00:00.000Z' },
+          },
+        },
+      ],
+    },
+  },
+} as any;
+
 function profilesEnv(data: unknown = PROFILES): Envelope<ProfilesData> {
   return { ok: true, exit_code: 0, data: { profiles: data } as ProfilesData, output: [], messages: [], command: ['config', 'profile', 'show'], elapsed_ms: 0 };
 }
@@ -218,7 +252,7 @@ describe('方案与运行时删除流程', () => {
 
   it('运行时删除：标题/摘要/危险样式/轻提示', async () => {
     window.location.hash = '#/runtimes?write=ok';
-    render(<RuntimesView runtimes={RUNTIMES} />);
+    render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     await settle();
     fireEvent.click(btn(rowByFirstCell('opencode'), '删除…') as HTMLButtonElement);
     await settle();
