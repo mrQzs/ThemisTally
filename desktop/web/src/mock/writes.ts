@@ -25,12 +25,13 @@ export type WriteScenario =
   | 'reread-fail-exit1'
   | 'in-use'
   | 'preview-warn'
-  | 'preview-invalid';
+  | 'preview-invalid'
+  | 'preview-registered';
 
 const SCENARIOS: readonly WriteScenario[] = [
   'ok', 'warn', 'exit1', 'exit2', 'exit3', 'stale', 'expired', 'busy', 'closing', 'spawn', 'toolarge', 'timeout',
   'drop-done', 'drop-lost', 'drop-hang', 'preview-fail', 'preview-busy', 'reread-fail', 'reread-fail-exit1', 'in-use',
-  'preview-warn', 'preview-invalid',
+  'preview-warn', 'preview-invalid', 'preview-registered',
 ];
 
 export function writeScenario(): WriteScenario {
@@ -61,6 +62,13 @@ function baseArgv(action: WriteAction, args: WriteArgs): string[] {
   if (action === 'preset.remove') return ['config', 'preset', 'remove', s.name];
   if (action === 'profile.remove') return ['config', 'profile', 'remove', s.profile];
   if (action === 'runtime.remove') return ['config', 'runtime', 'remove', s.runtime];
+  if (action === 'runtime.add') {
+    // 逐字照服务侧 buildWriteArgv：位置 id、--adapter=<a>，有 command 再加 --command=JSON.stringify(command)。
+    const out = ['config', 'runtime', 'add', s.runtime, '--adapter=' + s.adapter];
+    const command = asStringArray(args.command);
+    if (command.length > 0) out.push('--command=' + JSON.stringify(command));
+    return out;
+  }
   if (action === 'config.rollback') return ['config', 'rollback', s.number];
   if (action === 'hub.set') {
     const out = ['config', 'hub', 'set', s.post, s.profile];
@@ -103,7 +111,7 @@ const opArgs = new Map<string, { action: string; args: WriteArgs }>();
 const opPolls = new Map<string, number>();
 
 // B 片四个删除/回滚加本片两个 profile 写动作与七端岗位两个：opArgs 记下它们的 (action, args)，供写函数核对确认号与参数（第二节）。
-const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset']);
+const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset', 'runtime.add']);
 
 function newOpId(action: string, args: WriteArgs): string {
   opSeq += 1;
@@ -146,6 +154,19 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
     return {
       binding_changes: [],
       resources: ['profiles'],
+      notes: [],
+      warnings: [],
+      running_attempts: [],
+      needs_yes: false,
+      command,
+      confirmation,
+    };
+  }
+  if (action === 'runtime.add') {
+    // 登记运行时：binding_changes 恒空（改动靠变化区摘要说明）；resources 有命令时带 local（本机文件）。
+    return {
+      binding_changes: [],
+      resources: asStringArray(args.command).length > 0 ? ['config', 'local'] : ['config'],
       notes: [],
       warnings: [],
       running_attempts: [],
@@ -202,6 +223,13 @@ export function mockPreview(action: WriteAction, args: WriteArgs): Promise<HttpR
       body: env<PreviewData>({ ok: false, exit_code: null, data: null, messages: ['ERROR: model 不合法'], command }),
     });
   }
+  if (scenario === 'preview-registered') {
+    // 内核退出 1 的预览：200、ok 假、退出码 1、无 data、一行内核原文，不签发确认号（界面据此禁用 [确认…]）。
+    return Promise.resolve({
+      status: 200,
+      body: env<PreviewData>({ ok: false, exit_code: 1, data: null, messages: [registeredMessage(args)], command }),
+    });
+  }
   const id = newOpId(action, args);
   const data = previewData(action, args, id);
   if (scenario === 'preview-warn') {
@@ -228,6 +256,15 @@ function inUseMessage(action: WriteAction, args: WriteArgs): string {
     return `ERROR: runtime ${s.runtime} 被 profile step-high、step-low 引用：先改或删这些 profile`;
   }
   return 'ERROR 内核拒绝：profile step-low 不存在';
+}
+
+// preview-registered 的内核原文（合同第五节）：同一个 id 已登记为别的适配器，内核退出 1 并要用户加 --force
+// （界面不提供 force，也不替用户改适配器）。已登记的适配器取五值里与请求不同的第一个。
+function registeredMessage(args: WriteArgs): string {
+  const s = args as Record<string, string>;
+  const adapters = ['pi', 'claude-code', 'codex', 'opencode', 'quizs'];
+  const registered = adapters.find((a) => a !== s.adapter) ?? 'pi';
+  return `ERROR: runtime ${s.runtime} 已登记为 ${registered}；改 adapter 要加 --force`;
 }
 
 // 执行响应：第二节「执行」列。drop-* 由写函数直接抛错，不在这里。
@@ -348,6 +385,16 @@ export function mockRemoveProfile(profile: string, confirmation: string): Promis
 
 export function mockRemoveRuntime(runtime: string, confirmation: string): Promise<HttpReply<null>> {
   return confirmWrite('runtime.remove', { runtime }, confirmation);
+}
+
+// 本片一个写函数：把带类型的参数整理成 WriteArgs（command 为空数组时不传这个键），再走同一套确认号与参数核对。
+export function mockAddRuntime(
+  args: { runtime: string; adapter: string; command?: string[] },
+  confirmation: string,
+): Promise<HttpReply<null>> {
+  const w: WriteArgs = { runtime: args.runtime, adapter: args.adapter };
+  if (args.command && args.command.length > 0) w.command = args.command;
+  return confirmWrite('runtime.add', w, confirmation);
 }
 
 export function mockRollback(number: number, confirmation: string): Promise<HttpReply<null>> {

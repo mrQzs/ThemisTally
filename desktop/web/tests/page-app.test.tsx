@@ -90,12 +90,12 @@ describe('夹具值与点击导航', () => {
 
 describe('写入口个数（过渡）', () => {
   const disabled = () => qa(frame(), 'button').filter((b: any) => b.disabled);
-  it('角色页 6（保存当前为方案…、4 张角色卡的 [更改…]、方案条的 [切换…]）、运行时页 6、总览 0', async () => {
+  it('角色页 6（保存当前为方案…、4 张角色卡的 [更改…]、方案条的 [切换…]）、运行时页 5、总览 0', async () => {
     await mount('#/roles');
     expect(disabled().length, '角色页').toBe(6);
     cleanup();
     await mount('#/runtimes');
-    expect(disabled().length, '运行时页').toBe(6);
+    expect(disabled().length, '运行时页').toBe(5);
     cleanup();
     await mount('#/overview');
     expect(disabled().length, '总览页').toBe(0);

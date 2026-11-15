@@ -11,7 +11,7 @@ export const STORE_MODE_ENUM = allowEnum("system", "file", "off");
 /** 系统后端的名字（codekit/secrets.py）：windows-credential-manager 与 file；没有系统后端时是 null。 */
 export const SYSTEM_BACKEND_ENUM = allowEnum("windows-credential-manager", "file", null);
 /** 岗位绑定用的适配器名（scripts/kit_roles.py 的 HUB_POST_ADAPTERS 与 ADAPTERS；TS 一份在 ts/packages/config/src/roles-check.ts）：
- * 五个载体 quizs 只承载七端岗位（不进 runtime.add 的四值 ADAPTERS）；runtime 没登记时内核给 null，枚举带上 null 才放行。 */
+ * 五个载体 quizs 只承载七端岗位，runtime.add 的 ADAPTERS 也是这五个（ts/packages/ui/src/writeroutes.ts）；runtime 没登记时内核给 null，枚举带上 null 才放行。 */
 const HUB_ADAPTER_ENUM = allowEnum("pi", "claude-code", "codex", "opencode", "quizs", null);
 /** 岗位绑定用的思考档位（scripts/pi_dispatch.py 的 FALLBACK_THINKING_LEVELS）：七个取值；可空，枚举带上 null。 */
 const HUB_THINKING_ENUM = allowEnum("off", "minimal", "low", "medium", "high", "xhigh", "max", null);

@@ -420,6 +420,18 @@ describe('api.ts 真实分支：写操作接真实路由（T037）', () => {
       body: { confirmation: 'c1', profile: 'step-high' },
     },
     { name: 'unsetHubRole', run: () => api.unsetHubRole('build', 'c1'), path: '/api/v1/hub/roles/build/unset', body: { confirmation: 'c1' } },
+    {
+      name: 'addRuntime（命令留空不带 command）',
+      run: () => api.addRuntime({ runtime: 'demo-run', adapter: 'quizs' }, 'c1'),
+      path: '/api/v1/runtimes/demo-run/add',
+      body: { adapter: 'quizs', confirmation: 'c1' },
+    },
+    {
+      name: 'addRuntime（命令按数组原样）',
+      run: () => api.addRuntime({ runtime: 'r1', adapter: 'pi', command: ['C:/tools/pi.exe', '--flag'] }, 'c1'),
+      path: '/api/v1/runtimes/r1/add',
+      body: { adapter: 'pi', command: ['C:/tools/pi.exe', '--flag'], confirmation: 'c1' },
+    },
   ];
 
   for (const row of WRITE_ROWS) {

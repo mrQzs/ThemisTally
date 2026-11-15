@@ -50,8 +50,8 @@ const STATE_RE = /^v1(?:;(?:config|local)=(?:[0-9a-f]{64}|absent))+$/u;
 const MODEL_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$/u;
 /** thinking 的七个取值（scripts/pi_dispatch.py:95 的 FALLBACK_THINKING_LEVELS）。 */
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-/** adapter 的四个取值（scripts/kit_roles.py:45 的 ADAPTERS）。 */
-const ADAPTERS = ["pi", "claude-code", "codex", "opencode"] as const;
+/** adapter 的五个取值（scripts/kit_roles.py:45 的 ADAPTERS：五值，quizs 只承载七端岗位，runtime.add 也认）。 */
+const ADAPTERS = ["pi", "claude-code", "codex", "opencode", "quizs"] as const;
 
 /** role 的取值（kit_roles.py 的 ROLES）。 */
 const ROLES = ["planning_review", "contract", "execution", "scheduler_agent"] as const;

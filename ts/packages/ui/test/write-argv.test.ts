@@ -238,6 +238,7 @@ describe("W4：validateWriteArgs 的每一类不合格（先合法基线，再�
     ok("profile.add", { profile: "p", runtime: "r", model: "a/b", credential_env: ["DEMO_API_KEY", "OTHER_KEY"] });
     bad("runtime.add", { runtime: "demo-runtime", adapter: "vim" }, "adapter 不合法");
     ok("runtime.add", { runtime: "demo-runtime", adapter: "opencode" });
+    ok("runtime.add", { runtime: "demo-runtime", adapter: "quizs" });
     bad("runtime.add", { runtime: "r", adapter: "pi", command: [] }, "command 不合法");
     bad("runtime.add", { runtime: "r", adapter: "pi", command: ["a\u0001b"] }, "command 不合法");
     bad("runtime.add", { runtime: "r", adapter: "pi", command: ["x".repeat(1025)] }, "command 不合法");

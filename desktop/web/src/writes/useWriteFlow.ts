@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addProfile,
+  addRuntime,
   editProfile,
   getOperation,
   getPlugins,
@@ -56,6 +57,7 @@ export interface WriteSpec {
 // profile.add / profile.edit 的写参数（键名与服务侧 WRITE_ACTIONS 一一对应）；spec.args 是 WriteArgs，这里按下标取出。
 type AddProfileArgs = { profile: string; runtime: string; model: string; thinking?: string; credential_env?: string[] };
 type EditProfileArgs = { profile: string; runtime?: string; model?: string; thinking?: string; credential_env?: string[] };
+type AddRuntimeArgs = { runtime: string; adapter: string; command?: string[] };
 
 // 轮询上限：写路由时限 90 秒再加宽限（D12：119 秒不下结论，120 秒进「结果未知」）。
 const POLL_LIMIT_MS = 120000;
@@ -82,6 +84,7 @@ function titleOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'config.rollback') return `回滚到 #${args.number} 之后？`;
   if (action === 'profile.add') return `新建 profile ${args.profile}？`;
   if (action === 'profile.edit') return `修改 profile ${args.profile}？`;
+  if (action === 'runtime.add') return `登记运行时 ${args.runtime}？`;
   return `确认操作 ${action}？`;
 }
 
@@ -95,6 +98,7 @@ function successTextOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'runtime.remove') return `已删除运行时 ${args.runtime}`;
   if (action === 'profile.add') return `已新建 profile ${args.profile}`;
   if (action === 'profile.edit') return `已修改 profile ${args.profile}`;
+  if (action === 'runtime.add') return `已登记运行时 ${args.runtime}`;
   return `已回滚到 #${args.number} 之后`;
 }
 
@@ -104,6 +108,11 @@ function changeSummaryOf(action: WriteAction, args: WriteArgs): string | null {
   if (action === 'profile.remove') return `profile 表里去掉 ${args.profile}`;
   if (action === 'runtime.remove') return `已登记表里去掉 ${args.runtime}；本机文件里登记的命令一并删去`;
   if (action === 'profile.add') return `profile 表里加上 ${args.profile}`;
+  if (action === 'runtime.add') {
+    // 命令写进本机文件（.agent/dispatch.local.json），带上时才说这一句。
+    const withCommand = Array.isArray(args.command) && args.command.length > 0;
+    return `已登记表里加上 ${args.runtime}（适配器 ${args.adapter}）${withCommand ? '；命令写进本机文件' : ''}`;
+  }
   if (action === 'profile.edit') {
     // 只列改动过的字段（args 里只放改动过的键），按 runtime、model、thinking、credential_env 的次序用「、」连接。
     const order = ['runtime', 'model', 'thinking', 'credential_env'];
@@ -145,6 +154,12 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
       return { ok: true, snapshot: profileRemoveSnapshot(profiles.data) };
     }
     if (action === 'runtime.remove') {
+      const runtimes = await getRuntimes();
+      if (!runtimes.ok || !runtimes.data) return { ok: false };
+      return { ok: true, snapshot: runtimeRemoveSnapshot(runtimes.data) };
+    }
+    if (action === 'runtime.add') {
+      // 与 runtime.remove 同一份投影：新 id 出现即判「已部分写入」。
       const runtimes = await getRuntimes();
       if (!runtimes.ok || !runtimes.data) return { ok: false };
       return { ok: true, snapshot: runtimeRemoveSnapshot(runtimes.data) };
@@ -477,7 +492,9 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
                   ? addProfile(spec.args as unknown as AddProfileArgs, confirmRef.current)
                   : spec.action === 'profile.edit'
                     ? editProfile(spec.args as unknown as EditProfileArgs, confirmRef.current)
-                    : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
+                    : spec.action === 'runtime.add'
+                      ? addRuntime(spec.args as unknown as AddRuntimeArgs, confirmRef.current)
+                      : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
     call.then(
       (reply) => {
         if (isCurrent(my)) proceed(classifyWrite(reply.status, reply.body), reply.body, my);
