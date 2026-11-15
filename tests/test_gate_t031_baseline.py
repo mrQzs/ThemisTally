@@ -427,7 +427,8 @@ def test_static_redaction_allowlist():
                              ("null", "值为 null 直接放行")):
             if token not in fn:
                 problems.append(f"allowBindingName 里看不到「{token}」（{label}）")
-    # HUB_ROLES_ALLOW：恰好 15 条路径
+    # HUB_ROLES_ALLOW：原 15 条一条不许少；多出来的只许在 posts.*.turn、posts.*.last_turn 之下（T047 门禁准备：
+    # config hub show 第 168 轮加的两项，T047 逐字段登记）
     block = _block(code, "export const HUB_ROLES_ALLOW", "\n];")
     if not block:
         problems.append("redaction.ts 应导出 HUB_ROLES_ALLOW（/api/v1/hub/roles 的白名单）")
@@ -437,9 +438,10 @@ def test_static_redaction_allowlist():
         for path in HUB_ALLOW_PATHS:
             if path not in seen:
                 problems.append(f"HUB_ROLES_ALLOW 里应有路径 {list(path)}")
-        extra = seen - set(HUB_ALLOW_PATHS)
+        nested = ("posts", "*", "turn"), ("posts", "*", "last_turn")
+        extra = {path for path in seen - set(HUB_ALLOW_PATHS) if not (len(path) > 3 and path[:3] in nested)}
         if extra:
-            problems.append(f"HUB_ROLES_ALLOW 不应登记别的路径（posts.*.fallback 本身也不登记）：{sorted(extra)}")
+            problems.append(f"HUB_ROLES_ALLOW 不应登记别的路径（posts.*.fallback 本身也不登记；turn、last_turn 之下的除外）：{sorted(extra)}")
         # 白名单里用到的名字与符号都在文件里
         for name in HUB_POSTS:
             if f'"{name}"' not in code:

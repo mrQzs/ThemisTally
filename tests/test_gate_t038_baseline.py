@@ -624,12 +624,16 @@ import { hubPostName, allowedProfiles, normalizeHubPost } from '../src/pages/rea
 """ + SIX_ROWS_TS + r"""
 
 describe('L1 桩的六行', () => {
-  it('六行按 coordinator、planner、contract、gate、audit、exec 排，逐字段等于合同第 3 步', () => {
+  it('六行按 coordinator、planner、contract、gate、audit、exec 排，十个绑定字段逐字段等于合同第 3 步', () => {
     expect(HUB_ROLES_POSTS.posts.length).toBe(6);
     expect(HUB_ROLES_POSTS.posts.map((p: any) => p.post)).toEqual(
       ['coordinator', 'planner', 'contract', 'gate', 'audit', 'exec']);
+    // T047 门禁准备：桩的每行加了 turn、last_turn（config hub show 第 168 轮），这里只比十个绑定字段
+    const BINDING = ['post', 'source', 'allowed_adapters', 'adapter', 'provider', 'model', 'thinking', 'profile', 'runtime', 'fallback'];
     ROWS.forEach((want, i) => {
-      expect(HUB_ROLES_POSTS.posts[i], '第 ' + (i + 1) + ' 行（' + want.post + '）').toStrictEqual(want);
+      const got: any = HUB_ROLES_POSTS.posts[i];
+      const picked = Object.fromEntries(BINDING.filter((key) => key in got).map((key) => [key, got[key]]));
+      expect(picked, '第 ' + (i + 1) + ' 行（' + want.post + '）').toStrictEqual(want);
     });
   });
   it('覆盖面：来源是配置与缺省、带与不带替补、主绑定 quizs 与 pi、provider 为 null、替补四键与六键两种形状', () => {
@@ -915,10 +919,12 @@ describe('P2 六行字段', () => {
       expect(row['替补'] ? textOf(row['替补']) : null, post + ' 的替补').toBe(fallbacks[i]);
     });
   });
-  it('思考档位列一律经 EffortPair（effective 传 null）：data-state unknown、文字「要求 X · 生效 未知」', async () => {
+  it('没有最近一回合的 audit、exec 两行，思考档位经 EffortPair（effective 传 null）：data-state unknown、文字「要求 X · 生效 未知」', async () => {
     await mountRoles();
     const think = ['high', 'max', 'high', 'high', 'max', 'high'];
+    // T047 门禁准备：桩里有最近一回合的四行改显示档位三值，只核没有最近一回合的 audit、exec
     hubRows().forEach((row, i) => {
+      if (!['audit', 'exec'].includes(POSTS[i])) return;
       const effort = row['思考档位'].querySelector('.tt-effort');
       expect(effort, POSTS[i] + ' 的思考档位经 EffortPair').not.toBeNull();
       expect(effort.getAttribute('data-state'), POSTS[i] + ' 的 data-state').toBe('unknown');
