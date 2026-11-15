@@ -2965,7 +2965,8 @@ describe('D11 写入口全部禁用', () => {
     set('getPresets', presetsMain());
     await mountApp('#/roles');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑'])).toEqual([]);
+    // 站主按 T044 规划报告 §5 为 T045（七端岗位的改绑定、恢复缺省）放宽（2026-11-15）
+    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑', '改绑定…', '恢复缺省…'])).toEqual([]);
     expect(disabledButtons().length).toBeGreaterThan(0);
     const later = ['更改…', '保存当前为方案…'];
     const tips = tooltipTexts().filter((t) => later.indexOf(t.split('=')[0]) >= 0);

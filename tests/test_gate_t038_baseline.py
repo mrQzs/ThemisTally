@@ -27,8 +27,7 @@
   - page：挂载整个 App（vi.mock 替换 api.ts 的读函数，注入任意信封）——区块与表结构、六行字段格式、
     hub 读失败只影响本组、四个读并行与前三个读的失败顺序、``?mock=empty`` 仍是六行、真实模式的
     getHubRoles（路径/时限/错误信封原样透传、成功不换桩）。
-  - trans（过渡）：列头恰好六列没有「操作」、整组没有按钮——B 片（改绑定、恢复缺省）会推翻，站主按
-    ``test_transitional_`` 名字找到并退役（B 片开工合同之前）。
+  - trans（过渡）：列头恰好六列没有「操作」、整组没有按钮——站主 2026-11-15 为 T045（“七端岗位”一组加“改绑定…”“恢复缺省…”）退役。
 
 门禁做不到、留给人的项：视觉对照（暗/亮主题、窄窗口）、悬停手感、读屏、真浏览器里的点击与导航。
 
@@ -426,8 +425,9 @@ def rolesview_problems(text):
     problems = []
     if "hub:Envelope<HubRolesData>" not in code:
         problems.append("RolesViewData 应加 hub: Envelope<HubRolesData>")
-    if "<HubPostshub={data.hub}/>" not in code:
-        problems.append("应渲染 <HubPosts hub={data.hub} />")
+    # 站主门禁准备（2026-11-15）：T045 给 HubPosts 加 profiles、reload 两个 prop，只认开头（原来逐字钉 <HubPosts hub={data.hub} />）
+    if "<HubPostshub={data.hub}" not in code:
+        problems.append("应渲染 <HubPosts hub={data.hub} …>")
     raw = strip_ts_comments(text)
     # 网格锚点取前缀：基线写法是 className="rl-grid tt-grid-2"，带收尾引号会恒判找不到（T038-4 审核 B1）
     grid_cls = 'className="rl-grid'
@@ -1074,42 +1074,13 @@ describe('P6 真实模式的读函数', () => {
 });
 """
 
-# 过渡断言（B 片推翻）：B 片给七端岗位的行加「改绑定…」「恢复缺省」，会出现操作列与按钮。
-# 站主按 test_transitional_ 名字退役本用例与 trans 探针（B 片开工合同之前）。
-PROBE_TRANS = PAGE_PRELUDE + PAGE_API_MOCK + r"""
-
-describe('TRANS 没有写入口（B 片推翻）', () => {
-  it('列头恰好六列，没有「操作」', async () => {
-    await mountRoles();
-    const heads = qa(hubTable(), 'thead th').map(textOf);
-    expect(heads).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补']);
-  });
-  it('整组没有任何按钮（读失败时也不出重试钮）', async () => {
-    await mountRoles();
-    expect(qa(hubSec(), 'button').length).toBe(0);
-    cleanup();
-    setRoles(rolesMain(), profilesMain(), presetsMain());
-    set('getHubRoles', bad(['config', 'hub', 'show', '--json'], 2, ['x']));
-    await mountApp('#/roles');
-    expect(qa(hubSec(), 'button').length).toBe(0);
-  });
-  it('格子里没有可点元素', async () => {
-    await mountRoles();
-    hubRows().forEach((row) => {
-      Object.keys(row).forEach((k) => {
-        expect(qa(row[k], 'button').length, k + ' 里不该有按钮').toBe(0);
-      });
-    });
-  });
-});
-"""
+# PROBE_TRANS（TRANS 没有写入口：列头恰好六列、整组没有按钮）：站主 2026-11-15 为 T045（“七端岗位”一组加“改绑定…”“恢复缺省…”）退役
 
 PROBE_SPECS = {
     "lib": (PROBE_LIB, (HUB_MOCK_REL, ROLES_LOGIC_REL)),
     "page": (PROBE_PAGE, (HUB_MOCK_REL, HUB_POSTS_REL, ROLES_PAGE_REL, ROLES_VIEW_REL, TABLE_REL)),
-    "trans": (PROBE_TRANS, (HUB_MOCK_REL, HUB_POSTS_REL, ROLES_PAGE_REL, ROLES_VIEW_REL)),
 }
-PROBE_ORDER = ("lib", "page", "trans")
+PROBE_ORDER = ("lib", "page")
 
 
 def probe_count(source):
@@ -1352,9 +1323,7 @@ def test_p3_probe_page(pipeline):
     assert_probe_ok(pipeline, "page")
 
 
-def test_transitional_probe_no_write_entries(pipeline):
-    """过渡断言（B 片「改绑定、恢复缺省」会推翻）：列头恰好六列没有操作列、整组没有按钮——B 片开工合同之前退役本用例与 trans 探针。"""
-    assert_probe_ok(pipeline, "trans")
+# test_transitional_probe_no_write_entries：站主 2026-11-15 为 T045（“七端岗位”一组加“改绑定…”“恢复缺省…”）退役
 
 
 # ---------------------------------------------------------------------------
@@ -1434,7 +1403,7 @@ def test_gate_selfcheck_css_tail():
 
 
 def test_gate_selfcheck_probe_sources():
-    """三份探针：括号配对、每个 describe 至少一条用例、describe 名单与 PROBE_ORDER 对得上、不含禁用词。"""
+    """探针（trans 已退役）：括号配对、每个 describe 至少一条用例、describe 名单与 PROBE_ORDER 对得上、不含禁用词。"""
     assert set(PROBE_ORDER) == set(PROBE_SPECS)
     for key in PROBE_ORDER:
         source = PROBE_SPECS[key][0]
