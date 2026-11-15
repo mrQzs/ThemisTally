@@ -4,7 +4,7 @@
 //     坏 JSON、目录、大写扩展名），调度器记着在跑的 attempt（自己合同的滤掉，正反斜杠都认）；注入的 _running_attempts 报 DispatchError、
 //     OSError 时当成空，别的照样崩；pid_alive 交回真、假、None；照样崩的几种；
 //   - finalize：verdict 被拒；基准测试挑不上时不再落返工链；integrate 没过时撤回并列出期间先落地的提交；过了之后提交记录，分支在任务
-//     期间前进与没前进；
+//     期间前进与没前进；前进时落地预演记下的树与落地的树相同、不同、预演没过（第 171 轮）；
 //   - undo_landing：四种结局，记录是怪类型；
 //   - commit_records：Windows 上不分大小写、后缀分大小写、前缀相同的别的合同族不算；没东西可提交；add 报错；照样崩的两种；
 //   - retire_attempts、remove_workspaces、tidy_finished：各种状态的 attempt、cleanup 失败、worktree remove 失败，照样崩的几种；
@@ -219,6 +219,35 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
     expect(tsAfter(states[1]).get("regression"), "分支前进了").toEqual(py({ pending: true, head_before: passed.meanwhile }));
     expect(String((returned(states[1]) as PyValue[])[1])).toContain("合同与复审记录已提交");
     expect([tsAfter(states[2]).has("regression"), String((returned(states[2]) as PyValue[])[1]).includes("合同与复审记录没有新改动")]).toEqual([false, true]);
+  }, 600_000);
+
+  it("第 171 轮：分支前进了、落地预演过了、记下的树就是落地的树（记录提交之前比）：记 skipped 与 regression.skipped，不再待跑；树对不上、预演没过照旧待跑", () => {
+    let tree = "";
+    // 注入的 integrate 不动仓库：落地的树就是“并行主任务 + 基准测试”，在旁边提交一份同样内容的取它的树
+    const make = (): Landing => landing("PASS", "meanwhile", true, (repo, head) => {
+      const same = commitOn(repo, head, { [GATE]: lines("def test_title():", "    assert False"), "src/other.py": lines("x = 1") }, "落地之后的样子");
+      tree = git(repo, "rev-parse", `${same}^{tree}`);
+    });
+    const [skip, other, red] = [make(), make(), make()];
+    const rehearsed = (item: Landing, extra: Record<string, unknown>): PyDict =>
+      ts(item, { rehearsal: { head: item.meanwhile, run_dir: runDirOf(item.sc), ok: true, at: AT, tree, ...extra } });
+    const states = agreeFlow([
+      flow("finalize", skip.sc, [rehearsed(skip, {})], { inner: [integrate(skip, 0, many("integrated", 8))] }),
+      flow("finalize", other.sc, [rehearsed(other, { tree: "f".repeat(40) })], { inner: [integrate(other, 0, many("integrated", 8))] }),
+      flow("finalize", red.sc, [rehearsed(red, { ok: false })], { inner: [integrate(red, 0, many("integrated", 8))] }),
+    ]);
+    injectedCleanly(states);
+    const skipped = (state: Record<string, unknown> | undefined): unknown[] => Buffer.from(String(state?.["ledger"]), "base64").toString("utf8")
+      .split(LF).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>).filter((event) => event["event"] === "regression.skipped")
+      .map((event) => [event["task"], event["head_before"], event["tree"]]);
+    expect(tsAfter(states[0]).get("regression")).toEqual(py({ skipped: true, head_before: skip.meanwhile, tree, rehearsed_at: AT }));
+    expect(skipped(states[0])).toEqual([["T001", skip.meanwhile, tree]]);
+    const detail = String((returned(states[0]) as PyValue[])[1]);
+    expect([detail.includes("合同与复审记录已提交"), detail.split(LF).at(-1)?.endsWith("不再跑合入后回归")]).toEqual([true, true]);
+    expect([tsAfter(states[1]).get("regression"), tsAfter(states[2]).get("regression")]).toEqual([
+      py({ pending: true, head_before: other.meanwhile }), py({ pending: true, head_before: red.meanwhile }),
+    ]);
+    expect([skipped(states[1]), skipped(states[2])]).toEqual([[], []]);
   }, 600_000);
 
   it("undo_landing 的四种结局：末端没动、已经不是祖先、reset --keep 被本地改动挡住、撤回并恢复记录；记录是列表时撤回之后照样崩", () => {

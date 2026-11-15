@@ -177,6 +177,7 @@ export async function regressionSweep(hub: Hub, ts: PyDict, deps: SweepDeps = RE
 /**
  * 落地预演（第 30 轮）：在临时 worktree 里照结项的做法拼出“当前末端 + 基准测试 + 返工链 + 候选”，跑全部门禁基准。分支在任务期间没动、
  * 或者这个候选在这个末端上预演过，就不预演（交回 None）；否则交回（通过与否, 摘要），结果记在 ts["rehearsal"]。
+ * 第 171 轮：门禁过了就连同跑的这棵树（tree）一起记下：结项落地的树与它相同，就不再跑合入后回归。
  */
 export async function rehearseLanding(hub: Hub, ts: PyDict, deps: SweepDeps = REAL_SWEEP_DEPS): Promise<[boolean, string] | null> {
   const given = pyGet(pyItem(ts, "exec"), "run_dir");
@@ -191,6 +192,7 @@ export async function rehearseLanding(hub: Hub, ts: PyDict, deps: SweepDeps = RE
   const commits = [pyGet(pyItem(ts, "oracle"), "sha"), ...landingChain(hub, ts, runDir).map((link) => pyItem(link, "commit"))].filter(pyTruthy);
   let problem: string | null = null;
   let summary = "";
+  let tree = "";
   await scratchWorktree(hub, "rehearse", tip, async (path) => {
     for (const sha of commits) {
       if (onBranch(hub, sha, path) || emptyCommit(hub, sha as string)) continue;
@@ -207,13 +209,17 @@ export async function rehearseLanding(hub: Hub, ts: PyDict, deps: SweepDeps = RE
       if (code !== 0) problem = `候选补丁（${purePathName(runDir)}）打不到末端 ${short(tip)} 上：${LF}${tail(pyDecodeUtf8Replace(out), 8n)}`;
     }
     if (problem === null) {
+      // 拼好就取（git apply --3way 把候选也写进了索引）：门禁在这个 worktree 里跑，跑完的索引不一定还是这棵树
+      tree = pyStrip(git(["write-tree"], path));
       const [code, out, tests] = await withHeavyLane(hub, "落地预演", pyItem(ts, "task"), async () => deps.sweepGates(path, deps.sweepSeconds), deps);
       summary = `末端 ${short(tip)} 加上 ${purePathName(runDir)} 的候选，全部门禁基准（${tests.length} 份）：${pyStrip(tail(out, 1n)) || "没有输出"}`;
       if (code !== 0) problem = `${summary}${LF}${tail(out, 15n)}`;
     }
   }, deps);
   const ok = problem === null;
-  ts.set("rehearsal", new Map<string, PyValue>([["head", tip], ["run_dir", runDir], ["ok", ok], ["at", utcNow()]]));
+  const record = new Map<string, PyValue>([["head", tip], ["run_dir", runDir], ["ok", ok], ["at", utcNow()]]);
+  if (ok) record.set("tree", tree);
+  ts.set("rehearsal", record);
   await hub.appendEvent("landing.rehearsed", [["task", pyItem(ts, "task")], ["head", tip], ["run_dir", runDir], ["ok", ok]]);
   return ok ? [true, summary] : [false, `${problem as string | null}${landedMeanwhile(hub, ts, tip)}`];
 }

@@ -1,0 +1,66 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "rehearsed_tree or meanwhile_commit_breaks"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 预演过了也不记树",
+      "file": "scripts/kit_hub.py",
+      "old": "    if ok:\n        ts[\"rehearsal\"][\"tree\"] = tree",
+      "new": "    if False:\n        ts[\"rehearsal\"][\"tree\"] = tree"
+    },
+    {
+      "name": "P02 预演没过也记树",
+      "file": "scripts/kit_hub.py",
+      "old": "    if ok:\n        ts[\"rehearsal\"][\"tree\"] = tree",
+      "new": "    if True:\n        ts[\"rehearsal\"][\"tree\"] = tree"
+    },
+    {
+      "name": "P03 预演记的是末端的树（不含候选补丁）",
+      "file": "scripts/kit_hub.py",
+      "old": "tree = git([\"write-tree\"], path).strip()",
+      "new": "tree = git([\"rev-parse\", \"HEAD^{tree}\"], path).strip()"
+    },
+    {
+      "name": "P04 结项不看预演过没过",
+      "file": "scripts/kit_hub.py",
+      "old": "if rehearsal.get(\"ok\") and rehearsal.get(\"tree\") == landed_tree:",
+      "new": "if rehearsal.get(\"tree\") == landed_tree:"
+    },
+    {
+      "name": "P05 结项不比树",
+      "file": "scripts/kit_hub.py",
+      "old": "if rehearsal.get(\"ok\") and rehearsal.get(\"tree\") == landed_tree:",
+      "new": "if rehearsal.get(\"ok\"):"
+    },
+    {
+      "name": "P06 记录提交之后才取落地的树",
+      "file": "scripts/kit_hub.py",
+      "old": "    landed_tree = git([\"rev-parse\", \"HEAD^{tree}\"], hub.repo).strip()\n    sha, problem = commit_records(hub, ts)",
+      "new": "    sha, problem = commit_records(hub, ts)\n    landed_tree = git([\"rev-parse\", \"HEAD^{tree}\"], hub.repo).strip()"
+    },
+    {
+      "name": "P07 跳过时不记账",
+      "file": "scripts/kit_hub.py",
+      "old": "hub.append_event(\"regression.skipped\",",
+      "new": "hub.append_event(\"regression.swept\","
+    },
+    {
+      "name": "P08 跳过了照旧记待跑",
+      "file": "scripts/kit_hub.py",
+      "old": "ts[\"regression\"] = {\"skipped\": True,",
+      "new": "ts[\"regression\"] = {\"pending\": True,"
+    }
+  ]
+}

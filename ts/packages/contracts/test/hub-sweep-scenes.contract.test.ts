@@ -494,8 +494,8 @@ describe("第 ⑤h2 片：mark_owner_moved、read_owner_sweep、rehearsal_letter
 describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
   const RUN = ".agent/runs/t001-doc/attempt-001";
   /** B0（场景的 head）上，主分支前进了一个“并行主任务”的提交；oracle 是给定的提交，attempt 的基线是 B0。 */
-  function rehearsal(oracleFiles: Record<string, string> | null, patch: string, meanwhile: Record<string, string> = { "src/m.py": lines("m = 1") }):
-    { sc: Scene; oracle: string } {
+  function rehearsal(oracleFiles: Record<string, string> | null, patch: string, meanwhile: Record<string, string> = { "src/m.py": lines("m = 1") },
+    after: (repo: string) => void = () => undefined): { sc: Scene; oracle: string } {
     let oracle = "";
     const sc = scene({ ...BASE, [GATE_OK]: lines("def test_ok():", "    assert True") }, (repo, _wt, head) => {
       oracle = head;
@@ -511,6 +511,7 @@ describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
       git(repo, "commit", "-q", "-m", "并行主任务先落地");
       put(repo, `${RUN}/meta.json`, JSON.stringify({ base_sha: head }));
       put(repo, `${RUN}/candidate.patch`, patch);
+      after(repo);
     }, false);
     return { sc, oracle };
   }
@@ -539,6 +540,7 @@ describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
     injectedCleanly(states);
     const [ok, problem] = returned(states[0]) as [boolean, string];
     expect([ok, problem.includes("FAILED 第 20"), problem.includes("FAILED 第 5 "), problem.includes("并行主任务先落地")]).toEqual([false, true, false, true]);
+    expect((tsAfter(states[0]).get("rehearsal") as PyDict).has("tree"), "没过不记树（第 171 轮）").toBe(false);
     expect(String((returned(states[1]) as PyValue[])[1])).toContain(`提交 ${clash.oracle.slice(0, 12)} 挑不到末端`);
     expect(String((returned(states[2]) as PyValue[])[1])).toContain("候选补丁（attempt-001）打不到末端");
     expect((states[3]?.["result"] as Record<string, unknown>)["error"]).toBe("KeyError");
@@ -557,6 +559,7 @@ describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
     seenTs.set("rehearsal", py({ head: tipOf(seen.sc), run_dir: runDir(seen.sc), ok: true, at: AT }));
     const uncheckedTs = sweepTs(unchecked.sc, { exec: { run_dir: runDir(unchecked.sc), check_ok: false }, oracle: { sha: unchecked.oracle, files: [GATE_OK] } });
     const emptyRun = scratch(empty.sc, "rehearse", 0, lines("1 passed in 0.01s"), [GATE_OK]);
+    const tipTree = git(empty.sc.repo, "rev-parse", "HEAD^{tree}"); // 基准测试是空提交、候选补丁是空的：跑的就是末端这棵树
     const states = agreeFlow([
       flow("rehearse_landing", atBase.sc, [atBaseTs]), flow("rehearse_landing", seen.sc, [seenTs]), flow("rehearse_landing", unchecked.sc, [uncheckedTs]),
       flow("rehearse_landing", empty.sc, [tsOf(empty)], scratchExtra(emptyRun)),
@@ -564,5 +567,23 @@ describe("第 ⑤h2 片：rehearse_landing（手写）", () => {
     injectedCleanly(states);
     expect(states.slice(0, 3).map(returned)).toEqual([null, null, null]);
     expect(returned(states[3])).toEqual([true, `末端 ${tipOf(empty.sc).slice(0, 12)} 加上 attempt-001 的候选，全部门禁基准（1 份）：1 passed in 0.01s`]);
+    expect((tsAfter(states[3]).get("rehearsal") as PyDict).get("tree"), "过了记下跑的这棵树（第 171 轮）").toBe(tipTree);
+  }, 600_000);
+
+  it("第 171 轮：过了记下的树里有候选补丁（git apply --3way 写进了索引），不是末端那棵", () => {
+    const patch = lines("diff --git a/src/new.py b/src/new.py", "new file mode 100644", "--- /dev/null", "+++ b/src/new.py", "@@ -0,0 +1 @@", "+n = 1");
+    let expected = "";
+    const item = rehearsal(null, patch, undefined, (repo) => {
+      put(repo, "src/new.py", lines("n = 1")); // 末端加上候选的样子：取它的树，再放回原样（补丁与 meta 不进索引）
+      git(repo, "add", "src/new.py");
+      expected = git(repo, "write-tree");
+      git(repo, "reset", "-q", "--hard");
+    });
+    const run = scratch(item.sc, "rehearse", 0, lines("1 passed in 0.01s"), [GATE_OK]);
+    const states = agreeFlow([flow("rehearse_landing", item.sc, [tsOf(item)], scratchExtra(run))]);
+    injectedCleanly(states);
+    const rehearsed = tsAfter(states[0]).get("rehearsal") as PyDict;
+    expect([(returned(states[0]) as PyValue[])[0], rehearsed.get("ok"), rehearsed.get("tree") === expected]).toEqual([true, true, true]);
+    expect(expected).not.toBe(git(item.sc.repo, "rev-parse", "HEAD^{tree}"));
   }, 600_000);
 });

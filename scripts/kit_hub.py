@@ -4680,14 +4680,24 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     if problem:
         return False, problem + undo_landing(hub, ts, head_before, records_before)
     detail = tail(out, 6)
+    landed_tree = git(["rev-parse", "HEAD^{tree}"], hub.repo).strip()
     sha, problem = commit_records(hub, ts)
     detail += "\n" + (problem or ("合同与复审记录已提交 %s" % sha[:12] if sha else "合同与复审记录没有新改动"))
     if head_before != ts["base_head"]:
         # 任务期间分支前进了（并行的主任务先落地了）：integrate 只跑了本合同的检查，别的主任务的门禁没跑。
         # 回归在放开落地锁之后跑（Engine.after_land），不挡别的主任务开始执行
-        ts["regression"] = {"pending": True, "head_before": head_before}
-        detail += "\n任务期间分支前进了（%s → %s）：放开落地锁之后在新末端上跑全部门禁回归" % (
-            ts["base_head"][:12], head_before[:12])
+        rehearsal = ts.get("rehearsal") or {}
+        if rehearsal.get("ok") and rehearsal.get("tree") == landed_tree:
+            # 第 171 轮：落地预演已在这棵树上跑过全部门禁基准。之后的记录提交只动 .agent/ 下的合同与复审记录
+            ts["regression"] = {"skipped": True, "head_before": head_before, "tree": landed_tree,
+                                "rehearsed_at": rehearsal.get("at")}
+            hub.append_event("regression.skipped", task=ts["task"], head_before=head_before, tree=landed_tree)
+            detail += "\n任务期间分支前进了（%s → %s）：落地预演已在落地的这棵树上跑过全部门禁基准，不再跑合入后回归" % (
+                ts["base_head"][:12], head_before[:12])
+        else:
+            ts["regression"] = {"pending": True, "head_before": head_before}
+            detail += "\n任务期间分支前进了（%s → %s）：放开落地锁之后在新末端上跑全部门禁回归" % (
+                ts["base_head"][:12], head_before[:12])
     return True, detail
 
 
@@ -4855,7 +4865,8 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
     """落地预演（第 30 轮）：在临时 worktree 里照结项的做法拼出“当前末端 + 基准测试 + 返工链 + 候选”，跑全部门禁基准。
     T006 的门禁断言陈列页上没有任何 aria-pressed，T007 先落地的 TextViewer 有两个；T006 的候选在执行端交付时就
     已经撞上了，可要到十几个小时后结项 integrate 才发现，中间的战后门禁、终审都白做。分支在任务期间没动、或者这个
-    候选在这个末端上预演过，就不预演（返回 None）；否则返回（通过与否, 摘要），结果记在 ts["rehearsal"]。"""
+    候选在这个末端上预演过，就不预演（返回 None）；否则返回（通过与否, 摘要），结果记在 ts["rehearsal"]。
+    第 171 轮：门禁过了就连同跑的这棵树（tree）一起记下：结项落地的树与它相同，就不再跑合入后回归。"""
     run_dir = ts["exec"].get("run_dir")
     if not run_dir or not ts["exec"].get("check_ok") or not Path(run_dir).is_dir():
         return None
@@ -4889,6 +4900,8 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
                 problem = "候选补丁（%s）打不到末端 %s 上：\n%s" % (run_dir.name, head[:12],
                                                              tail(proc.stdout.decode("utf-8", "replace"), 8))
         if problem is None:
+            # 拼好就取（git apply --3way 把候选也写进了索引）：门禁在这个 worktree 里跑，跑完的索引不一定还是这棵树
+            tree = git(["write-tree"], path).strip()
             with heavy_lane(hub, "落地预演", ts["task"]):
                 code, out, tests = sweep_gates(path)
             summary = "末端 %s 加上 %s 的候选，全部门禁基准（%d 份）：%s" % (
@@ -4897,6 +4910,8 @@ def rehearse_landing(hub: Hub, ts: Dict[str, Any]) -> Optional[Tuple[bool, str]]
                 problem = summary + "\n" + tail(out, 15)
     ok = problem is None
     ts["rehearsal"] = {"head": head, "run_dir": str(run_dir), "ok": ok, "at": utc_now()}
+    if ok:
+        ts["rehearsal"]["tree"] = tree
     hub.append_event("landing.rehearsed", task=ts["task"], head=head, run_dir=str(run_dir), ok=ok)
     return (True, summary) if ok else (False, problem + landed_meanwhile(hub, ts, head))
 

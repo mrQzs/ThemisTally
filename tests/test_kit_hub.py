@@ -4515,6 +4515,7 @@ def test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks(tmp_pat
     land_on_main(repo, "toggle.txt", None, "收掉切换钮")
     ok, summary = kh.rehearse_landing(hub, ts)
     assert ok and "全部门禁基准（1 份）" in summary and "2 passed" in summary and ts["rehearsal"]["ok"] is True
+    assert len(ts["rehearsal"]["tree"]) == 40  # 第 171 轮：过了才记跑的这棵树（上面没过的那次没有 tree）
     # 第 44 轮（T012）：接着返工提交改、一行没动的 attempt，补丁是空的；活在返工链里，照样预演
     empty = run_dir.with_name("attempt-004")
     empty.mkdir()
@@ -4692,6 +4693,50 @@ def test_after_land_reports_the_regression_to_the_owner(tmp_path, monkeypatch):
     assert calls == ["T001"]
     letter = hub.unread(kh.OWNER)[0].read_text(encoding="utf-8")
     assert "type: 阻塞" in letter and "合入后的门禁回归没过" in letter
+
+
+def test_a_landing_on_the_rehearsed_tree_skips_the_post_landing_sweep(tmp_path, monkeypatch):
+    # 第 171 轮：T034 到 T042 九次落地，落地预演都已在落地的那棵树上跑过全部门禁基准，合入后回归又原样跑一遍（每次约 20 分钟）
+    repo, hub, ts, run_dir = rehearsal_setup(tmp_path, monkeypatch)
+    land_on_main(repo, "unrelated.txt", "x\n", "并行的一片先落地")
+    ok, _summary = kh.rehearse_landing(hub, ts)
+    seen = dict(ts["rehearsal"])
+    assert ok and len(seen["tree"]) == 40
+    head_before = kh.git(["rev-parse", "HEAD"], repo).strip()
+    (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")  # verdict 已经记过
+
+    def fake_pd(hub_, args, timeout=600):
+        assert args[0] == "integrate"  # 真的 integrate 先跑合同的检查，再把候选落到末端
+        kh.git(["apply", "--index", str(run_dir / "candidate.patch")], repo)
+        kh.git(["commit", "-q", "-m", "候选"], repo)
+        return 0, "integrated"
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    swept = []
+    monkeypatch.setattr(kh, "regression_sweep", lambda hub_, ts_: swept.append(ts_["task"]) or (True, "合入后的门禁回归"))
+    for rehearsal, skip in ((seen, True), (dict(seen, tree="f" * 40), False), (dict(seen, ok=False), False)):
+        kh.git(["reset", "-q", "--hard", head_before], repo)
+        for record in kh.landing_records(ts):
+            record.pop("landed_at", None)
+            record.pop("landed_by", None)
+        (repo / ".agent" / "plans").mkdir(parents=True, exist_ok=True)
+        (repo / ".agent" / "plans" / "t001-doc.v1.md").write_text("# TASK: t001-doc\n", encoding="utf-8")
+        ts["rehearsal"] = dict(rehearsal)
+        ok, detail = kh.finalize(hub, ts)
+        assert ok and "合同与复审记录已提交" in detail  # 记录提交在比较之后：它只动 .agent/
+        if not skip:
+            assert ts["regression"] == {"pending": True, "head_before": head_before}
+            continue
+        assert kh.git(["rev-parse", "HEAD~1^{tree}"], repo).strip() == seen["tree"]  # integrate 落下的正是预演跑过的那棵树
+        assert ts["regression"] == {"skipped": True, "head_before": head_before, "tree": seen["tree"], "rehearsed_at": seen["at"]}
+        assert detail.splitlines()[-1].endswith("不再跑合入后回归")  # 结项信的“提交”一栏取最后一行，站主看得到
+        state = hub.load_state()
+        state["tasks"]["T001"] = dict(ts, status="done")
+        hub.save_state(state)
+        kh.Engine(hub, FakeRunner([])).after_land("T001")
+        assert swept == [] and hub.unread(kh.OWNER) == []
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["tree"] for e in events if e["event"] == "regression.skipped"] == [seen["tree"]]
 
 
 def test_exclusive_runs_the_command_once_executors_are_done(tmp_path, monkeypatch):

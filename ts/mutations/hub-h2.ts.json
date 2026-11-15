@@ -194,7 +194,7 @@
   {
    "name": "S42 不记 rehearsal",
    "file": "ts/packages/hub/src/sweep.ts",
-   "old": "  ts.set(\"rehearsal\", new Map<string, PyValue>([[\"head\", tip], [\"run_dir\", runDir], [\"ok\", ok], [\"at\", utcNow()]]));\n",
+   "old": "  ts.set(\"rehearsal\", record);\n",
    "new": ""
   },
   {

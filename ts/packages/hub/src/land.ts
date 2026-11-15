@@ -147,13 +147,24 @@ export async function finalize(hub: Hub, ts: PyDict, deps: LandDeps = REAL_LAND_
   }
   if (problem) return [false, problem + (await undoLanding(hub, ts, headBefore, recordsBefore))];
   let detail = tail(out, 6n);
+  const landedTree = pyStrip(git(["rev-parse", "HEAD^{tree}"], hub.repo));
   const [sha, recordProblem] = await commitRecords(hub, ts);
   detail += LF + (recordProblem || (sha ? `合同与复审记录已提交 ${short(sha)}` : "合同与复审记录没有新改动"));
   if (!pyEq(headBefore, pyItem(ts, "base_head"))) {
     // 任务期间分支前进了（并行的主任务先落地了）：integrate 只跑了本合同的检查，别的主任务的门禁没跑。
     // 回归在放开落地锁之后跑（Engine.after_land），不挡别的主任务开始执行
-    ts.set("regression", new Map<string, PyValue>([["pending", true], ["head_before", headBefore]]));
-    detail += `${LF}任务期间分支前进了（${short(pyItem(ts, "base_head"))} → ${short(headBefore)}）：放开落地锁之后在新末端上跑全部门禁回归`;
+    const rehearsal = or(pyGet(ts, "rehearsal"), new Map());
+    if (pyTruthy(pyGet(rehearsal, "ok")) && pyEq(pyGet(rehearsal, "tree"), landedTree)) {
+      // 第 171 轮：落地预演已在这棵树上跑过全部门禁基准。之后的记录提交只动 .agent/ 下的合同与复审记录
+      ts.set("regression", new Map<string, PyValue>([
+        ["skipped", true], ["head_before", headBefore], ["tree", landedTree], ["rehearsed_at", pyGet(rehearsal, "at")],
+      ]));
+      await hub.appendEvent("regression.skipped", [["task", pyItem(ts, "task")], ["head_before", headBefore], ["tree", landedTree]]);
+      detail += `${LF}任务期间分支前进了（${short(pyItem(ts, "base_head"))} → ${short(headBefore)}）：落地预演已在落地的这棵树上跑过全部门禁基准，不再跑合入后回归`;
+    } else {
+      ts.set("regression", new Map<string, PyValue>([["pending", true], ["head_before", headBefore]]));
+      detail += `${LF}任务期间分支前进了（${short(pyItem(ts, "base_head"))} → ${short(headBefore)}）：放开落地锁之后在新末端上跑全部门禁回归`;
+    }
   }
   return [true, detail];
 }

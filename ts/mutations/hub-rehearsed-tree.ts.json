@@ -1,0 +1,59 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-land-scenes.contract.test.ts",
+    "packages/contracts/test/hub-sweep-scenes.contract.test.ts",
+    "-t",
+    "第 171 轮|rehearse_landing（手写）",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "S01 预演过了也不记树",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "if (ok) record.set(\"tree\", tree);",
+      "new": "if (false) record.set(\"tree\", tree);"
+    },
+    {
+      "name": "S02 预演没过也记树",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "if (ok) record.set(\"tree\", tree);",
+      "new": "record.set(\"tree\", tree);"
+    },
+    {
+      "name": "S03 预演记的是末端的树（不含候选补丁）",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "tree = pyStrip(git([\"write-tree\"], path));",
+      "new": "tree = pyStrip(git([\"rev-parse\", \"HEAD^{tree}\"], path));"
+    },
+    {
+      "name": "S04 结项不看预演过没过",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "if (pyTruthy(pyGet(rehearsal, \"ok\")) && pyEq(pyGet(rehearsal, \"tree\"), landedTree)) {",
+      "new": "if (pyEq(pyGet(rehearsal, \"tree\"), landedTree)) {"
+    },
+    {
+      "name": "S05 结项不比树",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "if (pyTruthy(pyGet(rehearsal, \"ok\")) && pyEq(pyGet(rehearsal, \"tree\"), landedTree)) {",
+      "new": "if (pyTruthy(pyGet(rehearsal, \"ok\"))) {"
+    },
+    {
+      "name": "S06 记录提交之后才取落地的树",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "  const landedTree = pyStrip(git([\"rev-parse\", \"HEAD^{tree}\"], hub.repo));\n  const [sha, recordProblem] = await commitRecords(hub, ts);",
+      "new": "  const [sha, recordProblem] = await commitRecords(hub, ts);\n  const landedTree = pyStrip(git([\"rev-parse\", \"HEAD^{tree}\"], hub.repo));"
+    },
+    {
+      "name": "S07 跳过时不记账",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "await hub.appendEvent(\"regression.skipped\",",
+      "new": "await hub.appendEvent(\"regression.swept\","
+    }
+  ]
+}
