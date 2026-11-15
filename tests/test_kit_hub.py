@@ -679,6 +679,14 @@ def test_gate_rules_keep_the_regression_tests_valid_after_integration():
     assert "名为 `pipeline` 的会话级夹具" in kh.role_prompt("gate-sonnet")  # tests/conftest.py 认这个名字
 
 
+def test_gate_writes_a_long_test_file_in_steps():
+    # 第 173 轮：2026-11-15 T044、T046 的战前门禁四个回合白耗：动笔之前一口气思考四五万字，流式连接被掐断，
+    # 重试又从头想；站主的回信让它先建骨架、每次追加一两条测试，当回合交上
+    gate = kh.role_prompt("gate-sonnet")
+    assert "先用 write 建骨架" in gate and "每次用 edit 追加一两条测试" in gate
+    assert "先用 write 建骨架" not in kh.role_prompt("contract-glm")
+
+
 def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
     _repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
     problems = kh.dod_coverage_problems(hub, ts, "| D01 | test_a | assert x |\n| D11 | 只能人工审阅 |")
