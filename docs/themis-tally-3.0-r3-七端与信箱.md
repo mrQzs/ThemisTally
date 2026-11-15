@@ -2525,6 +2525,32 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **检查**：每段都进重活车道：类型检查 0 错；test_kit_hub.py 400 条全过；hub-engine-scenes、hub-heavy-scenes 两份契约加 mutation-specs、source-hygiene 4 份 30 条全过；hub-contract-flow 9 条、hub-engine 3 条、hub-step 3 条全过。这一轮是从第 161 轮的末端切出来的，合入前接到第 162、163、165 轮之后（两边都动过的只有 tests/test_kit_hub.py，位置不挨着；TS 没有共同的文件），复查 test_kit_hub.py 401 条全过，mutation-specs、source-hygiene 2 份 5 条全过。
 - **没做**：只在开跑之前看一次站主的返工要求；站主的要求在基线检查跑起来之后才到的，照旧跑完。站主要门禁自己返工时，这一遍的结果门禁重交前还用得上，所以照旧跑。
 
+### 第 166 轮：status 看 hub 的持有者死活；协调人的提示词写明给站主只有汇报、提问（候选 #36、#31）
+
+- **起因**：
+  - status 的“运行中的 hub”照抄 `.runner/owner.json`，不问持有者死活。11-14 15:55 到 16:06Z 之间 supervisor 连同 runner 一起没了，账本里没有事件；status 照样报“运行中的 hub：{pid 16104 …}”，同一屏的“在跑的主任务 runner”却按 lock_alive 判断写“无”，两行自相矛盾。站主是看那一行一直不变、别的进度也不动，过了二十多分钟才发现的。TS 的 hub 收到 CTRL_BREAK 不走 finally，锁目录也会留下：hub-handoff 契约的 Ctrl+C 一例原来钉的就是“原样打出”。
+  - 协调人给站主发“等待”被拒收（给站主只能发汇报或提问），多用一个回合补发汇报：11-14 09:14:48Z T041、21:58:13Z T043。两次都是站主的回复只是确认，协调人这一回合本来没事可做。
+- **改法**：
+  - status 的那一行交给新函数 running_hub（TS 的 runningHub）。锁目录不在写“无”。持有者活着就原样打出 owner.json：判断用 lock_alive，与“在跑的主任务 runner”同一个。持有者已经不在写“无（上一个 pid N 已经不在，<at> 起的）”，没记起的时刻写问号；pid 问不出死活的照旧算活着。
+  - 协调人提示词第 3 节“输出”加两句：
+    - letters 可以一封没有：站主的回复只是确认、没有要推进的事时就给 []，不用回信说收到；
+    - 给站主只能发汇报或提问，等待、停止、通过只发给工人。
+  - 内核本来就收空的 letters（交差的 Schema 写着“没有要发的就给 []”），拒收的规矩不变。
+- **测试**：Python 新加 1 条。持有者已经不在时写“无”，带上 pid 与时刻；问不出死活时原样打出；没记时刻时写问号。
+- **契约**：
+  - hub-commands-scenes 加一段手写对照，名字带“第 166 轮”：三种情形各注入一次 pid_alive，原来的 S08 一例注入“活着”。
+  - hub-handoff 的 Ctrl+C 一例：TS 留下的锁目录现在显示“运行中的 hub：无（上一个 pid …”，断言跟着改。
+- **变异**：
+  - Python 3 条（`hub-status-runner.py.json`）、TS 3 条（`hub-status-runner.ts.json`）：不问死活、已经不在的只写“无”、没记时刻时不写问号。
+  - hub-j1 的 J90（status 的记录不去空白）钉着改掉的那一行，锚点挪到 runningHub 里同一个 pyStrip。
+  - 结果：全部抓住，Python 3 条、TS 3 条；J90 单跑（只跑 S08 那一例）也抓住。
+- **检查**：每段都进重活车道。
+  - 类型检查 0 错；test_kit_hub.py 402 条全过；hub-commands-scenes 加 mutation-specs、source-hygiene，3 份 24 条全过；采样的 hub-commands 3 条全过。
+  - hub-handoff 第一遍放在没提交的树上跑，8 条红了 6 条：它经真启动器起 hub，内核文件与 HEAD 不一致时 hub 不起（退出码 3），与改动无关。提交之后复跑，8 条全过。
+- **没做**：
+  - supervisor 不在时不自动重起，status 只是如实报。
+  - 执行端搁浅时内核自己重新核验（候选 #37）：账本里 exec.stranded 只有 11-14 T038 那一次，先不做。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

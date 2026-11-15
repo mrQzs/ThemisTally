@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-commands-scenes.contract.test.ts",
+    "-t",
+    "第 166 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "T01 不问死活，照旧原样打出 owner.json",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "  if (lockAlive(runner, deps)) return text;",
+      "new": "  if (true) return text;"
+    },
+    {
+      "name": "T02 已经不在的只写“无”",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "  return `无（上一个 pid ${pyStrValue(pyItem(owner, \"pid\"))} 已经不在，${pyTruthy(at) ? pyStrValue(at) : \"?\"} 起的）`;",
+      "new": "  return \"无\";"
+    },
+    {
+      "name": "T03 没记起的时刻时不写问号",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "  return `无（上一个 pid ${pyStrValue(pyItem(owner, \"pid\"))} 已经不在，${pyTruthy(at) ? pyStrValue(at) : \"?\"} 起的）`;",
+      "new": "  return `无（上一个 pid ${pyStrValue(pyItem(owner, \"pid\"))} 已经不在，${pyStrValue(at)} 起的）`;"
+    }
+  ]
+}

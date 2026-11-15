@@ -548,8 +548,8 @@
   {
    "name": "J90 status 的 hub 记录不去空白（抽查 S08）",
    "file": "ts/packages/hub/src/commands.ts",
-   "old": "isDirectory(runner) ? pyStrip(readText(purePathStr(runner, \"owner.json\"))) : \"无\"",
-   "new": "isDirectory(runner) ? readText(purePathStr(runner, \"owner.json\")) : \"无\""
+   "old": "  const text = pyStrip(readText(purePathStr(runner, \"owner.json\")));",
+   "new": "  const text = readText(purePathStr(runner, \"owner.json\"));"
   },
   {
    "name": "J91 回合没有主任务号时不写问号（抽查 S09）",

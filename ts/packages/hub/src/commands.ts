@@ -635,8 +635,7 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   }
   const shown = [...unread].filter(([, count]) => count !== 0n).map(([agent, count]) => `${agent} ${count}`);
   out.print(`未读：${shown.join("、") || "无"}`);
-  const runner = purePathStr(hub.root, ".runner");
-  out.print(`运行中的 hub：${isDirectory(runner) ? pyStrip(readText(purePathStr(runner, "owner.json"))) : "无"}`);
+  out.print(`运行中的 hub：${runningHub(purePathStr(hub.root, ".runner"), deps)}`);
   const runnersDir = purePathStr(hub.root, ".runners");
   const runners = isDirectory(runnersDir)
     ? readdirSync(runnersDir).filter((name) => lockAlive(purePathStr(runnersDir, name), deps)).sort(cmpCodePoints)
@@ -647,6 +646,17 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   const queue = laneQueue(hub, deps);
   out.print(`重活车道：${heavyHolder(hub, deps) || "空"}${queue.length ? `；排队 ${queue.length} 份：${queue.join("、")}` : ""}`);
   return EXIT_OK;
+}
+
+/** status 的“运行中的 hub”：锁目录里的 owner.json 原样打出。持有者已经不在（supervisor 被硬收掉、Bun 收到 CTRL_BREAK
+ *  不走 finally，锁目录都会留下）时写“无”，带上记着的 pid 与起的时刻（第 166 轮）。 */
+function runningHub(runner: string, deps: EngineDeps): string {
+  if (!isDirectory(runner)) return "无";
+  const text = pyStrip(readText(purePathStr(runner, "owner.json")));
+  if (lockAlive(runner, deps)) return text;
+  const owner = loads(text);
+  const at = pyGet(owner, "at");
+  return `无（上一个 pid ${pyStrValue(pyItem(owner, "pid"))} 已经不在，${pyTruthy(at) ? pyStrValue(at) : "?"} 起的）`;
 }
 
 export function recordedSum(rows: readonly PyDict[], key: string): string {

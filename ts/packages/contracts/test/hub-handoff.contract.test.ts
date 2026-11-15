@@ -355,9 +355,9 @@ describe.runIf(process.platform === "win32")("第 ⑤j3 片：经真启动器转
     const handed = run("ts");
     expect(reference).toEqual({ status: STATUS_CONTROL_C_EXIT, last: "KeyboardInterrupt", leftover: false,
       shown: ["运行中的 hub：无", "并行：最多 1 个主任务；在跑的主任务 runner：无；在跑的执行端：无"], again: 0, exclusive: 0 });
-    // 不同只在 .runner（计划第 10 节）：Bun 按缺省处理 CTRL_BREAK 时不走 finally，锁目录留下。status 照 Python 的写法原样打出锁目录里的
-    // owner.json（持有者已死）；在跑的主任务 runner、执行端照 lock_alive 判断，照样是“无”；下一次 run 照 pid 接管，exclusive 不被挡
-    expect([handed.leftover, handed.shown[0]?.startsWith("运行中的 hub：{")]).toEqual([true, true]);
+    // 不同只在 .runner（计划第 10 节）：Bun 按缺省处理 CTRL_BREAK 时不走 finally，锁目录留下。status 照 lock_alive 判断持有者已死，
+    // 写“无”并带上记着的 pid（第 166 轮；之前原样打出 owner.json）；下一次 run 照 pid 接管，exclusive 不被挡
+    expect([handed.leftover, handed.shown[0]?.startsWith("运行中的 hub：无（上一个 pid ")]).toEqual([true, true]);
     expect({ ...handed, leftover: false, shown: handed.shown.slice(1) }).toEqual({ ...reference, shown: reference.shown.slice(1) });
   }, 600_000);
 

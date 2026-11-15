@@ -376,10 +376,27 @@ describe("第 ⑤j1 片：themistally-04 抽查补的场景（手写，标题里
       put(repo, `${BOX}/.runners/T008/owner.json`, "");
       put(join(repo, ...`${BOX}/.runners/T007`.split("/")), ".keep", "");
     });
-    const [state] = agreeFlow([flow("cmd_status", sc, [command(sc.repo, "status", { json: false })])]);
+    // 第 166 轮起 status 问 .runner 的持有者死活：照记录注入活着
+    const [state] = agreeFlow([flow("cmd_status", sc, [command(sc.repo, "status", { json: false })], { inner: [alive(4242, true)], replaced: ["pid_alive"] })]);
     const lines = stdoutOf(state).trimEnd().split(LF);
     expect(lines.slice(-3)).toEqual([
       `运行中的 hub：${JSON.stringify({ pid: 4242, token: "t", at: AT })}`, "并行：最多 1 个主任务；在跑的主任务 runner：T007、T008；在跑的执行端：无", "重活车道：空",
+    ]);
+  }, 600_000);
+
+  // supervisor 被硬收掉之后 .runner 留着（11-14 15:55–16:06Z 实机一次），status 照旧打出 owner.json，同一屏的主任务 runner 却按死活判断
+  it("第 166 轮（R01）：.runner 的持有者已经不在时 status 写“运行中的 hub：无”，带上记着的 pid 与起的时刻；问不出死活的照旧原样打出", () => {
+    const owner = (fields: Record<string, unknown>): Scene =>
+      stateScene(() => undefined, (repo) => put(repo, `${BOX}/.runner/owner.json`, `${JSON.stringify(fields)}${LF}`));
+    const gone = owner({ pid: 4242, token: "t", at: AT });
+    const bare = owner({ pid: 4242 });
+    const status = (sc: Scene, answer: boolean | null) =>
+      flow("cmd_status", sc, [command(sc.repo, "status", { json: false })], { inner: [alive(4242, answer)], replaced: ["pid_alive"] });
+    const states = agreeFlow([status(gone, false), status(bare, false), status(gone, null)]);
+    const hubLine = (at: number): string | undefined => stdoutOf(states[at]).split(LF).find((line) => line.startsWith("运行中的 hub"));
+    expect([hubLine(0), hubLine(1), hubLine(2)]).toEqual([
+      `运行中的 hub：无（上一个 pid 4242 已经不在，${AT} 起的）`, "运行中的 hub：无（上一个 pid 4242 已经不在，? 起的）",
+      `运行中的 hub：${JSON.stringify({ pid: 4242, token: "t", at: AT })}`,
     ]);
   }, 600_000);
 

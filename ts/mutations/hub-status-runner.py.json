@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "runner_lock_holder_is_gone"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 不问死活，照旧原样打出 owner.json",
+      "file": "scripts/kit_hub.py",
+      "old": "    if lock_alive(runner):\n        return text\n",
+      "new": "    if True:\n        return text\n"
+    },
+    {
+      "name": "P02 已经不在的只写“无”",
+      "file": "scripts/kit_hub.py",
+      "old": "    return \"无（上一个 pid %s 已经不在，%s 起的）\" % (owner[\"pid\"], owner.get(\"at\") or \"?\")",
+      "new": "    return \"无\""
+    },
+    {
+      "name": "P03 没记起的时刻时不写问号",
+      "file": "scripts/kit_hub.py",
+      "old": "    return \"无（上一个 pid %s 已经不在，%s 起的）\" % (owner[\"pid\"], owner.get(\"at\") or \"?\")",
+      "new": "    return \"无（上一个 pid %s 已经不在，%s 起的）\" % (owner[\"pid\"], owner.get(\"at\"))"
+    }
+  ]
+}

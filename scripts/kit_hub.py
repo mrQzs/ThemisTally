@@ -6942,8 +6942,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(stage_status_table(hub, ts))
         print()
     print("未读：" + ("、".join("%s %d" % (k, v) for k, v in unread.items() if v) or "无"))
-    runner = hub.root / ".runner"
-    print("运行中的 hub：%s" % (read_text(runner / "owner.json").strip() if runner.is_dir() else "无"))
+    print("运行中的 hub：%s" % running_hub(hub.root / ".runner"))
     runners = sorted(p.name for p in (hub.root / ".runners").glob("*") if lock_alive(p)) \
         if (hub.root / ".runners").is_dir() else []
     executing = landing_blockers(hub, {"task": None, "contract_task": "\0"})
@@ -6953,6 +6952,18 @@ def cmd_status(args: argparse.Namespace) -> int:
     queue = lane_queue(hub)
     print("重活车道：%s%s" % (heavy_holder(hub) or "空", "；排队 %d 份：%s" % (len(queue), "、".join(queue)) if queue else ""))
     return EXIT_OK
+
+
+def running_hub(runner: Path) -> str:
+    """status 的“运行中的 hub”：锁目录里的 owner.json 原样打出。持有者已经不在（supervisor 被硬收掉、Bun 收到 CTRL_BREAK
+    不走 finally，锁目录都会留下）时写“无”，带上记着的 pid 与起的时刻（第 166 轮）。"""
+    if not runner.is_dir():
+        return "无"
+    text = read_text(runner / "owner.json").strip()
+    if lock_alive(runner):
+        return text
+    owner = json.loads(text)
+    return "无（上一个 pid %s 已经不在，%s 起的）" % (owner["pid"], owner.get("at") or "?")
 
 
 #: 回合读进去的上下文：每次模型调用的新输入、缓存读、缓存写之和（pi 的 usage 键名）。pi 岗位不回报花费，

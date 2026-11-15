@@ -4915,6 +4915,31 @@ def test_status_shows_the_parallel_runners(tmp_path, capsys):
     assert "重活车道：T003 的基线检查" in capsys.readouterr().out
 
 
+def test_status_says_no_hub_when_the_runner_lock_holder_is_gone(tmp_path, capsys, monkeypatch):
+    """第 166 轮：supervisor 被硬收掉之后锁目录留着，status 照 lock_alive 判断，不再把留下的 owner.json 当成在跑的 hub。"""
+    import argparse
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    runner = hub.root / ".runner"
+    runner.mkdir()
+    owner = runner / "owner.json"
+    owner.write_text(json.dumps({"pid": 4242, "token": "t", "at": "2026-11-14T21:23:59Z"}), encoding="utf-8")
+    alive = {4242: False}
+    monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: alive.get(pid))
+
+    def hub_line():
+        kh.cmd_status(argparse.Namespace(repo=str(repo), json=False))
+        return [line for line in capsys.readouterr().out.splitlines() if line.startswith("运行中的 hub")]
+
+    assert hub_line() == ["运行中的 hub：无（上一个 pid 4242 已经不在，2026-11-14T21:23:59Z 起的）"]
+    alive[4242] = None  # 问不出死活：照旧算活着，原样打出
+    assert hub_line() == ['运行中的 hub：{"pid": 4242, "token": "t", "at": "2026-11-14T21:23:59Z"}']
+    alive[4242] = False
+    owner.write_text(json.dumps({"pid": 4242}), encoding="utf-8")  # 没记起的时刻
+    assert hub_line() == ["运行中的 hub：无（上一个 pid 4242 已经不在，? 起的）"]
+
+
 def test_worktree_add_retries_when_git_metadata_is_busy(tmp_path, monkeypatch):
     hub = kh.Hub(tmp_path)
     hub.ensure()
