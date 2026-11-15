@@ -3568,6 +3568,66 @@ def test_finished_tasks_remove_their_stage_worktrees(tmp_path, monkeypatch):
     assert kh.retire_attempts(hub, ts, "收尾") == ["attempt-001 还处在 PREPARED，没有动"] and pd_calls == []
 
 
+@pytest.mark.skipif(os.name != "nt", reason="保留设备名只在 Windows 上删不掉")
+def test_a_stage_worktree_git_gave_up_on_is_removed_by_long_path(tmp_path, monkeypatch):
+    # 第 170 轮（候选 #34）：工人在 Git Bash 里写 `2>nul` 会把 nul 建成真文件。git worktree remove --force 删到一半报
+    # Directory not empty，登记照样去掉，目录留在 pi-worktrees 里（T039、T042 各一次，站主按长路径手动删）
+    repo, head = git_repo(tmp_path)
+    roots = tmp_path / "worktrees"
+    roots.mkdir()
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_path: roots)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    ts = kh.new_task_state("T001", "doc", "改文档", head, True)
+
+    def with_nul(path):
+        (path / "ts").mkdir(parents=True, exist_ok=True)
+        with open(kh.long_path(path / "ts" / "nul"), "w", encoding="utf-8") as handle:
+            handle.write("File Not Found")
+
+    post = kh.ensure_worktree(hub, ts, "post-attempt-001", head)
+    with_nul(post)
+    (post / "node_modules").mkdir()
+    (post / "node_modules" / "x.js").write_text("// 未跟踪\n", encoding="utf-8")
+    os.chmod(post / "node_modules" / "x.js", stat.S_IREAD)  # 只读的先改回可写再删
+    stray = roots / "left-by-git"  # 从没登记过的目录：里面有 nul 也不动，照旧报出来
+    with_nul(stray)
+    ts["workspaces"]["base"] = {"path": str(stray), "commit": head}
+    problems = kh.remove_workspaces(hub, ts)
+    assert not post.exists() and stray.is_dir()
+    assert len(problems) == 1 and problems[0].startswith(str(stray) + "：")
+    assert ts["workspaces"]["post-attempt-001"]["removed_at"] and "removed_at" not in ts["workspaces"]["base"]
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    left = [event for event in events if event["event"] == "workspace.leftover_removed"]
+    assert [(event["kind"], event["path"]) for event in left] == [("post-attempt-001", str(post))] and left[0]["error"]
+    assert [event["kind"] for event in events if event["event"] == "workspace.removed"] == ["post-attempt-001"]
+    assert kh.path_key(str(post)) not in kh.registered_worktrees(hub)
+    # 登记着、git 放弃、按长路径也删不掉（文件被占着）：照旧报出来，不记清理过
+    gate = kh.ensure_worktree(hub, ts, "gate", head)
+    with_nul(gate)
+    monkeypatch.setattr(kh, "remove_inputs", lambda path: (_ for _ in ()).throw(PermissionError("被占着")))
+    problems = kh.remove_workspaces(hub, ts)
+    assert sorted(item.split("：", 1)[0] for item in problems) == sorted([str(gate), str(stray)])
+    assert "removed_at" not in ts["workspaces"]["gate"] and gate.is_dir()
+    monkeypatch.undo()
+    # git 放弃之后登记还在（别的 git 版本可能这样）：不按长路径删，照旧报出来
+    audit = kh.ensure_worktree(hub, ts, "audit", head)
+    with_nul(audit)
+    still = {kh.path_key(str(audit))}
+    monkeypatch.setattr(kh, "registered_worktrees", lambda hub_: still)
+    problems = kh.remove_workspaces(hub, ts)
+    assert any(item.startswith(str(audit) + "：") for item in problems) and audit.is_dir()
+    monkeypatch.undo()
+    for path in (gate, stray, audit):
+        kh.remove_inputs(Path(kh.long_path(path)))
+        assert not path.exists()
+    # 比较路径时 8.3 短名与长名是同一个（git 登记的是长名，临时目录常给短名）；卷上没开短名时跳过这一条
+    import ctypes
+    buffer = ctypes.create_unicode_buffer(1024)
+    if ctypes.windll.kernel32.GetShortPathNameW(str(roots), buffer, 1024) and buffer.value.lower() != str(roots).lower():
+        assert kh.path_key(buffer.value) == kh.path_key(str(roots))
+
+
 def test_task_brief_must_not_reference_uncommitted_paths(tmp_path, monkeypatch):
     import io
     repo, _head = git_repo(tmp_path)

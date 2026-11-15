@@ -351,8 +351,8 @@
   {
    "name": "L66 删不掉也记 removed_at",
    "file": "ts/packages/hub/src/land.ts",
-   "old": ".slice(0, 200).join(\"\")}`);\n        continue;",
-   "new": ".slice(0, 200).join(\"\")}`);"
+   "old": "problems.push(`${path as string}：${error}`);\n          continue;",
+   "new": "problems.push(`${path as string}：${error}`);"
   },
   {
    "name": "L67 stderr 不去空白",

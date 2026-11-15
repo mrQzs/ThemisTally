@@ -9,7 +9,7 @@ import { pyCaught } from "@themis/base/pyexc";
 import { PyCrash, pyGet, pyIntOf, pyItem, pyIter, pyPlus, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { type PyDict, type PyValue, loads } from "@themis/base/pyjson";
-import { purePathName, purePathStr, pyExists } from "@themis/base/pypath";
+import { abspath, normcase, osPathJoin, purePathName, purePathParent, purePathStr, pyExists, pyResolve } from "@themis/base/pypath";
 import { cmpCodePoints, codePoints, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { pidAlive } from "@themis/base/process";
 import { pyEq } from "@themis/base/pyvalue";
@@ -22,6 +22,7 @@ import { type ContractDeps, REAL_DEPS } from "./accept.ts";
 import { comparePaths, pyDictOf } from "./audit.ts";
 import { tail } from "./contract.ts";
 import { HubError } from "./errors.ts";
+import { removeInputs } from "./inputs.ts";
 import { ATTEMPT_IN_FLIGHT, emptyCommit, pySliceHead } from "./exec.ts";
 import { attemptBase } from "./gatepost.ts";
 import { git, workspaceStatus } from "./kernel.ts";
@@ -331,6 +332,7 @@ export async function recordPass(hub: Hub, ts: PyDict, runDir: string, deps: Lan
 export async function removeWorkspaces(hub: Hub, ts: PyDict): Promise<string[]> {
   const problems: string[] = [];
   const workspaces = pyItem(ts, "workspaces");
+  const known = registeredWorktrees(hub);
   if (!(workspaces instanceof Map)) throw new PyCrash("AttributeError", `'${pyTypeName(workspaces)}' object has no attribute 'items'`);
   for (const [kind, record] of [...workspaces].sort(([a], [b]) => cmpCodePoints(a as string, b as string))) {
     const path = pyGet(record, "path");
@@ -338,14 +340,51 @@ export async function removeWorkspaces(hub: Hub, ts: PyDict): Promise<string[]> 
     if (pyExists(pathArg(path))) {
       const done = runGit(["worktree", "remove", "--force", path as string], hub.repo, "pipe");
       if (done.status !== 0) {
-        problems.push(`${path as string}：${codePoints(pyStrip(pyDecodeUtf8Replace(done.stderr))).slice(0, 200).join("")}`);
-        continue;
+        const error = codePoints(pyStrip(pyDecodeUtf8Replace(done.stderr))).slice(0, 200).join("");
+        if (!(known.has(pathKey(path as string)) && leftoverRemoved(hub, purePathStr(path as string)))) {
+          problems.push(`${path as string}：${error}`);
+          continue;
+        }
+        await hub.appendEvent("workspace.leftover_removed", [["task", pyItem(ts, "task")], ["kind", kind], ["path", path], ["error", error]]);
       }
     }
     (record as PyDict).set("removed_at", utcNow()); // record.get 已经过了：是 dict
     await hub.appendEvent("workspace.removed", [["task", pyItem(ts, "task")], ["kind", kind], ["path", path]]);
   }
   return problems;
+}
+
+/** git 登记着的 worktree，路径照 pathKey 写；读不出时是空的。 */
+export function registeredWorktrees(hub: Hub): Set<string> {
+  const done = runGit(["worktree", "list", "--porcelain"], hub.repo, "pipe");
+  const lines = pySplitlines(pyDecodeUtf8Replace(done.stdout));
+  return new Set(lines.filter((line) => line.startsWith("worktree ")).map((line) => pathKey(line.slice("worktree ".length))));
+}
+
+/** 比较路径用的写法：解析成真实路径（8.3 短名换成长名：git 登记的是长名），Windows 上不分大小写、分隔符统一（同 kit_hub.py 的 path_key）。 */
+export function pathKey(path: string): string {
+  return normcase(pyResolve(path));
+}
+
+/**
+ * git worktree remove --force 删到一半放弃时的收尾（第 170 轮，候选 #34）：git 先删工作区，删不干净也照样去掉登记，目录里剩下它删不掉的
+ * （Git Bash 里 `2>nul` 建出来的 nul 这类保留设备名）。只在调用之前登记着、调用之后已经不在登记里时，按长路径把剩下的整棵删掉（只读的先改回
+ * 可写）；删干净了是 true。从没登记过的目录不动。Bun 列目录时看不到 nul，判据不靠列目录。
+ */
+export function leftoverRemoved(hub: Hub, path: string): boolean {
+  if (registeredWorktrees(hub).has(pathKey(path))) return false;
+  try {
+    removeInputs(longPath(path));
+  } catch {
+    return false;
+  }
+  return !pyExists(path);
+}
+
+/** Windows 的长路径写法（前缀加绝对路径），只对上一级取绝对路径（同 kit_hub.py 的 long_path）；别的平台上原样。 */
+export function longPath(path: string): string {
+  if (process.platform !== "win32") return path;
+  return `${BS}${BS}?${BS}${osPathJoin(abspath(purePathParent(path)), purePathName(path))}`;
 }
 
 /**

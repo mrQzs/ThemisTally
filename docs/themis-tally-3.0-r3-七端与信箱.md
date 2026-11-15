@@ -290,7 +290,7 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
    - 内核只认 short test summary 里的 `FAILED` 行，核对红的正好是这几条，而且没有出错（`ERROR`）的用例；核对通过就记下缺陷，不跑变异。
    - 之后照常走 JEV 与终审。终审逐条裁定：成立的退回执行端，不成立的退回战后门禁；有缺陷时不能判通过。
 7. 其余失败由门禁端返工（§5 的短路）。
-8. 结项（hub 结项或 `task close`）之后，内核删掉主任务的阶段 worktree；没有结论的 attempt 记成 ABANDONED，删掉它们的 worktree（第 12 轮）。白盒测试是这次 attempt 的证据，存在信箱里，不并入仓库。
+8. 结项（hub 结项或 `task close`）之后，内核删掉主任务的阶段 worktree；没有结论的 attempt 记成 ABANDONED，删掉它们的 worktree（第 12 轮）。git 删到一半放弃（删不掉 Git Bash 里 `2>nul` 建出来的 nul）、登记却已经去掉的阶段 worktree，内核按长路径把剩下的删掉（第 170 轮）。白盒测试是这次 attempt 的证据，存在信箱里，不并入仓库。
 
 **执行端改了基准测试**：调度器的范围门禁 G2 会直接拦下（`forbidden_paths`），内核的检查也会失败。用户的冲突解法 3 要求的 `git diff <基准测试提交> -- <测试路径>` 也由内核在战后先跑一遍。
 
@@ -2691,6 +2691,46 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 回合中途看到连着退回就提前收掉：要在启动器里边跑边读事件流，两份启动器都要改。最贵的那类退回（英文键）换掉键名之后就没了，剩下的（缺 type、缺 report）多是一两次就改对，先看数据。
   - 认别名，也不换协调人的 letters。
   - 重交回合续接被退回污染的会话：T042 的 g0 续接之后又退回 30 次，换新会话一次交上。键名换掉之后先看还会不会出现，再定续接还是开新会话。
+
+### 第 170 轮：结项清理时，git 删到一半放弃的阶段 worktree 按长路径删掉（候选 #34）
+
+- **起因**：
+  - T039（11-14）与 T042（11-15）结项时，阶段 worktree 都没删掉。
+    - git worktree remove --force 报 Directory not empty，核验信的“偏离”里写一句就完了，目录留在 pi-worktrees 里，站主按长路径手动删。
+    - 两次都是工人在 Git Bash 里写了 `2>nul` 这类重定向：bash 把 nul 当成相对路径，建成了真文件（新版 Windows 上带目录的 nul 就是普通文件）。git 按普通路径删它，碰到的是设备。
+    - T042 那次，目录里还剩 workflows/ 下三份已跟踪文件的副本：git 删到一半就停了。
+  - 实测（11-15）：
+    - git 删不掉时照样去掉了登记（源码注释：there's no going back），目录里剩 nul 与没删完的文件；按长路径（`\\?\` 前缀）整棵删掉就干净了。
+    - Bun 1.4.2 在 Windows 上列目录时把 nul 这类名字整个滤掉（Node 列得出来），而 TS 的 hub 只跑在 Bun 下，所以判据不能靠列出保留名。
+- **改法**（kit_hub.py 的 remove_workspaces 与 TS 的 land.ts 各一份）：
+  - 开始前读一遍 git 登记着的 worktree（`git worktree list --porcelain`）。
+  - git worktree remove --force 失败时，只有同时满足三条才按长路径把剩下的整棵删掉：调用之前登记着、调用之后已经不在登记里、目录还在。
+    - 删的时候只读文件先改回可写，复用 remove_inputs。
+    - 删干净了照常记 removed_at，另记 workspace.leftover_removed，带 git 的报错原文。
+  - 这几种照旧报进“偏离”，不动：
+    - 从没登记过的目录：记录里的路径指向别处，或者是仓库里的目录；
+    - 按长路径也删不掉的：文件被占着；
+    - git 放弃之后登记还在的。
+  - 比较路径先解析成真实路径（Python 的 Path.resolve，TS 的 pyResolve）：git 登记的是长名，临时目录常是 ADMINI~1 这样的 8.3 短名，只取绝对路径对不上。契约第一遍就红在这里。
+  - 长路径只对上一级目录取绝对路径：GetFullPathName 会把末尾的 nul 换成设备路径。别的平台上原样。
+- **测试**：test_kit_hub 加一条，只在 Windows 上跑：
+  - 登记着的阶段 worktree 里放 nul 与只读文件：结项清理之后目录与登记都没了，记了 leftover_removed；
+  - 从没登记过、里面也有 nul 的目录：不动，照旧报；
+  - 按长路径也删不掉、git 放弃之后登记还在：都照旧报；
+  - 8.3 短名与长名比较时是同一个。
+- **契约**：hub-land-scenes 加一段。保留设备名拷不进场景的快照，所以这段不走快照：每种实现各搭一套、各跑一次，各自的路径换成占位，账本解开之后再逐字比。Python、Node、Bun 三边一致。
+- **变异**：
+  - Python 7 条（`hub-leftover-worktree.py.json`），TS 4 条（`hub-leftover-worktree.ts.json`）。改坏的是：没登记过的也删、调用之后还在登记里也删、不按长路径删、删不掉的报错不接住、长路径对整条路径取绝对路径、比较路径不解析短名、记账不记 git 的报错。
+  - hub-h1.ts.json 的 L66（删不掉也记 removed_at）锚点跟着挪到新写法。
+  - 结果：全部抓住，Python 7 条、TS 4 条。
+- **检查**：每段都进重活车道。
+  - 类型检查 0 错；test_kit_hub.py 403 条全过（第 169 轮合入之前的基线上）。
+  - hub-land-scenes、hub-land 两份契约 18 条全过；mutation-specs、source-hygiene 2 份 5 条全过。
+  - 这一轮从第 168 轮的末端切出，合入前接到第 169 轮之后（两边都改了 tests/test_kit_hub.py 与 r3 文档，位置不挨着；TS 没有共同的文件），复查：类型检查 0 错；test_kit_hub.py 406 条全过；hub-land-scenes 加 mutation-specs、source-hygiene，3 份 21 条全过。
+- **没做**：
+  - 不拦工人写 nul：AGENTS.md 已经写了不要写，收候选那一侧第 104 轮已经会报。
+  - TS 一侧“调用之后登记还在就不动”这一支没有契约覆盖：真 git 删不掉时总会去掉登记，这种情形造不出来。Python 用例把登记换成桩，核了这一支。
+  - 已经留下、不在登记里的旧目录不自动删：分不出它们与从没登记过的目录。T039、T042 留下的站主已经手动删掉。
 
 ## 11. 已知缺口与下一步
 

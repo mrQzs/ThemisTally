@@ -1,0 +1,60 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "gave_up or stage_worktrees"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "Q01 调用之前没登记的目录也按长路径删",
+      "file": "scripts/kit_hub.py",
+      "old": "if not (path_key(path) in known and leftover_removed(hub, Path(path))):",
+      "new": "if not leftover_removed(hub, Path(path)):"
+    },
+    {
+      "name": "Q02 调用之后还在登记里也删",
+      "file": "scripts/kit_hub.py",
+      "old": "    if path_key(str(path)) in registered_worktrees(hub):",
+      "new": "    if False:"
+    },
+    {
+      "name": "Q03 不按长路径删",
+      "file": "scripts/kit_hub.py",
+      "old": "remove_inputs(Path(long_path(path)))",
+      "new": "remove_inputs(path)"
+    },
+    {
+      "name": "Q04 删不掉的报错不接住",
+      "file": "scripts/kit_hub.py",
+      "old": "        remove_inputs(Path(long_path(path)))\n    except OSError:",
+      "new": "        remove_inputs(Path(long_path(path)))\n    except ValueError:"
+    },
+    {
+      "name": "Q05 长路径对整条路径取绝对路径（末尾的 nul 变成设备）",
+      "file": "scripts/kit_hub.py",
+      "old": "os.path.join(os.path.abspath(str(path.parent)), path.name)",
+      "new": "os.path.abspath(str(path))"
+    },
+    {
+      "name": "Q06 比较路径不解析 8.3 短名",
+      "file": "scripts/kit_hub.py",
+      "old": "return os.path.normcase(str(Path(path).resolve()))",
+      "new": "return os.path.normcase(os.path.abspath(path))"
+    },
+    {
+      "name": "Q07 记账不记 git 的报错",
+      "file": "scripts/kit_hub.py",
+      "old": "kind=kind, path=path, error=error)",
+      "new": "kind=kind, path=path)"
+    }
+  ]
+}

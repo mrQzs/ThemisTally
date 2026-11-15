@@ -1,0 +1,40 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-land-scenes.contract.test.ts",
+    "-t",
+    "git 删到一半放弃",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "R01 调用之前没登记的目录也按长路径删",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "if (!(known.has(pathKey(path as string)) && leftoverRemoved(hub, purePathStr(path as string)))) {",
+      "new": "if (!leftoverRemoved(hub, purePathStr(path as string))) {"
+    },
+    {
+      "name": "R02 调用之前的登记读成空的",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "const known = registeredWorktrees(hub);",
+      "new": "const known = new Set<string>();"
+    },
+    {
+      "name": "R03 比较路径不解析 8.3 短名",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "return normcase(pyResolve(path));",
+      "new": "return normcase(abspath(path));"
+    },
+    {
+      "name": "R04 记账不记 git 的报错",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "[\"kind\", kind], [\"path\", path], [\"error\", error]]);",
+      "new": "[\"kind\", kind], [\"path\", path]]);"
+    }
+  ]
+}

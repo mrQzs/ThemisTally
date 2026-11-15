@@ -1630,6 +1630,7 @@ def remove_workspaces(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     """结项后清掉主任务的阶段 worktree（第 12 轮：T001–T003 结项后留下 10 个）。证据此前已经存进信箱
     （白盒测试文件、日志、变异记录）；删不掉的如实返回，不影响结项。"""
     problems: List[str] = []
+    known = registered_worktrees(hub)
     for kind, record in sorted(ts["workspaces"].items()):
         path = record.get("path")
         if not path or record.get("removed_at"):
@@ -1638,11 +1639,50 @@ def remove_workspaces(hub: Hub, ts: Dict[str, Any]) -> List[str]:
             proc = subprocess.run(["git", "worktree", "remove", "--force", path], cwd=str(hub.repo),
                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if proc.returncode != 0:
-                problems.append("%s：%s" % (path, proc.stderr.decode("utf-8", "replace").strip()[:200]))
-                continue
+                error = proc.stderr.decode("utf-8", "replace").strip()[:200]
+                if not (path_key(path) in known and leftover_removed(hub, Path(path))):
+                    problems.append("%s：%s" % (path, error))
+                    continue
+                hub.append_event("workspace.leftover_removed", task=ts["task"], kind=kind, path=path, error=error)
         record["removed_at"] = utc_now()
         hub.append_event("workspace.removed", task=ts["task"], kind=kind, path=path)
     return problems
+
+
+def registered_worktrees(hub: Hub) -> Set[str]:
+    """git 登记着的 worktree，路径照 path_key 写；读不出时是空的。"""
+    proc = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=str(hub.repo), stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    lines = proc.stdout.decode("utf-8", "replace").splitlines()
+    return {path_key(line[len("worktree "):]) for line in lines if line.startswith("worktree ")}
+
+
+def path_key(path: str) -> str:
+    """比较路径用的写法：解析成真实路径（8.3 短名换成长名：git 登记的是长名，临时目录常是 ADMINI~1 这样的短名），
+    Windows 上不分大小写、分隔符统一（git 列出来的是正斜杠）。"""
+    return os.path.normcase(str(Path(path).resolve()))
+
+
+def leftover_removed(hub: Hub, path: Path) -> bool:
+    """git worktree remove --force 删到一半放弃时的收尾（第 170 轮，候选 #34）。git 先删工作区，删不干净也照样去掉登记
+    （源码注释：there's no going back），目录里剩下它删不掉的：工人在 Git Bash 里写 `2>nul` 建出来的 nul 这类保留设备名
+    （T039、T042 各一次，站主按长路径手动删）。只在调用之前登记着、调用之后已经不在登记里时，按长路径把剩下的整棵删掉
+    （只读的先改回可写）；删干净了是 True。从没登记过的目录不动。"""
+    if path_key(str(path)) in registered_worktrees(hub):
+        return False
+    try:
+        remove_inputs(Path(long_path(path)))
+    except OSError:
+        return False
+    return not path.exists()
+
+
+def long_path(path: Path) -> str:
+    """Windows 的长路径写法（前缀加绝对路径）：按它删，保留设备名也只是普通文件名。只对上一级取绝对路径：GetFullPathName
+    会把末尾的 nul 换成设备路径。别的平台上原样。"""
+    if os.name != "nt":
+        return str(path)
+    return "\\\\?\\" + os.path.join(os.path.abspath(str(path.parent)), path.name)
 
 
 #: 还在跑或已领取的 attempt：结项收尾不动它们

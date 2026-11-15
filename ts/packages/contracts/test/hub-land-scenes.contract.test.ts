@@ -11,7 +11,7 @@
 //   - land_oracle、land_rework_chain、landing_chain、on_branch、landed_meanwhile：内容相同就不挑、部分相同照挑、files 为空、挑不上、
 //     已在分支上（祖先或 cherry-pick -x 的标记）、空提交、提交不存在、run_dir 为空、where 是别的 worktree。
 // 不写转义序列。
-import { mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { newTaskState } from "@themis/hub/taskstate";
@@ -19,7 +19,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { type Tagged, fromTagged, toTagged } from "../src/tagged.ts";
 import { IMPLS, type ProbeRequest, type ProbeResult, runBatch } from "./harness.ts";
 import { AT, C, LF, type Scene, agreeFlow, flow, pd, py, returned, scene, tsAfter } from "./flow-fixtures.ts";
-import { git, put, removeCreated, tempDir } from "./repo-fixtures.ts";
+import { git, normalize, put, removeCreated, tempDir } from "./repo-fixtures.ts";
 
 afterAll(removeCreated);
 
@@ -383,6 +383,48 @@ describe("第 ⑤h1 片：retire_attempts、remove_workspaces、tidy_finished（
       ["AttributeError", "'list' object has no attribute 'items'"], ["AttributeError", "'str' object has no attribute 'get'"],
       ["TypeError", "argument should be a str or an os.PathLike object where __fspath__ returns a str, not 'int'"],
     ]);
+  }, 600_000);
+
+  // 第 170 轮（候选 #34）：保留设备名拷不进场景的快照（cpSync 把 nul 当设备），重放前整棵删也删不掉，所以不走快照：每种实现各搭一套，
+  // 各跑一次，各自的根路径换成占位再逐字比。Bun 列目录时看不到 nul，判据靠 git 的登记，不靠列目录
+  it.skipIf(process.platform !== "win32")("remove_workspaces：git 删到一半放弃、登记已经去掉的 worktree 按长路径删掉并记账；从没登记过的目录（里面有 nul 也一样）照旧报出来", () => {
+    const longOf = (path: string): string => `${BS}${BS}?${BS}${path}`;
+    const build = (): { request: ProbeRequest; paths: Record<string, string>; forward: Record<string, string>; wt: string; stray: string; src: string } => {
+      const sc = scene(BASE_FILES);
+      const stray = join(tempDir("land-left"), "left-by-git");
+      for (const dir of [sc.wt, stray]) {
+        mkdirSync(join(dir, "ts"), { recursive: true });
+        writeFileSync(longOf(join(dir, "ts", "nul")), "File Not Found");
+      }
+      writeFileSync(join(sc.wt, "only-read.txt"), "x");
+      chmodSync(join(sc.wt, "only-read.txt"), 0o444);
+      const src = join(sc.repo, "src");
+      const workspaces = { "a-post": { path: sc.wt }, "b-left": { path: stray }, "c-src": { path: src } };
+      const request = { ...flow("remove_workspaces", sc, [landTs(sc, { workspaces })]), restores: [], roots: [sc.repo] };
+      // git 的报错里是解析过的长名、正斜杠：跑之前（目录还在）算好这种写法
+      const paths = { "<REPO>": sc.repo, "<WT>": sc.wt, "<LEFT>": stray };
+      const forward = Object.fromEntries(Object.entries(paths).map(([label, path]) => [label, realpathSync.native(path).split(BS).join("/")]));
+      return { request, paths, forward, wt: sc.wt, stray, src };
+    };
+    const runs = IMPLS.map((impl) => {
+      const { request, paths, forward, wt, stray, src } = build();
+      const [result] = runBatch(impl, [request], 600_000);
+      // 写出的文件与账本新增的部分是 base64：解开再换路径
+      const plain = (data: string): string => Buffer.from(data, "base64").toString("utf8");
+      const value = result?.["value"] as Record<string, unknown>;
+      const files = value["files"] as { write: Record<string, string>; delete: unknown };
+      const write = Object.fromEntries(Object.entries(files.write).map(([rel, data]) => [rel, plain(data)]));
+      const opened = { ...value, files: { ...files, write }, ledger: plain(value["ledger"] as string) };
+      const shown = normalize(normalize(JSON.stringify(opened), paths), forward);
+      return { impl: impl.name, shown, value: result?.["value"] as Record<string, unknown>, wt, stray, src };
+    });
+    for (const run of runs.slice(1)) expect(run.shown, `${run.impl} 与 Python 不同`).toBe(runs[0]?.shown);
+    for (const run of runs) {
+      expect([existsSync(run.wt), existsSync(run.stray)], run.impl).toEqual([false, true]);
+      expect((returned(run.value) as string[]).map((item) => item.split("：")[0]), run.impl).toEqual([run.stray, run.src]);
+      const kinds = tsAfter(run.value).get("workspaces") as PyDict;
+      expect(["a-post", "b-left", "c-src"].map((kind) => (kinds.get(kind) as PyDict).has("removed_at")), run.impl).toEqual([true, false, false]);
+    }
   }, 600_000);
 });
 
