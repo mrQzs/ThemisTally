@@ -1,0 +1,299 @@
+{
+  "schema_version": 1,
+  "task_id": "t043-desktop-web-quizs-block",
+  "plan_version": 2,
+  "title": "桌面端前端第 9 片：CLI 运行时页的 Quizs 一块（模型配置 M4 之三，T042 拆出的前端一半）",
+  "repository": "ThemisTally",
+  "base_sha": "b73da92077dde894a5dfb47bee7d1c46c86a567a",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-RuntimesView.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-styles.css",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/page-runtimes.test.tsx",
+      "desktop/web/tests/writes-remove.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/mock/quizs.ts",
+      "desktop/web/src/pages/readonly1/runtimes-QuizsBlock.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-quizs-logic.ts",
+      "desktop/web/tests/page-quizs.test.tsx",
+      "desktop/web/tests/quizs-logic.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t043_*.py",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/components/**",
+      "desktop/web/src/writes/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t043_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d+ passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`getQuizsProviders()` 与 `getQuizsLive()` 两条分支都成立：真实模式分别是 `GET /api/v1/quizs/providers`（60 秒）与 `GET /api/v1/quizs/live`（150 秒）、失败不回落桩；桩模式命令是 `config quizs providers --json` 与 `config quizs live --json`，`?mock=loading` 挂起、`?mock=error` 回错误信封。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "真实模式下页面不能拿桩当真实档案显示"
+    },
+    {
+      "id": "D02",
+      "text": "类型与夹具只用 T042 白名单登记的字段（providers：provider/model/thinking/billing；live：source/provider/problem/status.problem/state/missing/certificate.expires_at_ms/profile.valid_until）；没有「档案 id」列，不显示 live_dir、plan.*、issued_at_ms。",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "服务只放行这些字段，前端不该显示拿不到或不该显示的东西"
+    },
+    {
+      "id": "D03",
+      "text": "页面并行发出三个读；只有 runtimes 失败才整页失败（错误块照旧写命令与退出码）；两个 Quizs 信封整个放进视图数据；`isEmpty` 仍只看 runtimes 的长度；`?mock=` 五态下的页面状态与现在一样。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "Quizs 读不出来时这一页仍然可用"
+    },
+    {
+      "id": "D04",
+      "text": "Quizs 区块在「就绪检查」之后，标题「Quizs」；提供方档案表四列、live 套表恰好六列（两表的列头与「区块与 DOM」一节逐字一致、顺序照旧）；区块里没有按钮、没有 `role=status`、没有内联 style、不嵌没有标题的 section。",
+      "evidence": [
+        "V01",
+        "G01",
+        "V03"
+      ],
+      "intent": "这一块是只读展示，不提前开写入口，也不撞 T009 的按钮白名单与悬停提示断言"
+    },
+    {
+      "id": "D05",
+      "text": "逐字表落地：计费三值「仅测试 / 套餐额度 / 预付余额」（认不出原样）；状态「就绪 / 已过期 / 构建不一致 / 无效 / 缺文件 / 读不出 / 未知」且只有「就绪」不醒目；来源「信箱 / 环境变量」；下一步文本「不用动 / 续期后再看 / 重新构建这一套 / 换一套能用的 / 补齐缺的文件 / 看这一套自己的问题 / 按这一套的说明处理」，missing 状态追加「缺 <文件名>」；「下一步」列按逐字表的拼接规则写（下一步文本在前、问题文字在后、中间「；」；问题文字内部 `problem` 与 `status.problem` 也用「；」；某段为空只写另一段；两段都空显示「—」）；空列表文案「还没有 Quizs 提供方档案」「还没有 Quizs live 套」。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "文案没有出处可依，由合同写死才能被断言与复审"
+    },
+    {
+      "id": "D06",
+      "text": "错误路径：providers 失败 → 区块写「Quizs 跑不起来」+ 命令 + 退出码 + messages，live 表照自己的信封显示；live 失败 → 只在 live 表位置写读失败；两封都坏 → 顶部「Quizs 跑不起来」且每套状态「读不出」、该套的「下一步」列按拼接规则写出自己的 problem；Quizs 失败不影响整页与另两节。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "没设 QUIZS_CMD 时只有这一块坏，页面其余照常"
+    },
+    {
+      "id": "D07",
+      "text": "时刻经 `components/RelativeTime.tsx` 的 `formatLocalUtc` 显示（毫秒整数先转 ISO）；null、非法值显示「—」；本片任何文件都不出现「（UTC 」字面量（这条只由 T013 的单一来源断言负责）。",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "本地时间随机器时区变，写死会红，且「（UTC 」只能有一份"
+    },
+    {
+      "id": "D08",
+      "text": "新代码守既有源码规矩：`src/mock/quizs.ts` 与 `src/pages/readonly1/**` 不渲染 `role=status`、不调 matchMedia/scrollIntoView/ResizeObserver/IntersectionObserver、不写十六进制颜色与颜色函数；`src` 下不出现网络词与危险 HTML 写入/动态求值类词（注意 `page-static.test.ts` 按子串查，命名避开 refetch/prefetch 之类）；CSS 只用令牌、带 px 的行有出处注释、不用 `rt-table` 类。",
+      "evidence": [
+        "G01",
+        "R01",
+        "V02"
+      ],
+      "intent": "不破 T006/T009/T023 的长期门禁"
+    },
+    {
+      "id": "D09",
+      "text": "既有测试没被删、跳过或弱化：`page-app.test.tsx` 运行时页禁用钮仍是 5 个（区块里不加按钮）、`readonly2-app.test.tsx` 不改、`live-api.test.ts` 只加两行、另两处既有测试只补视图属性参数；新测试不用 skip/only/todo。",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "既有断言是长期保护，不能为了新功能放松"
+    },
+    {
+      "id": "D10",
+      "text": "所有修改都在允许集合内（7 个可改文件、5 个可新增文件），没有碰 forbidden_paths；`src/mock` 仍恰 14 份 JSON、`src/pages` 顶层仍恰 9 个 `*Page.tsx`；`package.json` 与锁文件不变。",
+      "evidence": [
+        "scope",
+        "G01",
+        "R01",
+        "V03"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘，也不许新增依赖"
+    },
+    {
+      "id": "D11",
+      "text": "纯函数 `billingLabel`、`liveStateLabel`、`liveSourceLabel`、`liveNextStep`、`nextStepCell`、`formatMsUtc`、`formatIsoUtc`、`providersUnavailable`、`liveUnavailable` 都有测试（含 null、非法值与认不出的枚举值）。",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "文案与兜底的边界先钉住，视图只负责摆"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
