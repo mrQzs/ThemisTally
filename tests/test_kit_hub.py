@@ -8085,7 +8085,9 @@ def test_a_coordinator_turn_hands_in_through_deliver(tmp_path):
     turn, seen = coordinator_turn(tmp_path, deliver_events((good, False)))
     cmd, env = seen[0]
     assert cmd[cmd.index("--extension") + 1] == str(kh.DELIVER_EXTENSION) and cmd[cmd.index("--tools") + 1].endswith(",deliver")
-    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "coordinator.json")
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(Path(turn["turn_dir"]) / kh.TOOL_SCHEMA_FILE)  # 第 169 轮：英文键的那份
+    assert json.loads(Path(env["THEMIS_DELIVER_SCHEMA"]).read_text(encoding="utf-8")) == kh.tool_schema("coordinator")
+    assert kh.tool_schema("coordinator") == kh.role_schema("coordinator")
     assert turn["output"] == good and turn["output_error"] is None
     record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "tool" and set(record["delivery_sha256"]) == {"deliver.ts", "guard.ts", "coordinator.json"}
@@ -8104,7 +8106,8 @@ def test_an_audit_turn_hands_in_through_deliver(tmp_path):
     turn, seen = coordinator_turn(tmp_path, deliver_events((missing, True), (good, False)), agent="audit-sonnet",
                                   key="T001-4-audit-pre")
     cmd, env = seen[0]
-    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "audit.json")
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(Path(turn["turn_dir"]) / kh.TOOL_SCHEMA_FILE)  # 第 169 轮：英文键的那份
+    assert json.loads(Path(env["THEMIS_DELIVER_SCHEMA"]).read_text(encoding="utf-8")) == kh.tool_schema("audit")
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,deliver"
     assert turn["output"] == good and turn["output_error"] is None
     _meta, fields = kh.letter_from_output("audit-sonnet", "T001-4-audit-pre", turn["output"])
@@ -8123,7 +8126,8 @@ def test_a_gate_turn_hands_in_through_deliver(tmp_path):
     turn, seen = coordinator_turn(tmp_path, deliver_events((inline, True), (good, False)), agent="gate-sonnet",
                                   key="T001-6-gate-post")
     cmd, env = seen[0]
-    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "gate.json")
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(Path(turn["turn_dir"]) / kh.TOOL_SCHEMA_FILE)  # 第 169 轮：英文键的那份
+    assert json.loads(Path(env["THEMIS_DELIVER_SCHEMA"]).read_text(encoding="utf-8")) == kh.tool_schema("gate")
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,edit,write,bash,deliver"
     assert turn["output"] == good and turn["output_error"] is None
     assert kh.candidate_defects(turn["output"]) == ([good["candidate_defects"][0]], [])
@@ -8139,9 +8143,106 @@ def test_a_contract_turn_hands_in_through_deliver(tmp_path):
     turn, seen = coordinator_turn(tmp_path, deliver_events((dict(good, contract_md=""), True), (good, False)),
                                   agent="contract-glm", key="T001-2-contract")
     cmd, env = seen[0]
-    assert env["THEMIS_DELIVER_SCHEMA"] == str(kh.SCHEMA_DIR / "contract.json")
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(Path(turn["turn_dir"]) / kh.TOOL_SCHEMA_FILE)  # 第 169 轮：英文键的那份
+    assert json.loads(Path(env["THEMIS_DELIVER_SCHEMA"]).read_text(encoding="utf-8")) == kh.tool_schema("contract")
     assert cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,deliver"
     assert turn["output"] == good and turn["output_error"] is None
+
+
+AUDIT_LETTER = {"type": "交付", "in_reply_to": "m1", "摘要": "一审", "提交": "无", "验证": "无", "偏离": "无", "需协调人决定": "无",
+                "下游须知": "无", "证据": "无", "结论": "通过", "退回": "无", "阻塞项": "无"}
+
+
+def english_letter(letter):
+    names = {chinese: name for name, chinese in kh.LETTER_KEYS}
+    return {names.get(key, key): value for key, value in letter.items()}
+
+
+def test_workers_see_english_letter_keys_and_the_kernel_takes_them_in_chinese():
+    # 第 169 轮：pi 上的 MiniMax 常把 letter 的中文键翻成英文，被退回之后同一会话里接着错（审核端、合同端跑满过 5 个
+    # 2400 秒的回合）。给模型看的 schema 与格式改用英文键，内核收下时换回中文；中文键照收
+    names = {chinese: name for name, chinese in kh.LETTER_KEYS}
+    for role in ("planner", "contract", "gate", "audit"):
+        source, shown = kh.role_schema(role), kh.tool_schema(role)
+        letter, told = source["properties"]["letter"], shown["properties"]["letter"]
+        assert [key for key in letter["properties"] if key not in ("type", "in_reply_to") and key not in names] == [], role
+        assert list(told["properties"]) == [names.get(key, key) for key in letter["properties"]], role
+        assert told["required"] == [names.get(key, key) for key in letter["required"]], role
+        assert told["properties"]["summary"]["description"] == "摘要"
+        assert told["properties"]["evidence"]["description"] == "证据：没有就写“无”"
+        assert told["properties"]["type"] == letter["properties"]["type"]
+        assert kh.schema_problems(shown) == []
+        rest = {key: value for key, value in source["properties"].items() if key != "letter"}
+        assert {key: value for key, value in shown["properties"].items() if key != "letter"} == rest, role
+    assert kh.tool_schema("coordinator") == kh.role_schema("coordinator")  # 协调人的 letters 不换：557 个回合只退回 3 次
+    good = {"letter": AUDIT_LETTER, "report": "# 一审", "state": ""}
+    told = dict(good, letter=english_letter(AUDIT_LETTER))
+    assert kh.delivered_output("audit", told) == (good, None)
+    assert kh.delivered_output("audit", good) == (good, None)  # 中文键照收：旧会话、quizs 上照中文写的
+    half = dict(good, letter={key: value for key, value in told["letter"].items() if key not in ("summary", "evidence")})
+    half["letter"].update(摘要="一审", 证据="无")
+    assert kh.delivered_output("audit", half) == (good, None)
+    both = dict(good, letter=dict(AUDIT_LETTER, summary="又一份"))  # 同名的中文键已经在：英文那个不换，复核报多了
+    output, problem = kh.delivered_output("audit", both)
+    assert output is None and "$.letter 多了 summary" in problem
+    output, problem = kh.delivered_output("audit", dict(told, letter=english_letter({k: v for k, v in AUDIT_LETTER.items() if k != "阻塞项"})))
+    assert output is None and "$.letter 缺 阻塞项" in problem  # 换回中文之后按原件复核，报的是中文栏目
+    assert kh.chinese_letter({"letters": [], "state": ""}) == {"letters": [], "state": ""}
+    assert kh.chinese_letter({"letter": "不是对象"}) == {"letter": "不是对象"}
+
+
+def test_a_turn_that_never_handed_in_says_how_often_and_why():
+    # 第 169 轮：原来一律写“pi 调 deliver 工具，claude 交 StructuredOutput”，T042 的协调人据此把 pi 上审核端的 30 次退回
+    # 当成了“claude 未交 StructuredOutput”
+    refused = '''Validation failed for tool "deliver":
+  - letter: must have required properties summary
+  - letter.摘要: schema is false
+
+Received arguments:
+{"letter": {"摘要": "x"}}'''
+    reason = 'Validation failed for tool "deliver": - letter: must have required properties summary - letter.摘要: schema is false'
+    assert kh.refusal_reason(refused) == reason
+    assert kh.refusal_reason("甲" * 500) == "甲" * 400
+    assert kh.refusal_reason("") == ""
+    audit = {"deliver_refusals": [len(refused), 3], "deliver_last_refusal": reason}
+    assert kh.no_delivery_problem("pi", audit) == "这一回合交差被退回 2 次，没有交上；最后一次退回的原因：" + reason
+    assert kh.no_delivery_problem("claude", {"deliver_refusals": [1]}) == "这一回合交差被退回 1 次，没有交上；最后一次退回的原因：（没读到）"
+    assert kh.no_delivery_problem("pi", {}) == "这一回合没有调用 deliver 工具交差（消息里的 json 代码块内核不读）"
+    assert kh.no_delivery_problem("claude", {"deliver_refusals": []}) == "这一回合没有用 StructuredOutput 交差（消息里的 json 代码块内核不读）"
+    assert kh.delivered_output("audit", None, "pi", audit) == (None, kh.no_delivery_problem("pi", audit))
+
+
+def test_an_audit_turn_takes_english_keys_and_a_refused_turn_says_why(tmp_path, monkeypatch):
+    good = {"letter": AUDIT_LETTER, "report": "# 一审", "state": ""}
+    told = dict(good, letter=english_letter(AUDIT_LETTER))
+    turn, seen = coordinator_turn(tmp_path / "a", deliver_events((good, True), (told, False)), agent="audit-sonnet",
+                                  key="T001-4-audit-pre")
+    _cmd, env = seen[0]
+    assert env["THEMIS_DELIVER_SCHEMA"] == str(Path(turn["turn_dir"]) / kh.TOOL_SCHEMA_FILE)
+    assert json.loads(Path(env["THEMIS_DELIVER_SCHEMA"]).read_text(encoding="utf-8")) == kh.tool_schema("audit")
+    assert turn["output"] == good and turn["output_error"] is None
+    _meta, fields = kh.letter_from_output("audit-sonnet", "T001-4-audit-pre", turn["output"])
+    assert (fields["摘要"], fields["结论"], fields["阻塞项"]) == ("一审", "通过", "无")
+
+    def refusal(call, text):
+        return [{"type": "tool_execution_start", "toolCallId": call, "toolName": "deliver", "args": {}},
+                {"type": "tool_execution_end", "toolCallId": call, "toolName": "deliver", "isError": True,
+                 "result": {"content": [{"type": "text", "text": text}], "details": {}}}]
+
+    later = '''Validation failed for tool "deliver":
+  - report: must have required properties report
+
+Received arguments:
+{}'''
+    turn, _seen = coordinator_turn(tmp_path / "b", refusal("d0", "第一次") + refusal("d1", later), agent="audit-sonnet",
+                                   key="T001-4-audit-pre")
+    assert turn["output"] is None and turn["api_error"] is None
+    assert turn["output_error"] == ("这一回合交差被退回 2 次，没有交上；最后一次退回的原因："
+                                    'Validation failed for tool "deliver": - report: must have required properties report')
+    monkeypatch.setitem(kh.DELIVERY_SHA256, "audit.json", "0" * 64)  # 被挡下的回合不写那份 schema
+    turn, seen = coordinator_turn(tmp_path / "c", [], agent="audit-sonnet", key="T001-4-audit-pre")
+    assert seen == [] and "交差工具的文件被改过" in turn["api_error"]
+    assert not (Path(turn["turn_dir"]) / kh.TOOL_SCHEMA_FILE).exists()
 
 
 def test_a_changed_planner_schema_stops_the_claude_turn(tmp_path, monkeypatch):
@@ -8181,7 +8282,7 @@ def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
     runner = kh.TurnRunner(hub, launcher=launcher)
     turn = runner.run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")
     cmd = seen[0]
-    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == kh.role_schema("planner")
+    assert json.loads(cmd[cmd.index("--json-schema") + 1]) == kh.tool_schema("planner")  # 第 169 轮：英文键的那份
     assert cmd[cmd.index("--tools") + 1] == "Read,Grep,Glob,Bash"  # StructuredOutput 由 CLI 加，不进 --tools
     assert turn["violations"] == [] and turn["output"] == good and turn["output_error"] is None
     record = json.loads((Path(turn["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
@@ -8191,7 +8292,7 @@ def test_the_planner_hands_in_through_claude_json_schema(tmp_path):
     assert (record["deliver_refusals"], record["deliver_refusal_chars"]) == (1, 8)
     assert (record["thinking_chars"], record["thinking_tokens"]) == (None, 28501)
     turn = runner.run("planner-opus", "T001-1-plan", tmp_path / "ws", "角色", "输入")  # 交不成：structured_output 为 null
-    assert turn["output"] is None and "没有成功交差" in turn["output_error"]
+    assert turn["output"] is None and turn["output_error"] == "这一回合交差被退回 1 次，没有交上；最后一次退回的原因：缺 letter"
 
 
 def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
@@ -8200,7 +8301,7 @@ def test_no_deliver_or_a_bad_one_is_an_invalid_output(tmp_path):
                                                "stopReason": "stop", "content": [
                                                    {"type": "text", "text": "```json\n{\"letters\": [], \"state\": \"x\"}\n```"}]}}
     turn, _seen = coordinator_turn(tmp_path / "a", [text])  # 代码块不再算数（第 110 轮撤掉了解析，防有人加回去）
-    assert turn["output"] is None and "没有成功交差" in turn["output_error"] and turn["api_error"] is None
+    assert turn["output"] is None and "这一回合没有调用 deliver 工具交差" in turn["output_error"] and turn["api_error"] is None
     # pi 收了、内核复核不过（两边判定不一致时）：照样是输出不合格
     turn, _seen = coordinator_turn(tmp_path / "b", deliver_events(({"letters": [], "state": 1}, False)))
     assert turn["output"] is None and "内核复核不过" in turn["output_error"] and "$.state 应当是 string" in turn["output_error"]
@@ -8532,7 +8633,7 @@ def test_a_delivery_the_kernel_cannot_read_is_an_interface_error(tmp_path):
     assert turn["output"] == good and turn["api_error"] is None
     # 只有一次被 schema 退回的 deliver（isError）：工人自己的错，照输出不合格走、同一会话重试，不打扰站主
     turn, _seen = coordinator_turn(tmp_path / "e", deliver_events(({"letters": "x"}, True)))
-    assert turn["api_error"] is None and "没有成功交差" in turn["output_error"]
+    assert turn["api_error"] is None and turn["output_error"] == "这一回合交差被退回 1 次，没有交上；最后一次退回的原因：x"
     # pi 一条回复都没有就以退出码 1 结束（扩展加载失败）
     hub = kh.Hub(tmp_path / "c")
     hub.ensure()
@@ -8554,7 +8655,7 @@ def test_a_delivery_the_kernel_cannot_read_is_an_interface_error(tmp_path):
         return {"exit_code": 1, "timed_out": False, "wall_seconds": 3.0}
 
     turn = kh.TurnRunner(hub, launcher=crashed).run(kh.COORDINATOR, "T001", tmp_path / "c", "角色", "输入")
-    assert turn["api_error"] is None and "没有成功交差" in turn["output_error"]
+    assert turn["api_error"] is None and "没有调用 deliver 工具交差" in turn["output_error"]
     # claude：StructuredOutput 被 CLI 收下了，result 里却没有 structured_output
     planner = kh.ROSTER["planner-opus"]
     hub = kh.Hub(tmp_path / "d")
@@ -8671,6 +8772,11 @@ def test_the_prompt_says_how_to_hand_in(tmp_path):
     assert "交付以外的信写“无”" in audit and "不是返工写“无”" in audit  # 三项都必填，schema 卡着
     gate = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], tmp_path)
     assert "## 交差（用 deliver 工具）" in gate and "照旧内联" not in gate  # 第 98 轮：清单只交文件
+    # 第 169 轮：工人看到的格式与说明是英文键，括号与尖括号里写中文栏目；协调人的不变
+    for prompt in (contract, planner, audit, gate):
+        assert '"summary": "<摘要>"' in prompt and "letter 的键照上面逐字写英文" in prompt
+    assert '"摘要": "…"' in coordinator and "letter 的键照上面逐字写英文" not in coordinator
+    assert '"conclusion"（结论）' in audit and '"return_to"（退回）' in audit and '"blockers"（阻塞项）' in audit
 
 
 def test_kernel_changes_lists_uncommitted_kernel_files(tmp_path):

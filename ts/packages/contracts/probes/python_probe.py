@@ -1372,7 +1372,7 @@ def op_hub_prompt(request):
         Path(request["started"]).write_text("", encoding="utf-8")
     try:
         if fn in ("render_template", "role_prompt", "engineering_rules", "delivery_problem", "role_schema", "external_facts_section",
-                  "interface_problem"):
+                  "interface_problem", "tool_schema", "chinese_letter", "refusal_reason", "no_delivery_problem"):
             value = getattr(kit_hub, fn)(*args)
         elif fn in ("transitional_section", "worker_file_problem"):
             value = getattr(kit_hub, fn)(Path(args[0]))

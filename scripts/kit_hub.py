@@ -51,6 +51,13 @@ GUARD_EXTENSION = TEMPLATE_DIR / "guard.ts"
 GUARD_PREFIX = "内核拦下："
 GUARD_SUFFIX = "。这一步没有执行：在工作目录里写，读只读输入目录或工作目录里的那一份，已经装好的依赖用 read、grep、find、ls 按路径读，接着干；不要换写法绕过去"
 SCHEMA_DIR = TEMPLATE_DIR / "schemas"
+#: 第 169 轮：交差的 letter 给模型看英文键，内核收下时按这张表换回中文栏目。pi 上的 MiniMax 常把中文键翻成英文
+#: （summary、submission、downstream……），按 schema 退回之后同一会话里接着错，审核端、合同端为此跑满过 5 个 2400 秒的回合
+LETTER_KEYS = (("summary", "摘要"), ("commits", "提交"), ("verification", "验证"), ("deviations", "偏离"),
+               ("needs_coordinator_decision", "需协调人决定"), ("downstream_notes", "下游须知"), ("evidence", "证据"),
+               ("conclusion", "结论"), ("return_to", "退回"), ("blockers", "阻塞项"))
+#: 第 169 轮：交给 pi 的那份 schema（tool_schema）写在回合目录里，deliver.ts 读它
+TOOL_SCHEMA_FILE = "deliver-schema.json"
 #: 内核复核 schema 时只认这些关键字（themistally-15 定的子集）：Python 用标准库实现，与 pi 的 TypeBox 判定一致
 SCHEMA_KEYWORDS = {"type", "properties", "required", "additionalProperties", "enum", "const", "items", "minLength",
                    "maxLength", "pattern", "description"}
@@ -376,12 +383,61 @@ def role_schema(role: str) -> Dict[str, Any]:
     return json.loads((SCHEMA_DIR / ("%s.json" % role)).read_text(encoding="utf-8"))
 
 
-def delivered_output(role: str, delivered: Optional[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+def tool_schema(role: str) -> Dict[str, Any]:
+    """给模型看的交差 schema（第 169 轮）：letter 的中文键换成 LETTER_KEYS 的英文名，描述前面加上中文栏目名。
+    协调人的 letters 不换：557 个回合只退回过 3 次。"""
+    schema = role_schema(role)
+    letter = (schema.get("properties") or {}).get("letter")
+    if not isinstance(letter, dict):
+        return schema
+    english = {chinese: name for name, chinese in LETTER_KEYS}
+    properties = {}
+    for key, sub in (letter.get("properties") or {}).items():
+        if key in english:
+            sub = dict(sub, description="%s：%s" % (key, sub["description"]) if sub.get("description") else key)
+        properties[english.get(key, key)] = sub
+    letter["properties"] = properties
+    letter["required"] = [english.get(key, key) for key in letter.get("required") or []]
+    return schema
+
+
+def chinese_letter(delivered: Dict[str, Any]) -> Dict[str, Any]:
+    """交上来的 letter 里认得的英文键换回中文栏目（第 169 轮）。同名的中文键已经在时不换，留给复核报“多了”；中文键照收，
+    旧会话与 quizs 上照中文写的都不受影响。"""
+    letter = delivered.get("letter")
+    if not isinstance(letter, dict):
+        return delivered
+    chinese = dict(LETTER_KEYS)
+    renamed = {}
+    for key, value in letter.items():
+        target = chinese.get(key)
+        renamed[target if target is not None and target not in letter else key] = value
+    return dict(delivered, letter=renamed)
+
+
+def refusal_reason(text: str) -> str:
+    """交差工具退回的原因（第 169 轮）：pi 把收到的参数原样接在 Received arguments 后面，只取前面的报错，压成一行，最多 400 字。"""
+    return " ".join(text.split("Received arguments", 1)[0].split())[:400]
+
+
+def no_delivery_problem(adapter: str, audit: Dict[str, Any]) -> str:
+    """没交上（第 169 轮）：退回过就写明几次与最后一次的原因，没退回过按载体说没交哪个工具。原来一律写“pi 调 deliver 工具，
+    claude 交 StructuredOutput”，T042 的协调人据此把 pi 上审核端的 30 次退回当成了“claude 未交 StructuredOutput”。"""
+    refusals = len(audit.get("deliver_refusals") or [])
+    if refusals:
+        return "这一回合交差被退回 %d 次，没有交上；最后一次退回的原因：%s" % (refusals, audit.get("deliver_last_refusal") or "（没读到）")
+    how = "用 %s 交差" % STRUCTURED_TOOL if adapter == "claude" else "调用 deliver 工具交差"
+    return "这一回合没有%s（消息里的 json 代码块内核不读）" % how
+
+
+def delivered_output(role: str, delivered: Optional[Dict[str, Any]], adapter: str = "pi",
+                     audit: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """用 deliver 交差的回合的输出（第 90 轮）：最后一次成功的 deliver 的参数，内核再按同一份 schema 复核一遍。
     没交或复核不过都按“输出不合格”走，第 32、82 轮的重试规矩照旧。返回（输出，问题）。"""
     if delivered is None:
-        return None, ("这一回合没有成功交差（pi 调 deliver 工具，claude 交 StructuredOutput；"
-                      "内核不再从最后一条消息里找 json 代码块）")
+        return None, no_delivery_problem(adapter, audit or {})
+    if isinstance(delivered, dict):
+        delivered = chinese_letter(delivered)
     errors = schema_errors(role_schema(role), delivered)
     if errors:
         return None, "deliver 交上来的参数内核复核不过：%s" % "；".join(errors[:8])
@@ -1781,6 +1837,7 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
     structured: set = set()  # StructuredOutput 的 tool_use id（第 102 轮：数被退回几次）
     accepted = 0  # 其中被 CLI 收下的次数（第 110 轮）
     refusals: List[int] = []
+    last_refusal: Optional[str] = None  # 第 169 轮：最后一次退回的原因
     events, unreadable = stream_events(lines)
     if unreadable:
         violations.append(UNREADABLE_STREAM % unreadable)
@@ -1830,6 +1887,7 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
                     refused.add(block["tool_use_id"])
                 elif block.get("tool_use_id") in structured:
                     refusals.append(len(str(block.get("content") or "")))
+                    last_refusal = refusal_reason(str(block.get("content") or ""))
         elif kind == "rate_limit_event":
             info = event.get("rate_limit_info") or {}
             rejected_until = info.get("resetsAt") if info.get("status") == "rejected" else None
@@ -1864,7 +1922,8 @@ def audit_claude_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: O
                   if accepted and delivered is None else None)
     return {"violations": violations, "warnings": warnings, "tool_calls": tool_calls, "delivered": delivered,
             "delivered_unreadable": unreadable,
-            "deliver_refusals": refusals, "thinking_chars": None, "thinking_tokens": thinking,
+            "deliver_refusals": refusals, "deliver_last_refusal": last_refusal, "thinking_chars": None,
+            "thinking_tokens": thinking,
             "init_session": init.get("session_id"),
             "final_text": str(result.get("result") or ""), "is_error": bool(result.get("is_error")),
             "cost_usd": result.get("total_cost_usd"), "usage": result.get("usage") or {},
@@ -2186,8 +2245,8 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
     allowed = set(spec["tools"])
     audit: Dict[str, Any] = {"violations": [], "tool_calls": {}, "models": [], "effective_levels": [], "usage": None,
                              "cost_usd": None, "delivered": None, "delivery_error": None, "api_error": None, "terminal": False,
-                             "warnings": [], "deliver_refusals": [], "thinking_chars": None, "thinking_tokens": None,
-                             "rate_limited_until": None}
+                             "warnings": [], "deliver_refusals": [], "deliver_last_refusal": None, "thinking_chars": None,
+                             "thinking_tokens": None, "rate_limited_until": None}
     result = None
     for line in lines:
         try:
@@ -2262,6 +2321,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
     reach: Dict[str, str] = {}  # 第 106 轮：碰了不该碰的地方的调用，toolCallId → 说明；守卫当场拦下的只记警告
     delivered: Optional[Dict[str, Any]] = None  # 最后一次成功的 deliver 交上来的参数（第 90 轮）
     refusals: List[int] = []  # 第 102 轮：deliver 每次被退回时报错的长度（pi 把收到的参数原样写进报错）
+    last_refusal: Optional[str] = None  # 第 169 轮：最后一次退回的原因，没交上时写进给重交回合与协调人的说法
     # deliver 报了成功、result.details 却不是对象的次数（第 110 轮）。第 133 轮：原来与下面读不出的行数同名，
     # 事件流里有一行坏的就报“deliver 报了成功 1 次”，interface_problem 把回合当成接口变了交给站主
     unread_details = 0
@@ -2299,6 +2359,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
             details = (event.get("result") or {}).get("details")
             if event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed and event.get("isError"):
                 refusals.append(len(text))
+                last_refusal = refusal_reason(text)
             elif (event.get("toolName") == DELIVER_TOOL and DELIVER_TOOL in allowed
                     and isinstance(details, dict)):
                 delivered = details
@@ -2336,7 +2397,7 @@ def audit_pi_stream(lines: Sequence[str], spec: Dict[str, Any], workspace: Optio
             "effective_levels": sorted(levels), "stop_reason": stop, "usage": usage, "models": sorted(models),
             "terminal": terminal, "is_error": stop not in (None, "stop"), "api_error": api_error, "delivered": delivered,
             "delivered_unreadable": "deliver 报了成功 %d 次，result.details 却不是对象" % unread_details if unread_details else None,
-            "deliver_refusals": refusals, "thinking_chars": thinking,
+            "deliver_refusals": refusals, "deliver_last_refusal": last_refusal, "thinking_chars": thinking,
             # 第 103 轮：有的提供方回报 reasoning token（probe99 的 MiniMax 1223），有的回报 0（dsf），字数补上
             "thinking_tokens": usage.get("reasoning")}
 
@@ -2459,7 +2520,7 @@ class TurnRunner:
                     for root in [self.hub.repo] + ([inputs] if inputs is not None else [])]
             cmd += ["--permission-prompts", "none", "--append-system-prompt-file", str(role_path)]
             # haiku 实测：5.3 万字符的 report 一次交上、逐字一致，--resume 之后照样能交
-            cmd += ["--json-schema", json.dumps(role_schema(spec["role"]), ensure_ascii=False, separators=(",", ":"))]
+            cmd += ["--json-schema", json.dumps(tool_schema(spec["role"]), ensure_ascii=False, separators=(",", ":"))]
             cmd += (["--session-id", session["id"]] if first else ["--resume", session["id"]]) + [inline]
             cmd[0] = shutil.which("claude") or "claude"
         elif quizs:
@@ -2510,7 +2571,7 @@ class TurnRunner:
         if spec["adapter"] == "claude":
             env.update(CLAUDE_WORKER_ENV)
         if spec["adapter"] == "pi":
-            env["THEMIS_DELIVER_SCHEMA"] = str(SCHEMA_DIR / ("%s.json" % spec["role"]))
+            env["THEMIS_DELIVER_SCHEMA"] = str(turn_dir / TOOL_SCHEMA_FILE)  # 第 169 轮：英文键的那份，没被挡下才写
             env["THEMIS_GUARD"] = guard_config(workspace, self.hub.repo)
         if quizs:
             view = workspace if spec["role"] in QUIZS_REPO_VIEW_ROLES else None
@@ -2523,6 +2584,9 @@ class TurnRunner:
             blocked = delivery_problem(spec["role"]) if spec["adapter"] == "claude" else (
                 pi_flags_problem(pi_cmd, cmd[len(pi_cmd):], env) or worker_file_problem(GUARD_EXTENSION)
                 or delivery_problem(spec["role"]))
+        if spec["adapter"] == "pi" and not blocked:
+            (turn_dir / TOOL_SCHEMA_FILE).write_text(json.dumps(tool_schema(spec["role"]), ensure_ascii=False, separators=(",", ":")),
+                                                     encoding="utf-8", newline="\n")
         with open(turn_dir / "stream.jsonl", "xb") as out, open(turn_dir / "stderr.log", "xb") as err:
             result = ({"exit_code": None, "timed_out": False, "wall_seconds": 0.0} if blocked
                       else self.launcher(cmd, workspace, env, out, err, int(spec.get("timeout", 1800))))
@@ -2571,7 +2635,7 @@ class TurnRunner:
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
         elif not audit["violations"]:
             output, output_error = ((None, audit["delivery_error"]) if audit.get("delivery_error")
-                                    else delivered_output(spec["role"], audit.get("delivered")))
+                                    else delivered_output(spec["role"], audit.get("delivered"), spec["adapter"], audit))
         turn_cost, session_cost = turn_cost_usd(spec["adapter"], session, audit.get("cost_usd"))
         session["turns"] = int(session.get("turns", 0)) + 1
         session["last_turn"] = turn_id
@@ -5065,8 +5129,9 @@ OUTPUT_SPECS = {
                    '"in_reply_to": "<msg-id 或 none>", "摘要": "…", "提交": "无", "验证": "…", "偏离": "无", '
                    '"需协调人决定": "无", "证据": "…", "brief": "<开工、返工时必填：下一阶段任务书的 Markdown 全文>"}], '
                    '"state": "<你的进度断点，Markdown>"}',
-    "worker": '{"letter": {"type": "交付|返工完成|提问|阻塞|交接|进度", "in_reply_to": "<msg-id>", "摘要": "…", '
-              '"提交": "…", "验证": "…", "偏离": "…", "需协调人决定": "…", "下游须知": "…", "证据": "…"}, '
+    "worker": '{"letter": {"type": "交付|返工完成|提问|阻塞|交接|进度", "in_reply_to": "<msg-id>", "summary": "<摘要>", '
+              '"commits": "<提交>", "verification": "<验证>", "deviations": "<偏离>", '
+              '"needs_coordinator_decision": "<需协调人决定>", "downstream_notes": "<下游须知>", "evidence": "<证据>"}, '
               '"report": "<report.md 全文>", "state": "<state.md 全文>"}',
 }
 ROLE_EXTRA_OUTPUT = {
@@ -5086,10 +5151,10 @@ ROLE_EXTRA_OUTPUT = {
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
             '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec_file）',
     "audit": 'letter 里另加三项，都要写：'
-             '"结论": "通过|返工"（交付以外的信写“无”）；'
-             '"退回": "合同端|门禁端|战后门禁|执行端|规划端"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”'
+             '"conclusion"（结论）: "通过|返工"（交付以外的信写“无”）；'
+             '"return_to"（退回）: "合同端|门禁端|战后门禁|执行端|规划端"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”'
              '隔开，例如 "合同端、门禁端"；不是返工写“无”）；'
-             '"阻塞项": "<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>"（不是返工写“无”）',
+             '"blockers"（阻塞项）: "<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>"（不是返工写“无”）',
 }
 
 
@@ -5491,6 +5556,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "- 不合格式时会退回并写明哪里不对：照着改了再交。",
                   "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
                   "```", OUTPUT_SPECS["worker"], "```"]
+    if role != "coordinator":
+        # 第 169 轮：给模型看的键是英文，内核投信时换成中文栏目
+        parts.append("letter 的键照上面逐字写英文（尖括号里是投信时的中文栏目），内核投信时换过去。")
     if role in ROLE_EXTRA_OUTPUT:
         parts.append(ROLE_EXTRA_OUTPUT[role])
     return "\n".join(parts) + "\n"

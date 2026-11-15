@@ -53,8 +53,8 @@ import { ENDPOINT_PATH, httpTransport } from "@themis/config/decisions-client";
 import { normcase } from "@themis/base/pypath";
 import type { SuperviseOptions } from "@themis/base/supervise";
 import {
-  auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, sessionCutShort, streamEvents,
-  turnCostUsd,
+  auditClaudeStream, auditPiStream, claudePathRule, claudeSessionEffort, guardConfig, pathForms, piFlagsProblem, piReachProblem, refusalReason, sessionCutShort,
+  streamEvents, turnCostUsd,
 } from "@themis/hub/audit";
 import { boundSpec, executorLine, hubBindings } from "@themis/hub/bindings";
 import { quizsLiveFiles, quizsUnready } from "@themis/hub/quizs";
@@ -67,7 +67,9 @@ import {
   CONFIG_ACTION_FAMILIES, TS_CONFIG_COMMANDS, TS_DISPATCHER_COMMANDS, TS_ONLY_COMMANDS, TS_READONLY_COMMANDS, argvImpl, readKernelImpl,
 } from "@themis/dispatcher/kernel-impl";
 import { DispatchError, type Repo } from "@themis/dispatcher/repo";
-import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "@themis/hub/delivery";
+import {
+  DELIVERY_SHA256, chineseLetter, deliveredOutput, deliveryProblem, interfaceProblem, noDeliveryProblem, roleSchema, toolSchema, workerEnv, workerFileProblem,
+} from "@themis/hub/delivery";
 import { HubError } from "@themis/hub/errors";
 import { removeInputs, stageInputs } from "@themis/hub/inputs";
 import { INPUTS_INDEX } from "@themis/hub/constants";
@@ -397,6 +399,18 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
       case "role_schema":
         value = roleSchema(textOf(a));
         break;
+      case "tool_schema": // 第 169 轮
+        value = toolSchema(textOf(a));
+        break;
+      case "chinese_letter":
+        value = chineseLetter(dictOf(a));
+        break;
+      case "refusal_reason":
+        value = refusalReason(textOf(a));
+        break;
+      case "no_delivery_problem":
+        value = noDeliveryProblem(textOf(a), b as PyValue);
+        break;
       case "external_facts_section":
         value = externalFactsSection(dictOf(a));
         break;
@@ -412,8 +426,8 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
       case "letter_from_output":
         value = letterFromOutput(textOf(a), textOf(b), c as PyValue);
         break;
-      case "delivered_output":
-        value = deliveredOutput(textOf(a), b as PyValue);
+      case "delivered_output": // 第 169 轮：可以带载体与审计结果
+        value = deliveredOutput(textOf(a), b as PyValue, c === undefined ? "pi" : textOf(c), d === undefined ? null : d as PyValue);
         break;
       case "next_contract_version":
         value = nextContractVersion(dictOf(a));

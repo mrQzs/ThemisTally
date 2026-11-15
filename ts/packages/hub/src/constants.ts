@@ -138,6 +138,14 @@ export const CONTRACT_EXECUTOR_LINE = `- executor: ${EXECUTOR[0]}/${EXECUTOR[1]}
 export const DELIVER_TOOL = "deliver";
 /** claude 的 --json-schema 交差时，CLI 自己加上的工具（第 101 轮）。 */
 export const STRUCTURED_TOOL = "StructuredOutput";
+/** 第 169 轮：交差的 letter 给模型看英文键，内核收下时按这张表换回中文栏目（kit_hub.py 的 LETTER_KEYS，逐项相同）。 */
+export const LETTER_KEYS: readonly (readonly [string, string])[] = [
+  ["summary", "摘要"], ["commits", "提交"], ["verification", "验证"], ["deviations", "偏离"],
+  ["needs_coordinator_decision", "需协调人决定"], ["downstream_notes", "下游须知"], ["evidence", "证据"],
+  ["conclusion", "结论"], ["return_to", "退回"], ["blockers", "阻塞项"],
+];
+/** 第 169 轮：交给 pi 的那份 schema（toolSchema）写在回合目录里，deliver.ts 读它。 */
+export const TOOL_SCHEMA_FILE = "deliver-schema.json";
 /** 守卫扩展（scripts/hub/guard.ts，第 106 轮）拦下的结果以这个前缀开头、以这个结尾收尾，与 guard.ts 的同名常量逐字相同。 */
 export const GUARD_PREFIX = "内核拦下：";
 export const GUARD_SUFFIX =
@@ -176,14 +184,14 @@ export const SNAPSHOT_MANIFEST_LIMIT = 200;
 /** 交差格式（逐字进提示词）。 */
 export const OUTPUT_SPECS: Readonly<Record<string, string>> = {
   coordinator: "{\"letters\": [{\"to\": \"<收信人>\", \"type\": \"开工|返工|通过|等待|停止|汇报|提问\", \"task_id\": \"<阶段任务或主任务>\", \"in_reply_to\": \"<msg-id 或 none>\", \"摘要\": \"…\", \"提交\": \"无\", \"验证\": \"…\", \"偏离\": \"无\", \"需协调人决定\": \"无\", \"证据\": \"…\", \"brief\": \"<开工、返工时必填：下一阶段任务书的 Markdown 全文>\"}], \"state\": \"<你的进度断点，Markdown>\"}",
-  worker: "{\"letter\": {\"type\": \"交付|返工完成|提问|阻塞|交接|进度\", \"in_reply_to\": \"<msg-id>\", \"摘要\": \"…\", \"提交\": \"…\", \"验证\": \"…\", \"偏离\": \"…\", \"需协调人决定\": \"…\", \"下游须知\": \"…\", \"证据\": \"…\"}, \"report\": \"<report.md 全文>\", \"state\": \"<state.md 全文>\"}",
+  worker: "{\"letter\": {\"type\": \"交付|返工完成|提问|阻塞|交接|进度\", \"in_reply_to\": \"<msg-id>\", \"summary\": \"<摘要>\", \"commits\": \"<提交>\", \"verification\": \"<验证>\", \"deviations\": \"<偏离>\", \"needs_coordinator_decision\": \"<需协调人决定>\", \"downstream_notes\": \"<下游须知>\", \"evidence\": \"<证据>\"}, \"report\": \"<report.md 全文>\", \"state\": \"<state.md 全文>\"}",
 };
 /** 各岗位另加的输出要求（逐字进提示词）。 */
 export const ROLE_EXTRA_OUTPUT: Readonly<Record<string, string>> = {
   planner: "另加 \"external_facts\": [{\"fact\": \"<计划依赖的仓库外事实>\", \"source\": \"<出处>\", \"verified\": \"<核实的命令与结果；没核实就写“未核实”>\"}]，没有仓库外事实就写 []",
   contract: "另加 \"contract_md\": \"<合同 Markdown 全文>\"",
   gate: "战后模式把变异清单写进工作目录根下的 mutation-spec.json：{\"commands\": [{\"id\": \"W1\", \"argv\": [\"python\", \"-m\", \"pytest\", \"<文件>\", \"-q\"]}], \"mutations\": [{\"name\": \"…\", \"file\": \"<相对路径>\", \"old\": \"<原文片段>\", \"new\": \"<改坏后的片段>\"}]}，输出里另加 \"mutation_spec_file\": \"mutation-spec.json\"，不要再把清单抄进输出（内核读的就是这个文件）；commands 里每一条都是检验命令，每条变异缺省要被每一条抓住，某条命令本来就测不到的变异（例如静态检查碰不到的行为改动），在那一条里加 \"expect_missed\": [\"<命令 id>\"]（至少留一条命令抓它，终审会看）；安装依赖这类准备步骤不要放进 commands：mutate 在你的工作目录里原地跑，依赖在你的回合里照合同的 setup 装好就在；交差前在工作目录里把 commands 每条跑一遍、都要退出 0（mutate 的基线就是这一步，缺依赖、cwd 错、路径错都能当场发现）；确实测不出来的等价改写，在那一条里加 \"equivalent\": \"<为什么改了行为也不变>\"（终审会逐条复核），其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）另加 \"unmutated\": [{\"file\": \"<相对路径>\", \"reason\": \"<为什么>\"}]（终审会复核）；候选不满足合同写明的行为时另加 \"candidate_defects\": [{\"test\": \"<红的用例 node id 或函数名>\", \"contract\": \"<合同原文>\", \"where\": \"<候选文件:行>\"}]（这时可以不给 mutation_spec_file）",
-  audit: "letter 里另加三项，都要写：\"结论\": \"通过|返工\"（交付以外的信写“无”）；\"退回\": \"合同端|门禁端|战后门禁|执行端|规划端\"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”隔开，例如 \"合同端、门禁端\"；不是返工写“无”）；\"阻塞项\": \"<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>\"（不是返工写“无”）",
+  audit: "letter 里另加三项，都要写：\"conclusion\"（结论）: \"通过|返工\"（交付以外的信写“无”）；\"return_to\"（退回）: \"合同端|门禁端|战后门禁|执行端|规划端\"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”隔开，例如 \"合同端、门禁端\"；不是返工写“无”）；\"blockers\"（阻塞项）: \"<逐条列出必须改的问题，只列会导致打回的；退回几个对象时注明每条归谁>\"（不是返工写“无”）",
 };
 /** 第 96 轮：这几个 pi 岗位带 --no-context-files，读不到 AGENTS.md，内核把“通用工程要求”一节拼进它们的角色提示词。 */
 export const ENGINEERING_ROLES: readonly string[] = ["contract", "gate", "audit"];

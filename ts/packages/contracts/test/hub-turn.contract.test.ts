@@ -427,6 +427,7 @@ const TURN_TESTS = [
   "test_no_deliver_or_a_bad_one_is_an_invalid_output",
   "test_a_delivery_the_kernel_cannot_read_is_an_interface_error",
   "test_a_changed_delivery_file_stops_the_turn",
+  "test_an_audit_turn_takes_english_keys_and_a_refused_turn_says_why", // 第 169 轮：英文键收成中文、退回的说法、被挡下不写 schema
 ];
 
 /** 调 stage_inputs 的用例：只调它的三条，与 TurnRunner 用例里先调它的那一条。 */

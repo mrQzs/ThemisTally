@@ -1,0 +1,108 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "english or never_handed or refused_turn or hands_in_through or how_to_hand_in or json_schema or no_deliver or interface_error or changed_delivery or changed_planner"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "P01 给模型看的 required 不换英文键",
+      "file": "scripts/kit_hub.py",
+      "old": "letter[\"required\"] = [english.get(key, key) for key in letter.get(\"required\") or []]",
+      "new": "letter[\"required\"] = list(letter.get(\"required\") or [])"
+    },
+    {
+      "name": "P02 描述前面不加中文栏目名",
+      "file": "scripts/kit_hub.py",
+      "old": "sub = dict(sub, description=\"%s：%s\" % (key, sub[\"description\"]) if sub.get(\"description\") else key)",
+      "new": "sub = dict(sub)"
+    },
+    {
+      "name": "P03 同名的中文键已经在也换",
+      "file": "scripts/kit_hub.py",
+      "old": "renamed[target if target is not None and target not in letter else key] = value",
+      "new": "renamed[target if target is not None else key] = value"
+    },
+    {
+      "name": "P04 收下时不换回中文",
+      "file": "scripts/kit_hub.py",
+      "old": "        delivered = chinese_letter(delivered)",
+      "new": "        delivered = dict(delivered)"
+    },
+    {
+      "name": "P05 退回的原因不去掉 pi 接在后面的参数",
+      "file": "scripts/kit_hub.py",
+      "old": "return \" \".join(text.split(\"Received arguments\", 1)[0].split())[:400]",
+      "new": "return \" \".join(text.split())[:400]"
+    },
+    {
+      "name": "P06 退回的原因不限 400 字",
+      "file": "scripts/kit_hub.py",
+      "old": "return \" \".join(text.split(\"Received arguments\", 1)[0].split())[:400]",
+      "new": "return \" \".join(text.split(\"Received arguments\", 1)[0].split())"
+    },
+    {
+      "name": "P07 退回过也只按载体说",
+      "file": "scripts/kit_hub.py",
+      "old": "refusals = len(audit.get(\"deliver_refusals\") or [])",
+      "new": "refusals = 0"
+    },
+    {
+      "name": "P08 claude 也说没调 deliver",
+      "file": "scripts/kit_hub.py",
+      "old": "how = \"用 %s 交差\" % STRUCTURED_TOOL if adapter == \"claude\" else \"调用 deliver 工具交差\"",
+      "new": "how = \"调用 deliver 工具交差\""
+    },
+    {
+      "name": "P09 pi 的环境仍指向 schemas/ 里的原件",
+      "file": "scripts/kit_hub.py",
+      "old": "env[\"THEMIS_DELIVER_SCHEMA\"] = str(turn_dir / TOOL_SCHEMA_FILE)",
+      "new": "env[\"THEMIS_DELIVER_SCHEMA\"] = str(SCHEMA_DIR / (\"%s.json\" % spec[\"role\"]))"
+    },
+    {
+      "name": "P10 被挡下的回合也写那份 schema",
+      "file": "scripts/kit_hub.py",
+      "old": "if spec[\"adapter\"] == \"pi\" and not blocked:",
+      "new": "if spec[\"adapter\"] == \"pi\":"
+    },
+    {
+      "name": "P11 claude 的 --json-schema 给原件",
+      "file": "scripts/kit_hub.py",
+      "old": "cmd += [\"--json-schema\", json.dumps(tool_schema(spec[\"role\"]),",
+      "new": "cmd += [\"--json-schema\", json.dumps(role_schema(spec[\"role\"]),"
+    },
+    {
+      "name": "P12 pi 的审计不记最后一次退回的原因",
+      "file": "scripts/kit_hub.py",
+      "old": "                last_refusal = refusal_reason(text)",
+      "new": "                last_refusal = None"
+    },
+    {
+      "name": "P13 claude 的审计不记最后一次退回的原因",
+      "file": "scripts/kit_hub.py",
+      "old": "                    last_refusal = refusal_reason(str(block.get(\"content\") or \"\"))",
+      "new": "                    last_refusal = None"
+    },
+    {
+      "name": "P14 工人的格式还是中文键",
+      "file": "scripts/kit_hub.py",
+      "old": "\"in_reply_to\": \"<msg-id>\", \"summary\": \"<摘要>\", ",
+      "new": "\"in_reply_to\": \"<msg-id>\", \"摘要\": \"…\", "
+    },
+    {
+      "name": "P15 工人的提示词里没有英文键的说明",
+      "file": "scripts/kit_hub.py",
+      "old": "parts.append(\"letter 的键照上面逐字写英文（尖括号里是投信时的中文栏目），内核投信时换过去。\")",
+      "new": "parts.append(\"\")"
+    }
+  ]
+}

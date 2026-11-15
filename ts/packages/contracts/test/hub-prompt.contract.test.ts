@@ -595,6 +595,43 @@ describe("第 ⑤d1 片：交差核对与写给协调人的信", () => {
     agree(requests, 0.6);
   });
 
+  it("第 169 轮：给模型看的 schema 换英文键；收下时换回中文；退回的原因与没交上的说法", () => {
+    const rnd = prng(169);
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(rnd() * items.length)] as T;
+    const fill = (node: PyValue, depth = 0): PyValue => {
+      const properties = (node as PyDict).get("properties");
+      if (!(properties instanceof Map) || depth > 3) return pick<PyValue>(["无", "", "交付", "通过", 3n, FACE, null, ["a"], "x".repeat(70)]);
+      return new Map([...properties].filter(() => rnd() < 0.9).map(([key, sub]) => [key as string, fill(sub, depth + 1)]));
+    };
+    const requests: ProbeRequest[] = [];
+    for (const role of [...ROLES, "nobody"]) {
+      requests.push(call("tool_schema", [role]));
+      const schema = ROLES.includes(role) ? (valueOf(runProbe(PYTHON, call("tool_schema", [role]))) as PyDict) : dict();
+      for (let index = 0; index < 6; index += 1) {
+        const filled = fill(schema);
+        requests.push(call("delivered_output", [role, filled, pick(["pi", "claude", "quizs"]), dict()]));
+        if (filled instanceof Map) requests.push(call("chinese_letter", [filled]));
+      }
+    }
+    const letters = [
+      dict(["summary", "a"], ["摘要", "b"]), dict(["摘要", "b"], ["summary", "a"]), dict(["evidence", "e"], ["type", "交付"], ["unknown", 1n]),
+      dict(["blockers", "1"], ["return_to", "门禁端"], ["conclusion", "返工"]), dict(),
+    ];
+    for (const letter of letters) requests.push(call("chinese_letter", [dict(["letter", letter], ["report", "r"])]));
+    for (const other of [dict(["letter", "不是对象"]), dict(["report", "r"]), dict(["letter", null])]) requests.push(call("chinese_letter", [other]));
+    const refused = `Validation failed for tool "deliver":${LF}  - letter: must have required properties summary${LF}${LF}Received arguments:${LF}{"letter": {}}`;
+    for (const text of [refused, "x", "", `${TAB}多  行${LF}${CR}${LF}原因${C(0x3000)}在这`, "Received arguments 在开头", FACE.repeat(450), `a${C(0x85)}b${C(0xa0)}c`]) {
+      requests.push(call("refusal_reason", [text]));
+    }
+    const audits = [dict(), dict(["deliver_refusals", [3n, 5n]], ["deliver_last_refusal", "letter: must have required properties summary"]),
+      dict(["deliver_refusals", [1n]]), dict(["deliver_refusals", [1n]], ["deliver_last_refusal", ""]),
+      dict(["deliver_refusals", []], ["deliver_last_refusal", "x"]), dict(["deliver_refusals", null])];
+    for (const adapter of ["pi", "claude", "quizs"]) {
+      for (const audit of audits) requests.push(call("no_delivery_problem", [adapter, audit]), call("delivered_output", ["audit", null, adapter, audit]));
+    }
+    agree(requests, 0.6);
+  });
+
   it("交差工具的文件：原样、不在、被改过（载入时的哈希只取前 12 位）、不是交差工具的文件", () => {
     const changed = join(LONG, "changed", "deliver.ts");
     put(join(LONG, "changed"), "deliver.ts", "被改过的扩展");

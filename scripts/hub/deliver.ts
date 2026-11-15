@@ -1,7 +1,8 @@
 // 七端的交差工具（七端改造第 1 条，第 90 轮）：pi 工人用 `--extension <这个文件>` 加载，调用一次 deliver 交差。
-// 参数格式是内核给的 JSON Schema（环境变量 THEMIS_DELIVER_SCHEMA 指向 scripts/hub/schemas/<岗位>.json）：pi 先按它校验，
-// 不合格当场退回，模型在同一回合里重交；合格之后把校验过的参数原样放进 details，回合随即结束（terminate）。
-// 内核从自己截下的事件流里读 tool_execution_end 的 details，再用同一份 schema 复核一遍，不读会话文件。
+// 参数格式是内核给的 JSON Schema（环境变量 THEMIS_DELIVER_SCHEMA 指向回合目录里的 deliver-schema.json：内核由
+// scripts/hub/schemas/<岗位>.json 推出来，letter 用英文键，第 169 轮）：pi 先按它校验，不合格当场退回，模型在同一回合里
+// 重交；合格之后把校验过的参数原样放进 details，回合随即结束（terminate）。
+// 内核从自己截下的事件流里读 tool_execution_end 的 details，把英文键换回中文，再按 schemas/ 里的原件复核一遍，不读会话文件。
 // 这个文件与 schema 都在内核目录里，算内核文件：内核起 pi 之前核对它们的哈希，被改过就不起。
 import { readFileSync } from "node:fs";
 import { Type } from "@earendil-works/pi-ai";

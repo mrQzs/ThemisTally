@@ -222,7 +222,7 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
   const toolCalls: PyDict = new Map();
   const audit: PyDict = new Map<string, PyValue>([["violations", violations], ["tool_calls", toolCalls], ["models", []], ["effective_levels", []],
     ["usage", null], ["cost_usd", null], ["delivered", null], ["delivery_error", null], ["api_error", null], ["terminal", false], ["warnings", warnings],
-    ["deliver_refusals", []], ["thinking_chars", null], ["thinking_tokens", null], ["rate_limited_until", null]]);
+    ["deliver_refusals", []], ["deliver_last_refusal", null], ["thinking_chars", null], ["thinking_tokens", null], ["rate_limited_until", null]]);
   let result: PyDict | null = null;
   for (const line of lines) {
     let event: PyValue;

@@ -1,0 +1,44 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T09 pi 的环境指向别处",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "env.set(\"THEMIS_DELIVER_SCHEMA\", purePathStr(turnDir, TOOL_SCHEMA_FILE));",
+      "new": "env.set(\"THEMIS_DELIVER_SCHEMA\", purePathStr(turnDir, \"schema.json\"));"
+    },
+    {
+      "name": "T10 被挡下的回合也写那份 schema",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "if (!claude && !quizs && !blocked) {",
+      "new": "if (!claude && !quizs) {"
+    },
+    {
+      "name": "T11 claude 的 --json-schema 给错的那份",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "cmd.push(\"--json-schema\", dumps(toolSchema(spec.role),",
+      "new": "cmd.push(\"--json-schema\", dumps(toolSchema(\"coordinator\"),"
+    },
+    {
+      "name": "T12 pi 的审计不记最后一次退回的原因",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "lastRefusal = refusalReason(text);",
+      "new": "lastRefusal = null;"
+    },
+    {
+      "name": "T13 claude 的审计不记最后一次退回的原因",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "lastRefusal = refusalReason(pyStrValue(or(pyGet(block, \"content\"), \"\")));",
+      "new": "lastRefusal = null;"
+    }
+  ]
+}

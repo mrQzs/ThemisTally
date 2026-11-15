@@ -232,7 +232,7 @@ pi --provider <p> --model <m> --thinking <档位> --mode json
    --session-dir .agent/mailbox/sessions/<名字> --session-id <阶段任务>-<名字>  "<本回合输入>"
 ```
 
-- 环境变量：`THEMIS_DELIVER_SCHEMA` 指向这个岗位的 schema（第 90 轮），`THEMIS_GUARD` 是守卫的配置（第 106 轮）。
+- 环境变量：`THEMIS_DELIVER_SCHEMA` 指向回合目录里给模型看的那份 schema（`deliver-schema.json`：由这个岗位的 `schemas/<岗位>.json` 推出来，letter 用英文键，内核收下时换回中文，第 169 轮；第 90 轮起原先直接指向原件），`THEMIS_GUARD` 是守卫的配置（第 106 轮）。
 
 - 实测：同一个 `--session-id` 的第二回合答出了第一回合的暗号。第一次用某个会话号时，stderr 有一行“creating a new session”，属于正常现象。
 - 实际档位读事件里 assistant 消息的 `thinkingLevel`。GLM-5.3 要求 max，生效 high：Pi 的 `clampThinkingLevel` 只在模型配置写了 xhigh 或 max 的映射时才开放这两档。
@@ -2626,6 +2626,71 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 界面：本机服务的白名单（HUB_ROLES_ALLOW）没有登记新字段，照 redactJson 的缺省口径放行。键名与值都不像凭据，值原样通过，T031 的“读路由与 `config hub show` 逐字段一致”照旧成立。登记白名单、前端类型与“七端岗位”一行的显示另登记一片：同样改 roles 页，排在 T045 之后。
   - 回合用了多少（请求数、工具调用数、墙钟）不进 `hub show`：这里要的是“拿到了什么”，用量在 coordinator_report 与账本里。
   - 不给 pi 记映射：pi 不回报它把档位换成了提供方的哪个参数，内核写不出来。
+
+### 第 169 轮：交差的 letter 给模型看英文键，内核收下时换回中文；没交上时写明被退回几次、最后一次为什么（候选 #39）
+
+- **起因**：
+  - T042 终审（11-15）：审核端（pi 上的 MiniMax-M3.1-Flash，max）在 g0 会话里两个回合都跑满 2400 秒。
+    - deliver 先后被 pi 退回 3 次与 30 次。模型把 letter 的中文键翻成英文（summary、submission、verification、downstream……），pi 按 schema 退回，报错里列着中文键名，它照旧换个英文写法再交。
+    - 协调人开新会话 g1，一次交上。
+  - 协调人的返工任务书把卡点写成“claude 未交 StructuredOutput”“逐个通读证据过载”。内核给的说法一律是“这一回合没有成功交差（pi 调 deliver 工具，claude 交 StructuredOutput；…）”，没说退回过，也没说为什么退回。
+  - 全部回合的统计（11-06 起）：
+    - 被退回的 deliver 228 次，其中英文键 169 次：审核端 110、合同端 45、门禁端 14。
+    - 审核端 174 个回合里 17 个有退回，退回 3 次以上的回合合计 13133 秒；合同端一个回合退回 45 次，1848 秒。
+    - 5 个回合跑满 2400 秒。
+    - 模型用的英文键五花八门：submit、commit、submission；validation、verification、verify；needs-ask、needs_owner……认别名认不全。
+- **改法**：
+  - 键名对照，kit_hub.py 的 LETTER_KEYS 与 TS 的 constants.ts 各一份：summary=摘要、commits=提交、verification=验证、deviations=偏离、needs_coordinator_decision=需协调人决定、downstream_notes=下游须知、evidence=证据、conclusion=结论、return_to=退回、blockers=阻塞项。
+  - 给模型看的 schema（tool_schema）：
+    - 由 schemas/<岗位>.json 推出来：letter 的属性与 required 换成英文键，换了的属性描述前面加中文栏目名（例如“证据：没有就写“无””）。
+    - schemas/ 里的原件不动：照旧核哈希、核子集，复核也用它。
+    - 协调人的 letters 不换：557 个回合只退回过 3 次。
+    - 三个载体各自的给法：
+      - pi：起回合前写进回合目录的 deliver-schema.json（压成一行），THEMIS_DELIVER_SCHEMA 指向它；被挡下的回合不写；
+      - claude：--json-schema 给它；
+      - quizs：提示词“交差”一节的格式行。
+  - 收下（delivered_output）：
+    - letter 里认得的英文键换成中文，再按原件复核。
+    - 同名的中文键已经在时不换，复核报“多了 summary”。
+    - 中文键照收：旧会话、quizs 上照中文写的、现有夹具都不受影响。
+    - 之后的代码只见中文键，投出去的信照旧是“摘要：…”。
+  - 提示词：
+    - worker 的格式行改成英文键，尖括号里写中文栏目（`"summary": "<摘要>"`）；审核端另加的三项写成 `"conclusion"（结论）` 这样。
+    - 工人的提示词多一句：“letter 的键照上面逐字写英文（尖括号里是投信时的中文栏目），内核投信时换过去。”
+    - worker.md 第 3 节按栏目列出英文键。
+  - 没交上时的说法（no_delivery_problem）：
+    - 退回过：“这一回合交差被退回 N 次，没有交上；最后一次退回的原因：…”。原因取工具报错里 Received arguments 之前的部分（pi 会把收到的参数原样接在后面），压成一行，截 400 字。pi 与 claude 的审计都记下 deliver_last_refusal。
+    - 没退回过：pi 说“没有调用 deliver 工具交差”，claude 说“没有用 StructuredOutput 交差”，后面都跟“（消息里的 json 代码块内核不读）”。
+    - 这句话照旧进重交回合的提示词（“上一次输出没有通过内核校验”一节）与给协调人的信。
+- **测试**：
+  - test_kit_hub 加三条：
+    - 推出来的 schema：换键、required 跟着换、描述带中文、其余属性不变、协调人不变、每个中文栏目都有英文名。收下：英文、中文、中英混写都收；同名冲突报“多了”；缺的报中文栏目。
+    - 退回的原因与没交上的说法。
+    - 审核端回合：交英文键收成中文；两次退回之后的说法；被挡下的回合不写 deliver-schema.json。
+  - 改了 8 处：
+    - 四个岗位的交差用例核 THEMIS_DELIVER_SCHEMA 与文件内容；
+    - 规划端核 --json-schema；
+    - 四处“没有成功交差”换成新说法。
+  - “提示词写明怎么交”加核英文键与那一句。
+- **契约**：
+  - hub-prompt 加一段：tool_schema、chinese_letter、refusal_reason、no_delivery_problem，以及带载体与审计结果的 delivered_output，四种实现逐个比。两边探针登记这四个函数。
+  - hub-turn 的回放多一条新用例：英文键收成中文、退回的说法、被挡下不写 schema。回合目录逐字节比。
+- **变异**：
+  - Python 15 条（`hub-deliver-keys.py.json`）。
+  - TS 15 条，分三份：
+    - `hub-deliver-keys.ts.json` 8 条，跑 hub-prompt 的第 169 轮那段；
+    - `hub-deliver-turn.ts.json` 5 条，跑 hub-turn；
+    - `hub-deliver-prompt.ts.json` 2 条，跑 hub-prompt 整份。这两条改的是格式行与那一句说明，都在 turn_prompt 里；hub-turn 只把调用方给的输入写进回合，测不到。第一遍把它们放在 hub-turn 那份里，两条都漏了，挪过来重跑。
+  - 结果：全部抓住，Python 15 条，TS 8、5、2 条。
+- **检查**：每段都进重活车道。
+  - 类型检查 0 错；test_kit_hub.py 405 条全过。
+  - hub-prompt 契约 20 条全过，含第 169 轮那段。
+  - hub-turn、hub-engine-scenes、hub-commands-scenes、hub-runexec-scenes、hub-step-scenes、hub-shadow、events，7 份 110 条全过（hub-turn 的回放多了新用例）。
+  - mutation-specs、source-hygiene，2 份 5 条全过。
+- **没做**：
+  - 回合中途看到连着退回就提前收掉：要在启动器里边跑边读事件流，两份启动器都要改。最贵的那类退回（英文键）换掉键名之后就没了，剩下的（缺 type、缺 report）多是一两次就改对，先看数据。
+  - 认别名，也不换协调人的 letters。
+  - 重交回合续接被退回污染的会话：T042 的 g0 续接之后又退回 30 次，换新会话一次交上。键名换掉之后先看还会不会出现，再定续接还是开新会话。
 
 ## 11. 已知缺口与下一步
 

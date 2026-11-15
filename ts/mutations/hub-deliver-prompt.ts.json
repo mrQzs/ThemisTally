@@ -1,0 +1,26 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T14 工人的格式还是中文键",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "\\\"in_reply_to\\\": \\\"<msg-id>\\\", \\\"summary\\\": \\\"<摘要>\\\"",
+      "new": "\\\"in_reply_to\\\": \\\"<msg-id>\\\", \\\"摘要\\\": \\\"…\\\""
+    },
+    {
+      "name": "T15 工人的提示词里没有英文键的说明",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "if (role !== \"coordinator\") parts.push(",
+      "new": "if (role === \"nobody\") parts.push("
+    }
+  ]
+}

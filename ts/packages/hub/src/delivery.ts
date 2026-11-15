@@ -6,12 +6,12 @@ import { basename } from "node:path";
 import { pyEq } from "@themis/base/pyvalue";
 import { pyGet, pyItem, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { pyReadText } from "@themis/base/pyio";
-import { type PyDict, type PyValue, loads } from "@themis/base/pyjson";
+import { type PyDict, type PyKey, type PyValue, loads } from "@themis/base/pyjson";
 import { purePathStr } from "@themis/base/pypath";
 import { globPaths } from "@themis/dispatcher/instruction";
 import { childEnv } from "@themis/dispatcher/pi-cli";
 import { comparePaths } from "./audit.ts";
-import { WORKER_ENV_DROP } from "./constants.ts";
+import { LETTER_KEYS, STRUCTURED_TOOL, WORKER_ENV_DROP } from "./constants.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, SCHEMA_DIR } from "./kernel.ts";
 import { schemaErrors, schemaProblems } from "./schema.ts";
 
@@ -38,14 +38,63 @@ export function roleSchema(role: string): PyDict {
   return loads(pyReadText(path)) as PyDict;
 }
 
+/** 给模型看的交差 schema（第 169 轮）：letter 的中文键换成 LETTER_KEYS 的英文名，描述前面加上中文栏目名。协调人的 letters 不换。 */
+export function toolSchema(role: string): PyDict {
+  const schema = roleSchema(role);
+  const letter = pyGet(pyTruthy(pyGet(schema, "properties")) ? pyGet(schema, "properties") : new Map(), "letter");
+  if (!(letter instanceof Map)) return schema;
+  const english = new Map<PyKey, string>(LETTER_KEYS.map(([name, chinese]) => [chinese, name]));
+  const properties: PyDict = new Map();
+  const listed = pyGet(letter, "properties");
+  for (const [key, sub] of (pyTruthy(listed) ? listed as PyDict : new Map<string, PyValue>()).entries()) {
+    let value = sub;
+    if (english.has(key)) {
+      const description = pyGet(sub, "description");
+      value = new Map(sub as PyDict);
+      value.set("description", pyTruthy(description) ? `${key}：${pyStrValue(pyItem(sub, "description"))}` : key);
+    }
+    properties.set(english.get(key) ?? key, value);
+  }
+  letter.set("properties", properties);
+  const required = pyGet(letter, "required");
+  letter.set("required", (pyTruthy(required) ? required as PyValue[] : []).map((key) => english.get(key as string) ?? key));
+  return schema;
+}
+
+/** 交上来的 letter 里认得的英文键换回中文栏目（第 169 轮）。同名的中文键已经在时不换，留给复核报“多了”；中文键照收。 */
+export function chineseLetter(delivered: PyDict): PyDict {
+  const letter = pyGet(delivered, "letter");
+  if (!(letter instanceof Map)) return delivered;
+  const chinese = new Map<PyKey, string>(LETTER_KEYS);
+  const renamed: PyDict = new Map();
+  for (const [key, value] of letter.entries()) {
+    const target = chinese.get(key);
+    renamed.set(target !== undefined && !letter.has(target) ? target : key, value);
+  }
+  const out: PyDict = new Map(delivered);
+  out.set("letter", renamed);
+  return out;
+}
+
+/** 没交上（第 169 轮）：退回过就写明几次与最后一次的原因，没退回过按载体说没交哪个工具。 */
+export function noDeliveryProblem(adapter: string, audit: PyValue): string {
+  const listed = pyGet(audit, "deliver_refusals");
+  const refusals = pyTruthy(listed) ? (listed as PyValue[]).length : 0;
+  if (refusals) {
+    const last = pyGet(audit, "deliver_last_refusal");
+    return `这一回合交差被退回 ${refusals} 次，没有交上；最后一次退回的原因：${pyTruthy(last) ? pyStrValue(last) : "（没读到）"}`;
+  }
+  const how = adapter === "claude" ? `用 ${STRUCTURED_TOOL} 交差` : "调用 deliver 工具交差";
+  return `这一回合没有${how}（消息里的 json 代码块内核不读）`;
+}
+
 /**
  * 用 deliver 交差的回合的输出（第 90 轮）：最后一次成功的 deliver 的参数，内核再按同一份 schema 复核一遍。
  * 没交或复核不过都按“输出不合格”走。交回（输出，问题）。
  */
-export function deliveredOutput(role: string, delivered: PyValue): [PyValue, string | null] {
-  if (delivered === null) {
-    return [null, "这一回合没有成功交差（pi 调 deliver 工具，claude 交 StructuredOutput；内核不再从最后一条消息里找 json 代码块）"];
-  }
+export function deliveredOutput(role: string, delivered: PyValue, adapter = "pi", audit: PyValue = null): [PyValue, string | null] {
+  if (delivered === null) return [null, noDeliveryProblem(adapter, audit ?? new Map())];
+  if (delivered instanceof Map) delivered = chineseLetter(delivered);
   const errors = schemaErrors(roleSchema(role), delivered);
   if (errors.length) return [null, `deliver 交上来的参数内核复核不过：${errors.slice(0, 8).join("；")}`];
   return [delivered, null];

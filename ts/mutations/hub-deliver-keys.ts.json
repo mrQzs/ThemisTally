@@ -1,0 +1,64 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "-t",
+    "第 169 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "T01 给模型看的 required 不换英文键",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "letter.set(\"required\", (pyTruthy(required) ? required as PyValue[] : []).map((key) => english.get(key as string) ?? key));",
+      "new": "letter.set(\"required\", pyTruthy(required) ? required as PyValue[] : []);"
+    },
+    {
+      "name": "T02 描述前面不加中文栏目名",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "value.set(\"description\", pyTruthy(description) ? `${key}：${pyStrValue(pyItem(sub, \"description\"))}` : key);",
+      "new": "value.set(\"description\", description);"
+    },
+    {
+      "name": "T03 同名的中文键已经在也换",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "renamed.set(target !== undefined && !letter.has(target) ? target : key, value);",
+      "new": "renamed.set(target !== undefined ? target : key, value);"
+    },
+    {
+      "name": "T04 收下时不换回中文",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "if (delivered instanceof Map) delivered = chineseLetter(delivered);",
+      "new": "if (delivered instanceof Map) delivered = new Map(delivered);"
+    },
+    {
+      "name": "T05 退回的原因不去掉 pi 接在后面的参数",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": "pySplit(text.split(\"Received arguments\")[0] ?? \"\")",
+      "new": "pySplit(text)"
+    },
+    {
+      "name": "T06 退回的原因不限 400 字",
+      "file": "ts/packages/hub/src/audit.ts",
+      "old": ".join(\" \")).slice(0, 400).join(\"\");",
+      "new": ".join(\" \")).join(\"\");"
+    },
+    {
+      "name": "T07 退回过也只按载体说",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "const refusals = pyTruthy(listed) ? (listed as PyValue[]).length : 0;",
+      "new": "const refusals = 0;"
+    },
+    {
+      "name": "T08 claude 也说没调 deliver",
+      "file": "ts/packages/hub/src/delivery.ts",
+      "old": "const how = adapter === \"claude\" ? `用 ${STRUCTURED_TOOL} 交差` : \"调用 deliver 工具交差\";",
+      "new": "const how = \"调用 deliver 工具交差\";"
+    }
+  ]
+}

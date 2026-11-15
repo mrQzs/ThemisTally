@@ -7,7 +7,7 @@ import { jsonlLines } from "@themis/base/jsonl";
 import { PyCrash, pyAdd, pyFloatOf, pyGet, pyItem, pyIter, pyReprValue, pyRound, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { type PyDict, type PyKey, PyJsonError, type PyValue, dumps, loads } from "@themis/base/pyjson";
 import { abspath, expanduser, normcase, ntIsabs, osPathJoin, purePathStr, pyResolve } from "@themis/base/pypath";
-import { cmpCodePoints, codePoints, pyLower, pyStrip } from "@themis/base/pyre";
+import { cmpCodePoints, codePoints, pyLower, pySplit, pyStrip } from "@themis/base/pyre";
 import { pyEq } from "@themis/base/pyvalue";
 import { PyKeyedDict, PySet, hashKey, pySorted } from "@themis/base/pyset";
 import { globPaths } from "@themis/dispatcher/instruction";
@@ -101,6 +101,11 @@ export function claudePathRule(path: string): string {
   return `//${stripChars(text, "/")}/**`;
 }
 
+/** 交差工具退回的原因（第 169 轮）：pi 把收到的参数原样接在 Received arguments 后面，只取前面的报错，压成一行，最多 400 字。 */
+export function refusalReason(text: string): string {
+  return codePoints(pySplit(text.split("Received arguments")[0] ?? "").join(" ")).slice(0, 400).join("");
+}
+
 /** 读内核截下的 claude 事件流：白名单之外的工具、init 的工具与 MCP、模型，以及模型接口的报错。 */
 export function auditClaudeStream(lines: readonly string[], spec: PyValue, workspace: string | null = null, repo: string | null = null): PyDict {
   const allowed = new PySet(pyIter(pyItem(spec, "tools")));
@@ -116,6 +121,7 @@ export function auditClaudeStream(lines: readonly string[], spec: PyValue, works
   const structured = new PySet(); // StructuredOutput 的 tool_use id
   let accepted = 0n; // 其中被 CLI 收下的次数
   const refusals: PyValue[] = [];
+  let lastRefusal: string | null = null; // 第 169 轮：最后一次退回的原因
   const counter = { unreadable: 0 };
   for (const event of eachEvent(lines, counter)) {
     const kind = pyGet(event, "type");
@@ -167,6 +173,7 @@ export function auditClaudeStream(lines: readonly string[], spec: PyValue, works
           refused.add(pyItem(block, "tool_use_id"));
         } else if (structured.has(useId)) {
           refusals.push(BigInt(codePoints(pyStrValue(or(pyGet(block, "content"), ""))).length));
+          lastRefusal = refusalReason(pyStrValue(or(pyGet(block, "content"), "")));
         }
       }
     } else if (pyEq(kind, "rate_limit_event")) {
@@ -211,7 +218,8 @@ export function auditClaudeStream(lines: readonly string[], spec: PyValue, works
   const deliveredUnreadable = accepted && delivered === null ? `StructuredOutput 被收下 ${accepted} 次，result 里却没有 structured_output` : null;
   return new Map<PyKey, PyValue>([
     ["violations", violations], ["warnings", warnings], ["tool_calls", toolCalls], ["delivered", delivered],
-    ["delivered_unreadable", deliveredUnreadable], ["deliver_refusals", refusals], ["thinking_chars", null], ["thinking_tokens", thinking],
+    ["delivered_unreadable", deliveredUnreadable], ["deliver_refusals", refusals], ["deliver_last_refusal", lastRefusal],
+    ["thinking_chars", null], ["thinking_tokens", thinking],
     ["init_session", pyGet(init, "session_id")], ["final_text", pyStrValue(or(pyGet(result, "result"), ""))],
     ["is_error", pyTruthy(pyGet(result, "is_error"))], ["cost_usd", pyGet(result, "total_cost_usd")], ["usage", or(pyGet(result, "usage"), new Map())],
     ["models", pySorted(models.values())], ["terminal", result.size > 0], ["api_error", apiError],
@@ -296,6 +304,7 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
   const reach = new Map<string, string>(); // 碰了不该碰的地方的调用：toolCallId → 说明
   let delivered: PyValue = null; // 最后一次成功的 deliver 交上来的参数
   const refusals: PyValue[] = []; // deliver 每次被退回时报错的长度
+  let lastRefusal: string | null = null; // 第 169 轮：最后一次退回的原因
   let unreadDetails = 0; // deliver 报了成功、result.details 却不是对象的次数
   let thinking = 0n; // thinking 块的字数
   const counter = { unreadable: 0 };
@@ -325,8 +334,10 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
       }
       const details = pyGet(or(pyGet(event, "result"), new Map()), "details");
       const deliver = pyEq(pyGet(event, "toolName"), DELIVER_TOOL) && allowed.has(DELIVER_TOOL);
-      if (deliver && failed) refusals.push(BigInt(codePoints(text).length));
-      else if (deliver && details instanceof Map) delivered = details;
+      if (deliver && failed) {
+        refusals.push(BigInt(codePoints(text).length));
+        lastRefusal = refusalReason(text);
+      } else if (deliver && details instanceof Map) delivered = details;
       else if (deliver) unreadDetails += 1;
     } else if (pyEq(kind, "message_end") && pyEq(pyGet(or(pyGet(event, "message"), new Map()), "role"), "assistant")) {
       const message = pyItem(event, "message");
@@ -360,7 +371,8 @@ export function auditPiStream(lines: readonly string[], spec: PyValue, workspace
     ["effective_levels", pySorted(levels.values())], ["stop_reason", stop], ["usage", usage], ["models", pySorted(models.values())],
     ["terminal", terminal], ["is_error", !(stop === null || pyEq(stop, "stop"))], ["api_error", apiError], ["delivered", delivered],
     ["delivered_unreadable", unreadDetails ? `deliver 报了成功 ${unreadDetails} 次，result.details 却不是对象` : null],
-    ["deliver_refusals", refusals], ["thinking_chars", thinking], ["thinking_tokens", usage.has("reasoning") ? (usage.get("reasoning") as PyValue) : null],
+    ["deliver_refusals", refusals], ["deliver_last_refusal", lastRefusal], ["thinking_chars", thinking],
+    ["thinking_tokens", usage.has("reasoning") ? (usage.get("reasoning") as PyValue) : null],
   ]);
 }
 

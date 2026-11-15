@@ -352,6 +352,8 @@ export function turnPrompt(
       "- 不要再在消息里写 " + BT.repeat(3) + "json 代码块：内核不读它。", "",
       BT.repeat(3), OUTPUT_SPECS["worker"] as string, BT.repeat(3));
   }
+  // 第 169 轮：给模型看的键是英文，内核投信时换成中文栏目
+  if (role !== "coordinator") parts.push("letter 的键照上面逐字写英文（尖括号里是投信时的中文栏目），内核投信时换过去。");
   if (Object.hasOwn(ROLE_EXTRA_OUTPUT, role)) parts.push(ROLE_EXTRA_OUTPUT[role] as string);
   return `${pyJoinStrings(LF, parts)}${LF}`;
 }

@@ -27,12 +27,12 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
 } from "./constants.ts";
 import { boundSpec, hubBindings } from "./bindings.ts";
-import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, roleSchema, workerEnv, workerFileProblem } from "./delivery.ts";
+import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, toolSchema, workerEnv, workerFileProblem } from "./delivery.ts";
 import { HubError } from "./errors.ts";
-import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, SCHEMA_DIR, hubImpl } from "./kernel.ts";
+import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 import { auditQuizsStream, effectiveSpec, quizsLiveFiles, quizsLivePlan, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
 
@@ -185,7 +185,7 @@ export class TurnRunner {
     const env = workerEnv(this.config());
     if (claude) for (const [name, value] of Object.entries(CLAUDE_WORKER_ENV)) env.set(name, value);
     else if (!quizs) {
-      env.set("THEMIS_DELIVER_SCHEMA", purePathStr(SCHEMA_DIR, `${spec.role}.json`));
+      env.set("THEMIS_DELIVER_SCHEMA", purePathStr(turnDir, TOOL_SCHEMA_FILE)); // 第 169 轮：英文键的那份，没被挡下才写
       env.set("THEMIS_GUARD", guardConfig(where, this.hub.repo));
     }
     let blocked: string | null;
@@ -197,6 +197,9 @@ export class TurnRunner {
     } else {
       blocked = claude ? deliveryProblem(spec.role)
         : (await piFlagsProblem(piCmd as string[], cmd.slice((piCmd as string[]).length), env)) || workerFileProblem(GUARD_EXTENSION) || deliveryProblem(spec.role);
+    }
+    if (!claude && !quizs && !blocked) {
+      writeFileSync(join(turnDir, TOOL_SCHEMA_FILE), dumps(toolSchema(spec.role), { ensureAscii: false, separators: [",", ":"] }));
     }
     const out = join(turnDir, "stream.jsonl");
     const err = join(turnDir, "stderr.log");
@@ -250,7 +253,7 @@ export class TurnRunner {
     if (pyTruthy(pyGet(audit, "api_error"))) outputError = `模型接口报错（环境问题，不是工人的输出问题）：${pyStrValue(pyItem(audit, "api_error"))}`;
     else if (!pyTruthy(pyItem(audit, "violations"))) {
       [output, outputError] = pyTruthy(pyGet(audit, "delivery_error")) ? [null, pyStrValue(pyGet(audit, "delivery_error"))]
-        : deliveredOutput(spec.role, pyGet(audit, "delivered"));
+        : deliveredOutput(spec.role, pyGet(audit, "delivered"), spec.adapter, audit);
     }
     const [turnCost, sessionCost] = turnCostUsd(spec.adapter, current, pyGet(audit, "cost_usd"));
     current.set("turns", pyIntOf(pyGet(current, "turns", 0n)) + 1n);
@@ -326,7 +329,7 @@ export class TurnRunner {
         ...writes.flatMap((tool) => [this.hub.repo, ...(inputs !== null ? [inputs] : [])].map((root) => `${tool}(${claudePathRule(root)})`)));
     }
     cmd.push("--permission-prompts", "none", "--append-system-prompt-file", rolePath);
-    cmd.push("--json-schema", dumps(roleSchema(spec.role), { ensureAscii: false, separators: [",", ":"] }));
+    cmd.push("--json-schema", dumps(toolSchema(spec.role), { ensureAscii: false, separators: [",", ":"] }));
     cmd.push(...(first ? ["--session-id", id] : ["--resume", id]), inline);
     cmd[0] = pyWhich("claude") ?? "claude";
     return cmd;
