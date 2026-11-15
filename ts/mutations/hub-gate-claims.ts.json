@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-exec-scenes.contract.test.ts",
+    "-t",
+    "gate_claims",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "Q04 字符类不认“文件、自身、本身”",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "\"门禁[端测试探针用例的文件自身本]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)|",
+      "new": "\"门禁[端测试探针用例的]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)|"
+    },
+    {
+      "name": "Q05 前面是“无”“不”的也算",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "|(?<![无不])(?:需要?|请|由)门禁端?(?:修|补|确认)|",
+      "new": "|(?:需要?|请|由)门禁端?(?:修|补|确认)|"
+    },
+    {
+      "name": "Q06 不认“需要、请、由门禁端修、补、确认”",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "|(?<![无不])(?:需要?|请|由)门禁端?(?:修|补|确认)|",
+      "new": "|"
+    }
+  ]
+}

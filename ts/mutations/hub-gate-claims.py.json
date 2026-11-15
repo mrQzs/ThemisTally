@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "gate_claims_in_the_executor_report_are_found"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "Q01 字符类不认“文件、自身、本身”",
+      "file": "scripts/kit_hub.py",
+      "old": "r\"门禁[端测试探针用例的文件自身本]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)\"",
+      "new": "r\"门禁[端测试探针用例的]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)\""
+    },
+    {
+      "name": "Q02 前面是“无”“不”的也算",
+      "file": "scripts/kit_hub.py",
+      "old": "r\"|(?<![无不])(?:需要?|请|由)门禁端?(?:修|补|确认)|",
+      "new": "r\"|(?:需要?|请|由)门禁端?(?:修|补|确认)|"
+    },
+    {
+      "name": "Q03 不认“需要、请、由门禁端修、补、确认”",
+      "file": "scripts/kit_hub.py",
+      "old": "r\"|(?<![无不])(?:需要?|请|由)门禁端?(?:修|补|确认)|",
+      "new": "r\"|"
+    }
+  ]
+}

@@ -280,6 +280,9 @@ describe("第 ⑤g1 片：门禁有错的说法与 JEV 的标注（手写，三�
     "所有实现都", "Gate Test Defect", "GATE BUG", "gate  bug", "the gate is wrong", "gate. wrong", "gate my wrong", "gatekeeper is wrong",
     `gate${"x".repeat(60)}wrong`, `gate${"x".repeat(61)}wrong`, "Gate can't pass", "gate cant pass", "gate cannot pass", "gate is buggy", "gate debug",
     "gate the app wrong", "gate the apple wrong", "gate our impl is wrong", "gate implementations wrong", "gate; impossible", "gate contradicts", `gate${LF}wrong`,
+    // 第 167 轮：门禁文件自身、需要、请、由门禁端修补确认；前面是“无”“不”的不算
+    "门禁文件自身缺陷", "门禁本身有错", "门禁本身没问题", "需要门禁端补齐", "需门禁确认", "请门禁端修正", "由门禁端修正", "不需要门禁端修改",
+    "无需门禁端确认", "门禁端修正",
   ];
 
   it("gate_claims：局限、未决问题、合同矛盾里的字符串、带 text 的字典、别的值照 str；字段不是列表时照 Python 迭代", () => {

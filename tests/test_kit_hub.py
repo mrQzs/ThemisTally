@@ -7255,6 +7255,10 @@ def test_gate_claims_in_the_executor_report_are_found():
                            "contract_conflicts": ["D06 与门禁的正则写法冲突，门禁测试有错"]}) == [
         "需门禁端确认是否为探针/vi.mock 状态泄漏", "D06 与门禁的正则写法冲突，门禁测试有错"]
     assert kh.gate_claims({"limitations": ["V01 门禁检查全过", "没跑 V02"], "interpretations": ["门禁端缺陷"]}) == []
+    # 第 167 轮：T042、T011、T034 的执行端原话（旧写法一条都不认）；前面是“无”“不”的不算
+    said = ["4 条流水线用例因门禁文件自身缺陷 ERROR", "Pipeline 类缺 group() 方法：需要门禁端补齐该方法后重跑 G01",
+            "请门禁端修正 rowOf 签名或 logsCatRow 的调用后重跑", "是否由门禁端修正 tests/test_gate_t034_baseline.py 的假客户端"]
+    assert kh.gate_claims({"unresolved_questions": said + ["本片不需要门禁端修改", "无需门禁端确认", "门禁本身没问题"]}) == said
 
 
 def test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner(engine_env, monkeypatch):

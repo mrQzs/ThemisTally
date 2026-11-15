@@ -415,9 +415,10 @@ export function reworkSection(previous: string, sha: PyValue, blockers: PyValue,
   return pyJoinStrings(LF, [...lines, title, "", pyStrip(given) || empty, "", ...(pyTruthy(leftovers) ? [leftovers] : [])]);
 }
 
-/** 执行报告里“门禁测试有错”的说法（第 51 轮）。 */
+/** 执行报告里“门禁测试有错”的说法（第 51 轮；第 167 轮补上“门禁文件自身缺陷”与“需要、请、由门禁端修、补、确认”，前面是“无”“不”的不算）。 */
 export const GATE_CLAIM_RE = compilePy(
-  "门禁[端测试探针用例的]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)|探针.{0,12}(?:泄漏|缺陷|有错)|(?:任何|所有)实现都|gate (?:test )?(?:defect|bug)", FLAG_IGNORECASE);
+  "门禁[端测试探针用例的文件自身本]*(?:缺陷|有错|写错|出错|错误|的错|问题|bug)|(?<![无不])(?:需要?|请|由)门禁端?(?:修|补|确认)|探针.{0,12}(?:泄漏|缺陷|有错)" +
+  "|(?:任何|所有)实现都|gate (?:test )?(?:defect|bug)", FLAG_IGNORECASE);
 
 /** 执行报告的局限、未决问题、合同矛盾里说门禁测试有错的那几条。 */
 export function gateClaims(report: PyValue): string[] {
