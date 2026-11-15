@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "task_id": "t042-desktop-web-quizs-facts",
+  "plan_version": 1,
+  "title": "桌面端前端第 8 片：本机服务的 Quizs 两条读路由与 CLI 运行时页的 Quizs 一块（模型配置 M3、M4 之三）",
+  "repository": "ThemisTally",
+  "base_sha": "e3f624153044e1391f95819cf394dc3a1406ab3e",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/src/redaction.ts",
+      "ts/packages/ui/test/routes-auth.test.ts",
+      "ts/packages/ui/test/kernel-runner.test.ts",
+      "ts/packages/ui/test/argv-templates.test.ts",
+      "ts/packages/ui/README.md"
+    ],
+    "allowed_new_files": [
+      "ts/packages/ui/test/quizs-routes.test.ts"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t042_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/**",
+      "ts/packages/ui/src/server.ts",
+      "ts/packages/ui/src/app.ts",
+      "ts/packages/ui/src/writeroutes.ts",
+      "ts/packages/ui/src/jobroutes.ts",
+      "ts/packages/ui/src/live/**",
+      "scripts/**",
+      "src/live/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "desktop/web/package-lock.json"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "bun",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/ui/test"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "-p",
+        "tsconfig.json"
+      ],
+      "cwd": "ts",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "$"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t042_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "两条只读路由接上——`GET /api/v1/quizs/providers` 交出的 argv 逐字是 `[\"config\",\"quizs\",\"providers\",\"--json\"]`、时限 60 秒；`GET /api/v1/quizs/live` 交出的 argv 逐字是 `[\"config\",\"quizs\",\"live\",\"--json\"]`、时限 150 秒；两条都进 `readRoutes()`（第 21、22 条）、`READ_ROUTE_ARGV` 与 `READ_ROUTE_SPECS`；`server.ts` 一个字没改",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "界面能读到 Quizs 的只读事实，而服务不多起一条子进程、不少写一条路由"
+    },
+    {
+      "id": "D02",
+      "text": "两份逐字段白名单按合同写死——`QUIZS_PROVIDERS_ALLOW` 的四条路径与 `QUIZS_LIVE_ALLOW` 的八条路径都在 `redaction.ts` 里登记；显示的字段（provider、model、thinking、billing、source、live 的 provider、problem、state、missing、expires_at_ms、valid_until）原样透传；越界的值变成 `<redacted>`；凭据形状的键（`credential_*`、`*_tokens`）照默认口径遮掉；`build_id`、`live_dir`、`plan.*`、`implementation_digest`、`capabilities` 没有被登记",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "显示得出来的字段不误遮，界面显示不出来的字段与凭据不外泄"
+    },
+    {
+      "id": "D03",
+      "text": "出错映射与既有读路由一致——内核退出非 0 回 200（`ok` 为假、`exit_code` 原样、`messages` 带内核原文）；超时回 504（`exit_code` 为 null、`data` 为 null）；退出 0 但 stdout 不是合法 JSON 回 500；「某一套 live 读不出来只在那一行的 `problem` 里写原因、整条退出 0」的语义原样透传（服务不替它造状态、不把整条路由判成失败）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "Quizs 跑不起来与某一套过期这两种情况，界面拿到的信封与别的读路由一个口径，不用另写一套判断"
+    },
+    {
+      "id": "D04",
+      "text": "既有用例照新行为改到 22 条——`routes-auth.test.ts` 的条数断言与示例路径表、`kernel-runner.test.ts` 的 CASES 与时限数组（含 60 与 150，那条「时限四档」的用例同步认 150）、`argv-templates.test.ts` 的长度断言；没有删除、跳过或弱化任何既有断言",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "条数变了要有人盯住，但既有证据不许因为条数变化而失效"
+    },
+    {
+      "id": "D05",
+      "text": "新增 `ts/packages/ui/test/quizs-routes.test.ts`，替身部分与真内核部分都跑——真内核那部分用 `QUIZS_CMD` 指向夹具里的假脚本，覆盖两条路由的 argv、信封、退出 1、以及「某一套 live 读不出来」的逐套 problem；替身那部分覆盖白名单越界遮与超时映射",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "白名单与出错语义有独立证据，不是「看着对」"
+    },
+    {
+      "id": "D06",
+      "text": "`ts/packages/ui/README.md` 与行为同步——读路由表加两行（路径、argv、时限），条数改成 22（「N 条只读数据路由」「连接空闲超时」那条的「N 条读路由、预览、M 条写路由」都满足），写路由的 14 条与三处不许动的段落一字未改",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "文档与真路由表一致，后来的执行端照 README 就能接上"
+    },
+    {
+      "id": "D07",
+      "text": "所有修改都在允许集合内——只动了 `ts/packages/ui/src/readroutes.ts`、`ts/packages/ui/src/redaction.ts`、三份既有用例、`ts/packages/ui/README.md` 与新增的 `ts/packages/ui/test/quizs-routes.test.ts`；门禁文件、`scripts/**`、`desktop/web/**`、`server.ts`、依赖清单与锁文件一个字没动",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "这片的地盘只有服务，前端是 T043"
+    },
+    {
+      "id": "D08",
+      "text": "没有删除、跳过或弱化既有测试（不出现 `skip`/`only`/`todo`）；`ts` 的既有用例原样通过；门禁与回归全绿",
+      "evidence": [
+        "V01",
+        "V02",
+        "R01",
+        "G01",
+        "review"
+      ],
+      "intent": "门禁放宽不是为了给本片让路，早先为别的片写的断言不该被顺手改掉"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 4200,
+    "max_wall_seconds_total": 8400,
+    "cost_budget": null
+  }
+}
