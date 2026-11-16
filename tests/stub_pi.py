@@ -1,7 +1,7 @@
 """pi CLI（0.87 JSON 模式）的桩程序：不调用模型，供 tests/test_dispatch.py 验证 pi_dispatch.py。
 
 场景由 STUB_SCENARIO 选择：ok、scope、error、hang、commit、outside、touchmain、model、noreport、nosettle、startfail、
-readplan、typo、planner、ambiguous、conflict、checkonly、textcall、tmpclean。
+readplan、typo、planner、ambiguous、conflict、checkonly、textcall、tmpclean、landed、landedtouch、rewound。
 STUB_PTL 设置时在 assistant 消息中回报 providerThinkingLevel；STUB_NOCOST=1 时不给出费用；
 STUB_AUTH_DETAIL 设置时，auth check 的输出里带上这段文字（例如错误信息里带出的凭据）。
 STUB_LIST_FAIL=1 时 --list-models 失败退出，错误里带出 models.json 的片段；--list-models 与 pi 0.87 一样按参数筛选，
@@ -192,6 +192,28 @@ if scenario == "typo":  # 手写绝对路径时拼错目录名：路径不存在
 if scenario == "planner":  # 模拟规划器在运行期间往主工作区的 .agent/plans/ 写了新合同
     note = Path(os.environ["STUB_MAIN_REPO"]) / ".agent" / "plans" / "next-task.v1.md"
     note.write_text("# TASK: next-task\n", encoding="utf-8")
+if scenario in ("landed", "landedtouch", "rewound"):  # 第 174 轮：运行期间别的主任务在主工作区落地（rewound 是改写历史）
+    main = Path(os.environ["STUB_MAIN_REPO"])
+
+    def main_git(*argv):
+        subprocess.run(["git", "-C", str(main), "-c", "user.name=lander", "-c", "user.email=l@example.invalid",
+                        "-c", "commit.gpgsign=false"] + list(argv), check=True, stdout=subprocess.DEVNULL)
+
+    if scenario == "rewound":
+        main_git("commit", "-q", "--amend", "--allow-empty", "-m", "改写过的基线")
+    else:
+        (main / "docs").mkdir(exist_ok=True)
+        (main / "docs" / "landed.md").write_text("landed\n", encoding="utf-8")
+        with open(main / "run_tests.py", "a", encoding="utf-8") as handle:
+            handle.write("# landed\n")
+        touched = ["README.md"] if scenario == "landedtouch" else []
+        if touched:  # 落地的提交带上了运行前就脏的 README.md（真的落地 git 会拒绝盖掉本地改动）
+            (main / "README.md").write_text("rewritten by executor", encoding="utf-8")
+        main_git("add", "--", "docs/landed.md", "run_tests.py", *touched)
+        main_git("commit", "-q", "-m", "另一片落地")
+        if touched:  # 提交之后 run_tests.py 又被改写
+            with open(main / "run_tests.py", "a", encoding="utf-8") as handle:
+                handle.write("# after\n")
 if scenario in ("ambiguous", "conflict"):  # 执行器在推理中发现合同前后矛盾，并自行选了一种
     thought = assistant([{"type": "thinking", "thinking": "The contract says A in the behavior section, but step 4 "
                           "says B. This is ambiguous. I'll follow the behavior section."},

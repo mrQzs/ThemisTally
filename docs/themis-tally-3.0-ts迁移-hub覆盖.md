@@ -546,7 +546,7 @@ COVERED 21、PARTIAL 10。⑤g1 表里归 ⑤g2 的 21 条：19 条转 COVERED�
 | `test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again` | 3210 | COVERED | hub-land：finalize 2 次、landing_records 1 次、on_branch 3 次 |
 | `test_owner_takeover_closes_the_task` | 3230 | PARTIAL | tidy_finished 1 次；task close 的命令归 ⑤j |
 | `test_finished_tasks_remove_their_stage_worktrees` | 3276 | PARTIAL | tidy_finished 4 次、retire_attempts 4 次，其中 5 次不重放（仓库外的 worktree 在调用之间被删改），由手写场景覆盖；Engine 归 ⑤i |
-| `test_landing_waits_for_other_tasks_executors` | 4001 | PARTIAL | landing_blockers 3 次；land 归 ⑤i |
+| `test_landing_waits_for_sweeps_not_for_other_tasks_executors`（第 174 轮改名） | 4001 | PARTIAL | landing_blockers 3 次；land 归 ⑤i |
 | `test_exec_window_marks_the_run_and_waits_for_a_landing` | 4034 | COVERED | hub-land：landing_blockers 1 次（exec_window 在 ⑤g2） |
 | `test_records_commit_takes_only_the_tasks_plans_and_reviews` | 4131 | COVERED | hub-land：commit_records 2 次 |
 | `test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks` | 4221 | PARTIAL | landing_chain 5 次、on_branch 11 次、landed_meanwhile 3 次；rehearse_landing 归 ⑤h2 |
@@ -752,7 +752,7 @@ COVERED 10、PARTIAL 15。⑤h1 表里归 ⑤h2 的落地预演与 owner sweep�
 | `test_the_blocked_letter_says_timed_out_again_only_when_it_did` | 3477 | PARTIAL | hub-engine：worker_job 5 次、resumed_session 5 次；coordinator_turn、deliver_coordinator_letter、next_job、step、write_brief 归 ⑤i2 |
 | `test_info_letters_do_not_wake_workers` | 3592 | PARTIAL | hub-engine：worker_job 1 次；next_job、step 归 ⑤i2 |
 | `test_rework_starts_a_clean_session` | 3601 | PARTIAL | hub-engine：worker_job 2 次；next_job、step 归 ⑤i2 |
-| `test_landing_waits_for_other_tasks_executors` | 4001 | COVERED | hub-engine：land 2 次 |
+| `test_landing_waits_for_sweeps_not_for_other_tasks_executors`（第 174 轮改名） | 4001 | COVERED | hub-engine：land 2 次 |
 | `test_exec_delivery_carries_the_rehearsal_and_warns_the_owner` | 4340 | COVERED | hub-engine：worker_job 3 次 |
 | `test_after_land_rehearses_the_other_active_candidates` | 4376 | COVERED | hub-engine：after_land 2 次 |
 | `test_after_land_reports_the_regression_to_the_owner` | 4405 | COVERED | hub-engine：after_land 3 次 |

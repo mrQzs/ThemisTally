@@ -2821,6 +2821,52 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 回合里 terminated 连着出现时不提前收回合：分步写之后单次生成短，被掐一次损失也小；先看这条规矩落地后还出不出。
   - 不改模型、不调思考档位：要用户同意。
 
+### 第 174 轮：结项不再等别的主任务的执行端（候选 #35）
+
+- **起因**：
+  - 第 20 轮起，结项落地要等别的主任务的执行端跑完。理由是落地会改主工作区，在跑的 attempt 收集时把这次改动列成复审注意事项（“运行期间主工作区 HEAD 变了”“规划路径之外的文件变了，需确认不是执行器写入”），G2 记一条备注，审核端要去核。
+  - 执行端一跑就是一到一个半小时，排在后面的结项与依赖它的片都跟着等。账本里因别的执行端被推迟的结项（从推迟到记录提交，含其间别的等待）：
+    - 10-21 起：T006 393 分钟、T009 82 分钟、T010 55 分钟、T013 16 分钟；
+    - 11-12 起：T028 33 分钟、T036 185 分钟、T039 106 分钟、T040 356 分钟。
+  - 11-15 又是 T044、T046 两个执行端同时在跑。
+- **改法**：
+  - **调度器（Python 与 TS 两份）**：
+    - main_repo_changes 在 HEAD 只是往前快进时（运行前的 HEAD 是运行后 HEAD 的祖先），记 landed 与快进过的提交 landed_commits（“短哈希 标题”，最多 20 条）。
+    - 变了的路径里，运行前与当时的 HEAD 一致、运行后也与当时的 HEAD 一致的，记进 landed_paths，不算规划路径，也不算其他路径。
+    - 摘要把这种 HEAD 变化写成备注（列出落地的提交与随之变化的文件个数），不进注意事项。
+    - G2 只在 HEAD 不是快进、或有其他路径时记备注。
+  - **hub（Python 与 TS 两份）**：
+    - landing_blockers 加 executors 参数；结项的 land 传假，不再看别的主任务的执行端标记与在跑的 attempt，后台的门禁回归照样挡。
+    - finalize 给 integrate 加 --while-running。
+    - status 与站主的 exclusive 照旧列出、照旧等执行端，合入新一轮内核仍不落在一个 attempt 的中途。
+    - cmd_run 里结项被挡时的那句话改成“结项等后台门禁回归跑完再落地：…”（原来写“等别的执行端跑完”，本轮起已经不是这样）。
+- **执行器写主仓库照样抓得到**：
+  - 事件里的工作副本外路径照旧让 G2 不通过；
+  - 运行前就脏的文件、落地之后又被改的文件仍算其他路径；
+  - HEAD 不是快进（改写历史）仍进注意事项；
+  - 落地的提交逐条写在备注里，审核端一眼看得到。
+- **测试**：
+  - test_dispatch 一条，用三个新的桩情景：landed（运行期间落地一个提交）、landedtouch（落地的提交带上运行前就脏的 README，提交之后 run_tests.py 又被改）、rewound（改写历史）。核 landed、landed_paths、other_paths、摘要的备注与注意事项、verdict 里 G2 的备注。
+  - test_kit_hub：
+    - 原来的 `test_landing_waits_for_other_tasks_executors` 改成 `test_landing_waits_for_sweeps_not_for_other_tasks_executors`，执行端在跑时照样落地，后台回归在跑时挡着；
+    - finalize 交给 integrate 的参数多了 --while-running；
+    - `test_a_blocked_landing_does_not_queue_for_the_lane` 原来拿在跑的 attempt 挡落地，本轮起它不挡了，落地去排车道、交回“重活车道排不到”（第一遍全量检查红在这里）。改用门禁回归的标记挡，在跑的 attempt 留着，表明它不挡。
+  - 契约：
+    - collect 加三个情景；landedtouch 用新加的 before 钩子在取运行前指纹之前把 README 改脏（照 test_dispatch），断言 README 列在变化里、摘要只说“一致的文件 1 个”（第一遍 TS 变异漏了 M02“运行前就脏的也算随落地”：原来的用例没有运行前就脏的文件，两种读法结果一样）；
+    - hub-land-scenes 加 executors 为假的四种写法，注入的 integrate 参数加 --while-running；
+    - hub-heavy-scenes 加“执行端不挡、回归照挡”的 land；
+    - hub-runner-scenes 的 R39–R44 原来拿别的主任务的执行端标记挡结项，改用后台回归的标记（第一遍 R 段红在这里，j2-r96 变异的基线也因此没过）；
+    - hub-land、hub-engine 两份回放跟着改测试名；内层调用的下限跟着降：hub-engine 去掉 `_running_attempts`、pid_alive 4 改 1；hub-land 的 `_running_attempts` 20 改 17、pid_alive 11 改 9（第一遍检查红在这里，漏改）。land 不再问调度器。
+- **变异**：
+  - 新写的 hub-landed-ff：py 11 个、ts 9 个全抓住。ts 第一遍漏 M02（运行前就脏的也算随落地），collect 的 landedtouch 补上运行前就脏的 README 后抓住。
+  - 挪了锚点的 10 条（G15、W10、L01、L02、L24、N05、R96、P15、H06、T08）全抓住；R96 第一遍基线红（R 段那条场景），修好后抓住。
+  - 180 份规格的锚点都还唯一。
+- **检查**：类型检查 0 错；内核测试 409 passed；调度器测试 299 passed；契约 D 172、I 56、L 21、E 28、R 48、C 5 全过。
+  - 第一遍红了三处，都是本轮该改没改的测试或契约，实现没动：test_kit_hub 一条拿在跑的 attempt 挡落地；hub-land 回放的两项下限；R 段一条场景拿执行端标记挡结项（顺手把那句“结项等别的执行端跑完再落地”改成“结项等后台门禁回归跑完再落地”）。改完复查全过。
+- **没做**：
+  - 站主的 exclusive 照旧等执行端，`land_when_clear.py` 不改。
+  - 收集恰好落在 ff 合并改写工作区的那一瞬时，指纹可能看到半截，照旧列成其他路径。概率极小，不加锁。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

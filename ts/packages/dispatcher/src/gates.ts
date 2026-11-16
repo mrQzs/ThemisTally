@@ -179,7 +179,7 @@ export function evaluateGates(repo: Repo, runDir: string, meta: PyValue, contrac
   if (scope === null) fail("G2", "缺少 scope.json");
   else for (const violation of pyIter(get(scope, "violations", []))) fail("G2", `${s(pyItem(violation, "kind"))} ${s(pyItem(violation, "path"))}`);
   const changes = or(get(read("observations.json", new Map()), "main_repo_changes"), new Map());
-  if (pyTruthy(get(changes, "head_changed")) || pyTruthy(get(changes, "other_paths"))) {
+  if ((pyTruthy(get(changes, "head_changed")) && !pyTruthy(get(changes, "landed"))) || pyTruthy(get(changes, "other_paths"))) {
     gate("G2").notes.push("运行期间主工作区有规划路径之外的变化，复审时确认来源（见 summary.md）");
   }
   for (const item of pyIter(get(events, "outside_worktree_paths", []))) {

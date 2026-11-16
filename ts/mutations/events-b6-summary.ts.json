@@ -67,8 +67,8 @@
     {
       "name": "W10 HEAD 只写 10 位",
       "file": "ts/packages/dispatcher/src/summary.ts",
-      "old": "prefix(or(get(changes, \"head_before\"), \"?\"), 12)",
-      "new": "prefix(or(get(changes, \"head_before\"), \"?\"), 10)"
+      "old": "运行期间主工作区 HEAD 由 ${code(s(prefix(or(get(changes, \"head_before\"), \"?\"), 12)))} 变为",
+      "new": "运行期间主工作区 HEAD 由 ${code(s(prefix(or(get(changes, \"head_before\"), \"?\"), 10)))} 变为"
     },
     {
       "name": "W11 noul 的置信度不取绝对值",

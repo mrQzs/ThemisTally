@@ -28,7 +28,7 @@ const TESTS = [
   "test_finalize_lands_the_oracle_commit_first_and_can_be_retried", "test_finalize_lands_the_rework_chain_before_integrating",
   "test_finished_tasks_remove_their_stage_worktrees", "test_landing_is_not_undone_when_the_branch_moved_elsewhere_or_local_edits_block_it",
   "test_landing_rehearsal_catches_a_gate_that_a_meanwhile_commit_breaks", "test_landing_rehearsal_reports_commits_that_no_longer_apply",
-  "test_landing_skips_an_empty_rework_commit", "test_landing_waits_for_a_background_gate_sweep", "test_landing_waits_for_other_tasks_executors",
+  "test_landing_skips_an_empty_rework_commit", "test_landing_waits_for_a_background_gate_sweep", "test_landing_waits_for_sweeps_not_for_other_tasks_executors",
   "test_owner_commits_get_a_gate_sweep_and_rehearsals", "test_owner_takeover_closes_the_task", "test_records_commit_takes_only_the_tasks_plans_and_reviews",
   "test_retrying_finalize_does_not_pick_a_gate_the_owner_narrowed_again",
 ];
@@ -126,7 +126,7 @@ describe("第 ⑤h1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     const calls = all.filter((item) => item.skip === null);
     const inner = calls.flatMap((item) => item.request["inner"] as { fn: string }[]);
     const injected = Object.fromEntries([...new Set(inner.map((entry) => entry.fn))].sort().map((fn) => [fn, inner.filter((entry) => entry.fn === fn).length]));
-    expect(shortOf(injected, { _running_attempts: 20, pid_alive: 11, run_pd: 25 }), "注入的内层调用：低于下限的").toEqual([]); // 第 155 轮：land 进车道前后各看一次有没有人挡着
+    expect(shortOf(injected, { _running_attempts: 17, pid_alive: 9, run_pd: 25 }), "注入的内层调用：低于下限的").toEqual([]); // 第 155 轮：land 进车道前后各看一次有没有人挡着；第 174 轮：land 不再问调度器在跑的 attempt、不再核执行端标记的进程，两项下限随采样降到 17 与 9
     replay(calls);
   }, 1_800_000);
   it("其余四个：放回调用当时的快照之后三边重放，逐字与当时的结果相同", () => {

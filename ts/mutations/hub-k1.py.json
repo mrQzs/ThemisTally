@@ -101,7 +101,7 @@
   {
    "name": "P15 落地不先看有没有人挡着",
    "file": "scripts/kit_hub.py",
-   "old": "    blockers = landing_blockers(hub, early) if early else []",
+   "old": "    blockers = landing_blockers(hub, early, executors=False) if early else []",
    "new": "    blockers = []"
   },
   {

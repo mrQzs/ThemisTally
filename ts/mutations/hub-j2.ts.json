@@ -578,8 +578,8 @@
   {
    "name": "R96 后台回归也挡站主的命令",
    "file": "ts/packages/hub/src/runner.ts",
-   "old": "[\"contract_task\", NUL]]), false, deps)",
-   "new": "[\"contract_task\", NUL]]), true, deps)"
+   "old": "[\"contract_task\", NUL]]), false, true, deps)",
+   "new": "[\"contract_task\", NUL]]), true, true, deps)"
   },
   {
    "name": "P01 stderr 不跟 stdout 共用",

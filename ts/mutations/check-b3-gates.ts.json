@@ -99,7 +99,7 @@
     {
       "name": "G15 HEAD 变了不提",
       "file": "ts/packages/dispatcher/src/gates.ts",
-      "old": "if (pyTruthy(get(changes, \"head_changed\")) || pyTruthy(get(changes, \"other_paths\"))) {",
+      "old": "if ((pyTruthy(get(changes, \"head_changed\")) && !pyTruthy(get(changes, \"landed\"))) || pyTruthy(get(changes, \"other_paths\"))) {",
       "new": "if (pyTruthy(get(changes, \"other_paths\"))) {"
     },
     {

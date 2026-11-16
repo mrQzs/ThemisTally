@@ -132,10 +132,15 @@ describe("第 155 轮：落地先排车道、再在车道里试落地锁（手�
     return { sc, path: box.path };
   }
 
-  it("落地锁被另一个进程拿着：让出车道，信留在 new；车道被另一个进程拿着：交回“重活车道排不到”；有人挡着时不进车道", () => {
+  it("落地锁被另一个进程拿着：让出车道，信留在 new；车道被另一个进程拿着：交回“重活车道排不到”；有人挡着时不进车道；别的主任务的执行端不挡（第 174 轮）", () => {
     const locked = landScene((repo) => held(repo, ".land", null));
     const queued = landScene((repo) => held(repo, ".heavy", { label: "基线检查", task: "T009" }));
     const blocked = landScene((repo) => {
+      const mark = { task: "T009-after-land", label: "T009 合入后的门禁回归与落地预演", sweep: true };
+      put(repo, `${BOX}/ledger/exec-active/T009-after-land.json`, `${JSON.stringify(mark)}${LF}`);
+    });
+    const both = landScene((repo) => { // 第 174 轮：别的主任务的执行端不挡结项，后台回归照样挡
+      put(repo, `${BOX}/ledger/exec-active/T002.json`, `${JSON.stringify({ task: "T002" })}${LF}`);
       const mark = { task: "T009-after-land", label: "T009 合入后的门禁回归与落地预演", sweep: true };
       put(repo, `${BOX}/ledger/exec-active/T009-after-land.json`, `${JSON.stringify(mark)}${LF}`);
     });
@@ -143,12 +148,16 @@ describe("第 155 轮：落地先排车道、再在车道里试落地锁（手�
       { ...flow("land", locked.sc, [null, locked.path, meta]), land_try: 1 },
       { ...flow("land", queued.sc, [null, queued.path, meta]), heavy_wait: 1 },
       flow("land", blocked.sc, [null, blocked.path, meta]),
+      flow("land", both.sc, [null, both.path, meta]),
     ]);
-    expect(states.map(errorOf)).toEqual([null, null, null]);
-    expect(states.map((state) => returned(state))).toEqual([["落地锁被占"], ["重活车道排不到"], ["T009 合入后的门禁回归与落地预演"]]);
+    expect(states.map(errorOf)).toEqual([null, null, null, null]);
+    expect(states.map((state) => returned(state))).toEqual([
+      ["落地锁被占"], ["重活车道排不到"], ["T009 合入后的门禁回归与落地预演"], ["T009 合入后的门禁回归与落地预演"],
+    ]);
     expect(kinds(states[0], "heavy.")).toEqual([["heavy.entered", "落地检查", null], ["heavy.left", "落地检查", null]]);
     expect(events(states[1]).map((event) => [event["event"], event["task"], event["behind"]])).toEqual([["heavy.queued", "T001", "T009 的基线检查"]]);
     expect(kinds(states[2], "heavy.")).toEqual([]);
+    expect(kinds(states[3], "heavy.")).toEqual([]);
   }, 600_000);
 });
 

@@ -448,6 +448,41 @@ def test_commit_outside_main():
     check("summary names the changed main repo file", "README.md" in summary.split("## 复审需要关注")[-1], summary)
 
 
+def test_landing_during_a_run_is_explained_not_flagged():
+    # 第 174 轮：运行期间别的主任务落地，HEAD 只往前快进。运行前后都与当时的 HEAD 一致的文件是随落地变的：记进 landed_paths，
+    # 复审注意事项里没有它们，G2 不记备注。运行前就脏的（README）、落地之后又被改写的（run_tests.py）照旧列出；改写历史不算落地
+    repo, base = make_repo("landed")
+    run_ok(repo, STUB_SCENARIO="landed", STUB_MAIN_REPO=str(repo))
+    changes = jload(rd(repo) / "observations.json")["main_repo_changes"]
+    check("a fast-forward during the run is a landing", changes["head_changed"] and changes["landed"]
+          and [item.split(" ", 1)[1] for item in changes["landed_commits"]] == ["另一片落地"], changes)
+    check("files that came with the landing are landed paths", sorted(changes["landed_paths"]) == ["A docs/landed.md", "M run_tests.py"]
+          and not changes["other_paths"] and not changes["planner_paths"], changes)
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    attention = summary.split("## 复审需要关注")[1].split("\n## ")[0] if "## 复审需要关注" in summary else ""
+    check("the landing is a note naming its commit, not an attention item", "快进到" in summary and "另一片落地" in summary
+          and "HEAD 由" not in attention and "run_tests.py" not in attention, summary)
+    tool(repo, "check", "normalize-query/attempt-001")
+    code, out = tool(repo, "verdict", "normalize-query/attempt-001", "--verdict", "PASS", "--review", review(repo, "PASS"))
+    notes = jload(rd(repo) / "verdicts/01.json")["gates"]["G2"]["notes"] if code == 0 else None
+    check("G2 keeps no note for a landing", notes is not None and not any("主工作区" in note for note in notes), (out, notes))
+
+    repo, base = make_repo("landedtouch")
+    (repo / "README.md").write_text("# locally edited before the run\n", encoding="utf-8")  # 运行前已是脏文件
+    run_ok(repo, STUB_SCENARIO="landedtouch", STUB_MAIN_REPO=str(repo))
+    changes = jload(rd(repo) / "observations.json")["main_repo_changes"]
+    check("files dirty before or after the landing are still listed", changes["landed"]
+          and sorted(changes["other_paths"]) == ["M README.md", "M run_tests.py"] and changes["landed_paths"] == ["A docs/landed.md"], changes)
+
+    repo, base = make_repo("rewound")
+    run_ok(repo, STUB_SCENARIO="rewound", STUB_MAIN_REPO=str(repo))
+    changes = jload(rd(repo) / "observations.json")["main_repo_changes"]
+    check("a rewritten history is not a landing", changes["head_changed"] and not changes["landed"]
+          and changes["landed_commits"] == [] and changes["landed_paths"] == [], changes)
+    summary = (rd(repo) / "summary.md").read_text(encoding="utf-8")
+    check("a HEAD that did not fast-forward stays an attention item", "HEAD 由" in summary.split("## 复审需要关注")[-1], summary)
+
+
 def test_timeout():
     repo, base = make_repo("hang")
     write_config(repo, kill_grace_seconds=2)

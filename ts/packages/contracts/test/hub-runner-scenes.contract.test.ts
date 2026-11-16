@@ -243,11 +243,14 @@ describe("第 ⑤j2 片：变异检验补的（手写，剧本交回内层函数
   /** 别的主任务的执行标记，持有进程的死活照记录注入。 */
   const BLOCKER = 4242;
   const execMark = (repo: string, task: string): void => put(repo, `${BOX}/ledger/exec-active/${task}.json`, JSON.stringify({ task, pid: BLOCKER }));
+  // 第 174 轮：挡结项的只剩后台的门禁回归
+  const sweepMark = (repo: string): void =>
+    put(repo, `${BOX}/ledger/exec-active/owner-sweep.json`, JSON.stringify({ task: "owner-sweep", label: "站主提交之后的门禁回归", pid: BLOCKER, sweep: true }));
 
   it("cmd_run 的结项信：被挡两轮只记一次、只说一次，每轮睡 poll 秒；落成算一件事；不是“通过”的、--task 时别的主任务的不办（R39–R44）", () => {
     const blocked = twoTasks((repo) => {
       execLetter(repo, "T001-5-exec", "通过");
-      execMark(repo, "T002");
+      sweepMark(repo);
     });
     const landed = twoTasks((repo) => execLetter(repo, "T001-5-exec", "通过"));
     const rework = twoTasks((repo) => execLetter(repo, "T001-5-exec", "返工"));
@@ -263,7 +266,7 @@ describe("第 ⑤j2 片：变异检验补的（手写，剧本交回内层函数
     ], ownPid, REPLAY_TIMEOUT);
     expect(kinds(deferred)).toEqual(["runner.started", "finalize.deferred", "runner.code_changed", "runner.stopped"]);
     expect(seconds(deferred)).toEqual([0.5, 0.5]);
-    expect(stdoutOf(deferred).split(LF).filter((line) => line.startsWith("结项等别的执行端跑完再落地："))).toEqual(["结项等别的执行端跑完再落地：T002 的执行端"]);
+    expect(stdoutOf(deferred).split(LF).filter((line) => line.startsWith("结项等后台门禁回归跑完再落地："))).toEqual(["结项等后台门禁回归跑完再落地：站主提交之后的门禁回归"]);
     expect([events(done).at(-1)?.["steps"], stdoutOf(done).endsWith(`hub 退出：处理了 1 件事；站主未读 1 封${LF}`)]).toEqual([1, true]);
     for (const state of [skipped, own]) expect([calls(state, "Engine.step").length, events(state).at(-1)?.["steps"]]).toEqual([1, 0]);
   }, 1_800_000);

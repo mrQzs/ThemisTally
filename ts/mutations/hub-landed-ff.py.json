@@ -1,0 +1,85 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_dispatch.py",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "landing_during or landing_waits_for_sweeps or regression_checks_the_rehearsal_ran"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "D01 不看是不是快进",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if git([\"merge-base\", \"--is-ancestor\", head_before, head_after], repo_root, check=False).returncode != 0:",
+      "new": "if False:"
+    },
+    {
+      "name": "D02 运行前就脏的也算随落地",
+      "file": "scripts/pi_dispatch.py",
+      "old": "and path not in dirty[0] and path not in dirty[1]:",
+      "new": "and path not in dirty[1]:"
+    },
+    {
+      "name": "D03 落地后又脏的也算随落地",
+      "file": "scripts/pi_dispatch.py",
+      "old": "and path not in dirty[0] and path not in dirty[1]:",
+      "new": "and path not in dirty[0]:"
+    },
+    {
+      "name": "D04 摘要照旧把快进的 HEAD 列进注意事项",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if changes.get(\"head_changed\") and not changes.get(\"landed\"):\n        attention.append",
+      "new": "if changes.get(\"head_changed\"):\n        attention.append"
+    },
+    {
+      "name": "D05 G2 照旧记备注",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if (changes.get(\"head_changed\") and not changes.get(\"landed\")) or changes.get(\"other_paths\"):",
+      "new": "if changes.get(\"head_changed\") or changes.get(\"other_paths\"):"
+    },
+    {
+      "name": "D06 不写落地的备注",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if changes.get(\"landed\"):\n        commits = ",
+      "new": "    if False:\n        commits = "
+    },
+    {
+      "name": "H01 先看一眼时照旧等执行端",
+      "file": "scripts/kit_hub.py",
+      "old": "blockers = landing_blockers(hub, early, executors=False) if early else []",
+      "new": "blockers = landing_blockers(hub, early) if early else []"
+    },
+    {
+      "name": "H02 落地锁里照旧等执行端",
+      "file": "scripts/kit_hub.py",
+      "old": "blockers = landing_blockers(hub, ts, executors=False) if ts else []",
+      "new": "blockers = landing_blockers(hub, ts) if ts else []"
+    },
+    {
+      "name": "H03 executors=False 照样算执行端的标记",
+      "file": "scripts/kit_hub.py",
+      "old": " or (not mark.get(\"sweep\") and not executors):",
+      "new": ":"
+    },
+    {
+      "name": "H04 executors=False 照样算在跑的 attempt",
+      "file": "scripts/kit_hub.py",
+      "old": "    if not executors:",
+      "new": "    if False:"
+    },
+    {
+      "name": "H05 integrate 不带 --while-running",
+      "file": "scripts/kit_hub.py",
+      "old": "[\"integrate\", str(run_dir), \"--while-running\"]",
+      "new": "[\"integrate\", str(run_dir)]"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/collect.contract.test.ts",
+    "packages/contracts/test/hub-land-scenes.contract.test.ts",
+    "packages/contracts/test/hub-heavy-scenes.contract.test.ts",
+    "-t",
+    "别的主任务落地|落地之后又被改写|历史被改写|HEAD 变了|第 174 轮|第 172 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "T01 不看是不是快进",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (git([\"merge-base\", \"--is-ancestor\", headBefore, headAfter], repoRoot).status !== 0) return [];",
+      "new": ""
+    },
+    {
+      "name": "T02 运行前就脏的也算随落地",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (dirty[0] && dirty[1] && !dirty[0].has(file) && !dirty[1].has(file))",
+      "new": "if (dirty[0] && dirty[1] && !dirty[1].has(file))"
+    },
+    {
+      "name": "T03 落地后又脏的也算随落地",
+      "file": "ts/packages/dispatcher/src/collect.ts",
+      "old": "if (dirty[0] && dirty[1] && !dirty[0].has(file) && !dirty[1].has(file))",
+      "new": "if (dirty[0] && dirty[1] && !dirty[0].has(file))"
+    },
+    {
+      "name": "T04 摘要照旧把快进的 HEAD 列进注意事项",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "if (pyTruthy(get(changes, \"head_changed\")) && !pyTruthy(get(changes, \"landed\"))) {",
+      "new": "if (pyTruthy(get(changes, \"head_changed\"))) {"
+    },
+    {
+      "name": "T05 不写落地的备注",
+      "file": "ts/packages/dispatcher/src/summary.ts",
+      "old": "  if (pyTruthy(get(changes, \"landed\"))) {\n    const commits",
+      "new": "  if (false) {\n    const commits"
+    },
+    {
+      "name": "T06 executors 为假照样算执行端的标记",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": " || (!sweep && !pyTruthy(executors))) continue;",
+      "new": ") continue;"
+    },
+    {
+      "name": "T07 executors 为假照样算在跑的 attempt",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "  if (!pyTruthy(executors)) return found;\n",
+      "new": ""
+    },
+    {
+      "name": "T08 integrate 不带 --while-running",
+      "file": "ts/packages/hub/src/land.ts",
+      "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts)]",
+      "new": "[\"integrate\", runDir, ...rehearsedWaiver(hub, ts)]"
+    },
+    {
+      "name": "T09 先看一眼时照旧等执行端",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": "landingBlockers(hub, early as PyDict, true, false, deps)",
+      "new": "landingBlockers(hub, early as PyDict, true, true, deps)"
+    }
+  ]
+}

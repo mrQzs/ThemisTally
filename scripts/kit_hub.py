@@ -4370,8 +4370,8 @@ def exec_marks(hub: Hub) -> Path:
 
 @contextlib.contextmanager
 def exec_window(hub: Hub, ts: Dict[str, Any]):
-    """执行端从 prepare 到 check 跑完都挂一份标记（第 20 轮）。落地会改主工作区与当前分支，调度器把运行期间
-    主工作区的变化列进复审的注意事项；所以落地要等别的主任务的标记都撤掉。挂标记之前先过落地锁：
+    """执行端从 prepare 到 check 跑完都挂一份标记（第 20 轮）。站主的 exclusive 要等别的主任务的标记都撤掉
+    （第 174 轮起结项不再等：调度器把随落地变化的文件记进 landed_paths）。挂标记之前先过落地锁：
     有主任务正在落地，等它落完再开始。"""
     marks = exec_marks(hub)
     marks.mkdir(parents=True, exist_ok=True)
@@ -4636,9 +4636,12 @@ def checked_with_one_rerun(hub: Hub, ts: Dict[str, Any], label: str, args: Seque
         "、".join(sorted(ids)), "、".join(names[:8]) or "没读出来")
 
 
-def landing_blockers(hub: Hub, ts: Dict[str, Any], sweeps: bool = True) -> List[str]:
+def landing_blockers(hub: Hub, ts: Dict[str, Any], sweeps: bool = True, executors: bool = True) -> List[str]:
     """挡着本主任务落地的：别的主任务挂着的执行标记（持有进程还在），后台在跑的门禁回归（第 62 轮；sweeps=False
-    时不算），以及调度器记着在跑的别的 attempt（站主手动派的也算；integrate 自己也会因为它们拒绝落地）。"""
+    时不算），以及调度器记着在跑的别的 attempt（站主手动派的也算；integrate 自己也会因为它们拒绝落地）。
+    第 174 轮：executors=False 时执行端的标记与在跑的 attempt 都不算。结项落地只让 HEAD 往前快进，调度器把运行期间
+    随之变化的文件记进 landed_paths、不列进复审的注意事项，所以结项不再等别的执行端（integrate 带 --while-running）；
+    站主的 exclusive 照旧等（合入新一轮内核不落在一个 attempt 的中途）。"""
     found: List[str] = []
     marks = exec_marks(hub)
     for path in sorted(marks.glob("*.json")) if marks.is_dir() else []:
@@ -4646,11 +4649,13 @@ def landing_blockers(hub: Hub, ts: Dict[str, Any], sweeps: bool = True) -> List[
             mark = json.loads(read_text(path) or "{}")
         except ValueError:
             mark = {}
-        if mark.get("task") == ts["task"] or (mark.get("sweep") and not sweeps):
+        if mark.get("task") == ts["task"] or (mark.get("sweep") and not sweeps) or (not mark.get("sweep") and not executors):
             continue
         if mark.get("pid") and pd.pid_alive(int(mark["pid"])) is False:
             continue  # 进程已经不在：标记作废
         found.append(mark.get("label") or "%s 的执行端" % (mark.get("task") or path.stem))
+    if not executors:
+        return found
     try:
         running = pd._running_attempts(pd.Repo(hub.repo))
     except (pd.DispatchError, OSError):
@@ -4672,7 +4677,7 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     records_before = [dict(record) for record in landing_records(ts)]
     problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
     if not problem:
-        code, out = run_pd(hub, ["integrate", str(run_dir)] + rehearsed_waiver(hub, ts), timeout=3600)
+        code, out = run_pd(hub, ["integrate", str(run_dir), "--while-running"] + rehearsed_waiver(hub, ts), timeout=3600)
         ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
         if code != 0:
             problem = "integrate 没有落地（退出码 %d）：\n%s%s" % (code, tail(out, 15),
@@ -7406,11 +7411,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             if passes:  # 结项信由内核办，不唤醒任何进程
                 meta = parse_letter(read_text(passes[0]))[0]
                 blockers = land(hub, engine, passes[0], meta)
-                if blockers:  # 别的主任务的执行端还在跑：落地会改主工作区，等它跑完（第 20 轮）
+                if blockers:  # 后台的门禁回归还在跑，等它跑完再落地（第 62 轮；第 174 轮起别的主任务的执行端不再挡结项）
                     if deferred != meta["msg-id"]:
                         deferred = meta["msg-id"]
                         hub.append_event("finalize.deferred", task=stage_of(meta["task-id"])[0], blockers=blockers)
-                        print("结项等别的执行端跑完再落地：%s" % "、".join(blockers), flush=True)
+                        print("结项等后台门禁回归跑完再落地：%s" % "、".join(blockers), flush=True)
                     idle_since = time.monotonic()
                     time.sleep(args.poll)
                     continue
@@ -7436,12 +7441,13 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def land(hub: Hub, engine: Engine, letter: Path, meta: Dict[str, str]) -> List[str]:
-    """持落地锁结项；别的主任务的执行端还在跑时不动，返回挡着的是谁（信留在 new 里，下一轮再试）。
+    """持落地锁结项；后台的门禁回归还在跑时不动，返回挡着的是谁（信留在 new 里，下一轮再试）；第 174 轮起别的主任务
+    的执行端不再挡（见 landing_blockers）。
     第 155 轮：integrate 要在末端上把合同的检查连同全量回归跑一遍，是重活。先不拿锁看一眼有没有人挡着，再排重活车道，
     在车道里试落地锁；落地锁一时拿不到就让出车道、下一轮再试（次序与理由见 heavy_lane）。"""
     main = stage_of(meta["task-id"])[0]
     early = hub.load_state()["tasks"].get(main) if main else None
-    blockers = landing_blockers(hub, early) if early else []
+    blockers = landing_blockers(hub, early, executors=False) if early else []
     if blockers:
         return blockers
     try:
@@ -7454,7 +7460,7 @@ def land(hub: Hub, engine: Engine, letter: Path, meta: Dict[str, str]) -> List[s
             try:
                 state = hub.load_state()
                 ts = state["tasks"].get(main) if main else None
-                blockers = landing_blockers(hub, ts) if ts else []
+                blockers = landing_blockers(hub, ts, executors=False) if ts else []
                 if blockers:
                     return blockers
                 hub.take(letter)

@@ -289,10 +289,18 @@ export function writeSummary(runDir: string, repo: Repo, context: SummaryContext
     attention.push(`候选没有收这个文件：${code(s(skipped))}（Windows 的保留设备名，git 打不开；多半是命令把输出写到了 nul、con 这类名字）`);
   }
   const changes = or(get(extra, "main_repo_changes"), new Map());
-  if (pyTruthy(get(changes, "head_changed"))) {
+  if (pyTruthy(get(changes, "head_changed")) && !pyTruthy(get(changes, "landed"))) {
     attention.push(
       `运行期间主工作区 HEAD 由 ${code(s(prefix(or(get(changes, "head_before"), "?"), 12)))} 变为 ${code(s(prefix(or(get(changes, "head_after"), "?"), 12)))}：` +
         "可能是规划器在批次运行期间集成了其他候选，也可能是越界提交",
+    );
+  }
+  if (pyTruthy(get(changes, "landed"))) {
+    const commits = pyIter(or(get(changes, "landed_commits"), [])).map((item) => s(item).split(BACKTICK).join("'"));
+    notes.push(
+      `运行期间主工作区 HEAD 由 ${code(s(prefix(or(get(changes, "head_before"), "?"), 12)))} 快进到 ${code(s(prefix(or(get(changes, "head_after"), "?"), 12)))}` +
+        `（别的主任务落地或站主合入）：${commits.slice(0, 5).map(code).join("、")}${commits.length > 5 ? "等" : ""}；随之变化、运行前后都与当时的 HEAD ` +
+        `一致的文件 ${pyIter(or(get(changes, "landed_paths"), [])).length} 个，不是执行器写的`,
     );
   }
   if (pyTruthy(get(changes, "other_paths"))) {

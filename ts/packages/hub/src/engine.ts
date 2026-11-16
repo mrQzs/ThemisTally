@@ -939,14 +939,15 @@ export async function releaseDependents(hub: Hub, state: StateLike, done: string
 }
 
 /**
- * 持落地锁结项；别的主任务的执行端还在跑时不动，交回挡着的是谁（信留在 new 里，下一轮再试）。第 155 轮：integrate 要在末端上把合同的检查
+ * 持落地锁结项；后台的门禁回归还在跑时不动，交回挡着的是谁（信留在 new 里，下一轮再试）；第 174 轮起别的主任务的执行端不再挡（见
+ * landingBlockers）。第 155 轮：integrate 要在末端上把合同的检查
  * 连同全量回归跑一遍，是重活。先不拿锁看一眼有没有人挡着，再排重活车道，在车道里试落地锁；落地锁一时拿不到就让出车道、下一轮再试
  * （次序与理由见 withHeavyLane）。
  */
 export async function land(hub: Hub, engine: Landing, letter: string, meta: ReadonlyMap<string, string>, deps: EngineDeps = REAL_ENGINE_DEPS): Promise<PyValue[]> {
   const main = stageOf(pyItem(meta as PyDict, "task-id") as string)[0];
   const early = main ? pyGet(hub.loadState().tasks(), main) as PyDict | null : null;
-  const blockers = pyTruthy(early) ? landingBlockers(hub, early as PyDict, true, deps) : [];
+  const blockers = pyTruthy(early) ? landingBlockers(hub, early as PyDict, true, false, deps) : [];
   if (blockers.length > 0) return blockers;
   let held: PyValue[] | null;
   try {
@@ -961,7 +962,7 @@ export async function land(hub: Hub, engine: Landing, letter: string, meta: Read
       try {
         const state = hub.loadState();
         const ts = main ? pyGet(state.tasks(), main) as PyDict | null : null;
-        const again = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, true, deps) : [];
+        const again = pyTruthy(ts) ? landingBlockers(hub, ts as PyDict, true, false, deps) : [];
         if (again.length > 0) return again;
         await hub.take(letter);
         await engine.handlePass(state, meta);

@@ -562,8 +562,8 @@ export function execMarks(hub: Hub): string {
 }
 
 /**
- * 执行端从 prepare 到 check 跑完都挂一份标记（第 20 轮）：落地要等别的主任务的标记都撤掉。挂标记之前先过落地锁：有主任务正在落地，
- * 等它落完再开始。
+ * 执行端从 prepare 到 check 跑完都挂一份标记（第 20 轮）：站主的 exclusive 要等别的主任务的标记都撤掉（第 174 轮起结项不再等）。挂标记
+ * 之前先过落地锁：有主任务正在落地，等它落完再开始。
  */
 export async function execWindow<T>(hub: Hub, ts: PyDict, fn: () => Promise<T>, deps: ExecDeps = REAL_EXEC_DEPS): Promise<T> {
   const marks = execMarks(hub);

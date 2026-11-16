@@ -4276,7 +4276,8 @@ def test_task_runner_only_takes_its_own_task_letters(tmp_path):
     assert kh.tasks_with_work(hub) == ["T002"]  # 结项的主任务不再起 runner
 
 
-def test_landing_waits_for_other_tasks_executors(tmp_path, monkeypatch):
+def test_landing_waits_for_sweeps_not_for_other_tasks_executors(tmp_path, monkeypatch):
+    # 第 174 轮：结项不再等别的主任务的执行端（调度器把随落地变化的文件记成 landed_paths），后台的门禁回归照样挡着
     import os
     hub = two_task_hub(tmp_path)
     monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: ["t001-doc/attempt-002", "t009-x/attempt-001"])
@@ -4287,8 +4288,13 @@ def test_landing_waits_for_other_tasks_executors(tmp_path, monkeypatch):
     (marks / "T001.json").write_text(json.dumps({"pid": os.getpid(), "task": "T001"}), encoding="utf-8")
     (marks / "T003.json").write_text(json.dumps({"pid": 2 ** 22 + 7, "task": "T003"}), encoding="utf-8")
     monkeypatch.setattr(kh.pd, "pid_alive", lambda pid: pid == os.getpid())
-    # 自己的标记、自己合同的 attempt、进程已不在的标记都不算
+    # 自己的标记、自己合同的 attempt、进程已不在的标记都不算；status 与站主的 exclusive 照旧列出执行端
     assert kh.landing_blockers(hub, t001) == ["T002 的执行端", "attempt t009-x/attempt-001"]
+    assert kh.landing_blockers(hub, t001, executors=False) == []
+    sweep = marks / "owner-sweep.json"
+    sweep.write_text(json.dumps({"pid": os.getpid(), "task": "owner-sweep", "label": "站主提交之后的门禁回归", "sweep": True}),
+                     encoding="utf-8")
+    assert kh.landing_blockers(hub, t001, executors=False) == ["站主提交之后的门禁回归"]
     hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
                  "type": "通过"}, fields())
     letter = hub.unread("exec-step")[0]
@@ -4302,9 +4308,8 @@ def test_landing_waits_for_other_tasks_executors(tmp_path, monkeypatch):
             passes.append("after:" + main)
 
     blockers = kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0])
-    assert blockers and passes == [] and hub.unread("exec-step") == [letter]  # 信留在 new 里，下一轮再试
-    (marks / "T002.json").unlink()
-    monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: [])
+    assert blockers == ["站主提交之后的门禁回归"] and passes == [] and hub.unread("exec-step") == [letter]  # 信留在 new 里，下一轮再试
+    sweep.unlink()  # 回归跑完；T002 的执行端与 t009 的 attempt 还在跑
     assert kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0]) == []
     assert passes == ["T001-5-exec", "after:T001"] and hub.unread("exec-step") == []
 
@@ -4783,7 +4788,7 @@ def test_finalize_hands_integrate_the_regression_checks_the_rehearsal_ran(tmp_pa
     monkeypatch.setattr(kh, "run_pd", fake_pd)
     (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")  # verdict 已经记过
     ok, _detail = kh.finalize(hub, ts)
-    assert ok and calls == [["integrate", str(run_dir)] + waiver]  # 树对不对由调度器核（--skip-if-tree）
+    assert ok and calls == [["integrate", str(run_dir), "--while-running"] + waiver]  # 树对不对由调度器核（--skip-if-tree）
 
 
 def test_exclusive_runs_the_command_once_executors_are_done(tmp_path, monkeypatch):
@@ -9305,8 +9310,13 @@ def test_failed_test_names_stop_at_the_end_of_the_line(tmp_path):
 
 def test_a_blocked_landing_does_not_queue_for_the_lane(tmp_path, monkeypatch):
     # 有人挡着时先交回挡着的是谁，不去排重活车道（车道被占也一样，不等到排队超时）
+    # 第 174 轮起挡着结项的只剩门禁回归；t009 的 attempt 在跑也不挡
     hub = two_task_hub(tmp_path)
     monkeypatch.setattr(kh.pd, "_running_attempts", lambda repo: ["t009-x/attempt-001"])
+    marks = kh.exec_marks(hub)
+    marks.mkdir(parents=True)
+    (marks / "owner-sweep.json").write_text(json.dumps({"task": "owner-sweep", "label": "站主提交之后的门禁回归", "sweep": True},
+                                                    ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(kh, "HEAVY_WAIT_SECONDS", 0.2)
     hub.deliver({"from": kh.COORDINATOR, "to": "exec-step", "task-id": "T001-5-exec", "in-reply-to": "none",
                  "type": "通过"}, fields())
@@ -9320,7 +9330,7 @@ def test_a_blocked_landing_does_not_queue_for_the_lane(tmp_path, monkeypatch):
             raise AssertionError("挡着的时候不该收尾")
 
     with kh.heavy_lane(hub, "基线检查", "T002"):
-        assert kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0]) == ["attempt t009-x/attempt-001"]
+        assert kh.land(hub, Engine(), letter, kh.parse_letter(letter.read_text(encoding="utf-8"))[0]) == ["站主提交之后的门禁回归"]
     assert [e["event"] for e in events_of(hub) if e["event"].startswith("heavy.")] == ["heavy.entered", "heavy.left"]
 
 

@@ -1712,7 +1712,7 @@ export async function hubContractFlow(request: Record<string, unknown>, fromTagg
         case "finalize": // ⑤h1
           return finalize(hub, ts, landDeps);
         case "landing_blockers":
-          return landingBlockers(hub, ts, args[2] as PyValue, landDeps);
+          return landingBlockers(hub, ts, args[2] as PyValue, args.length > 3 ? args[3] as PyValue : true, landDeps); // 第 174 轮：executors
         case "retire_attempts":
           return retireAttempts(hub, ts, textOf(args[2]), landDeps);
         case "tidy_finished":

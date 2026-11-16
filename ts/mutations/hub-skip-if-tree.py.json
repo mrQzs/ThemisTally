@@ -78,8 +78,8 @@
     {
       "name": "H06 结项不把豁免交给 integrate",
       "file": "scripts/kit_hub.py",
-      "old": "[\"integrate\", str(run_dir)] + rehearsed_waiver(hub, ts)",
-      "new": "[\"integrate\", str(run_dir)]"
+      "old": "[\"integrate\", str(run_dir), \"--while-running\"] + rehearsed_waiver(hub, ts)",
+      "new": "[\"integrate\", str(run_dir), \"--while-running\"]"
     },
     {
       "name": "H07 预演过了不记跑了哪几份",

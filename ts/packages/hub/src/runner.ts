@@ -293,12 +293,12 @@ export async function cmdRun(args: CommandArgs, out: CommandOut = new PyOut(), d
       if (passes.length > 0) { // 结项信由内核办，不唤醒任何进程
         const meta = parseLetter(readText(passes[0] as string))[0];
         const blockers = await land(hub, engine, passes[0] as string, meta, deps);
-        if (blockers.length > 0) { // 别的主任务的执行端还在跑：落地会改主工作区，等它跑完
+        if (blockers.length > 0) { // 后台的门禁回归还在跑，等它跑完再落地（第 174 轮起别的主任务的执行端不再挡结项）
           if (!meta.has("msg-id")) throw new PyCrash("KeyError", "'msg-id'"); // meta["msg-id"]
           if (deferred !== meta.get("msg-id")) {
             deferred = meta.get("msg-id") as string;
             await hub.appendEvent("finalize.deferred", [["task", stageOf(meta.get("task-id"))[0]], ["blockers", blockers]]);
-            out.print(`结项等别的执行端跑完再落地：${blockers.map(pyStrValue).join("、")}`);
+            out.print(`结项等后台门禁回归跑完再落地：${blockers.map(pyStrValue).join("、")}`);
           }
           idleSince = deps.monotonic();
           await deps.sleep(poll);
@@ -510,7 +510,7 @@ export async function cmdExclusive(args: CommandArgs, out: CommandOut = new PyOu
   try {
     let announced = false;
     for (;;) { // 后台的门禁回归不挡站主的命令（它跑的是固定的末端，下一轮再跑新的）
-      const blockers = landingBlockers(hub, new Map<string, PyValue>([["task", null], ["contract_task", NUL]]), false, deps).map(pyStrValue);
+      const blockers = landingBlockers(hub, new Map<string, PyValue>([["task", null], ["contract_task", NUL]]), false, true, deps).map(pyStrValue);
       if (blockers.length === 0) break;
       if (deps.monotonic() >= deadline) throw new HubError(`等了 ${Math.trunc(wait)} 秒，执行端还没跑完：${blockers.join("、")}`, EXIT_BLOCKED);
       if (!announced) {

@@ -126,6 +126,13 @@ describe("第 ⑤h1 片：landing_blockers（手写）", () => {
     ]);
   }, 600_000);
 
+  it("第 174 轮：executors 为假时只剩后台回归的标记（sweeps 照常起作用），执行端的标记与在跑的 attempt 都不算", () => {
+    const sc = marked();
+    const ts = landTs(sc);
+    const states = agreeFlow([[true, false], [false, false], ["yes", 0], [0, ""]].map(([sweeps, executors]) => flow("landing_blockers", sc, [ts, sweeps, executors])));
+    expect(states.map(returned)).toEqual([["站主提交之后的门禁回归", 7n], [], ["站主提交之后的门禁回归", 7n], []]);
+  }, 600_000);
+
   it("注入的调度器与 pid_alive：自己合同的 attempt 滤掉（正反斜杠都认，前缀相同的别的合同不算）；DispatchError、OSError 当成空，别的照样崩", () => {
     const sc = scene(BASE_FILES, (repo) => {
       put(repo, `${MARKS}/A.json`, JSON.stringify({ pid: 12345, task: "T002" }));
@@ -183,7 +190,7 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
   const ts = (item: Landing, extra: Record<string, unknown> = {}): PyDict => landTs(item.sc, {
     oracle: { sha: item.oracle, files: [GATE] }, exec: { run_dir: runDirOf(item.sc), check_ok: true }, ...extra,
   });
-  const integrate = (item: Landing, code: number, out: string): unknown => pd(["integrate", runDirOf(item.sc)], code, out, 3600);
+  const integrate = (item: Landing, code: number, out: string): unknown => pd(["integrate", runDirOf(item.sc), "--while-running"], code, out, 3600);
 
   it("verdict 被拒：复审记录照写，交回问题；基准测试挑不上：不再落返工链，分支不动", () => {
     const rejected = landing("NEEDS_REVIEW", "none");
@@ -273,7 +280,7 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
       call("rehearsed_waiver", item.sc, [item.sc.repo, variant(extra)])));
     const waiver = ["--skip", "R01", "--reason", `落地预演（${AT}）已在这棵树上跑过全部门禁基准`, "--skip-if-tree", tree];
     expect(results.map(valueOf)).toEqual([waiver, [], [], [], []]);
-    const states = agreeFlow([flow("finalize", item.sc, [variant({})], { inner: [pd(["integrate", runDirOf(item.sc), ...waiver], 0, many("integrated", 8), 3600)] })]);
+    const states = agreeFlow([flow("finalize", item.sc, [variant({})], { inner: [pd(["integrate", runDirOf(item.sc), "--while-running", ...waiver], 0, many("integrated", 8), 3600)] })]);
     injectedCleanly(states);
     expect((returned(states[0]) as PyValue[])[0], "结项交给 integrate 的就是这份豁免（树由调度器核）").toBe(true);
   }, 600_000);

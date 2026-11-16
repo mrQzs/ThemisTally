@@ -65,6 +65,8 @@ interface Case {
   /** 证据文件：null 删掉，字符串原样写，其余写成 JSON。 */
   readonly files?: Record<string, unknown>;
   readonly mainBefore?: (fingerprint: Fingerprint) => unknown;
+  /** 运行之前就动主工作区（取运行前指纹之前）：第 174 轮 landedtouch 的“运行前就脏”。 */
+  readonly before?: (at: { readonly repo: string }) => void;
   /** 剧本跑完之后再动手（改 worktree、改主工作区）。 */
   readonly after?: (at: At) => void;
   readonly recover?: boolean;
@@ -112,6 +114,7 @@ function buildAttempt(runner: Runner, item: Case, port: number | null): { repo: 
   const instruction = `执行说明：照合同做。${LF}`;
   put(attach, "plan.md", planMd);
   put(attach, "instruction.md", instruction);
+  item.before?.({ repo });
   const fingerprint = { head, content_tree: treeOf(repo, head) };
   const started = {
     command: ["pi", "--mode", "json", `@${join(attach, "plan.md")}`, `@${join(attach, "instruction.md")}`], cwd: wt, timeout_seconds: 600,
@@ -287,7 +290,15 @@ const CASES: Case[] = [
   { label: "运行前的指纹不完整", status: 0, scenario: "touchmain", finished: {}, mainBefore: (fp) => ({ ...fp, content_tree: "error: x" }),
     shows: { "observations.json": "指纹不完整，无法列出变化的路径" } },
   { label: "运行期间主工作区的 HEAD 变了", status: 0, finished: {}, mainBefore: (fp) => ({ ...fp, head: "0".repeat(40) }),
-    shows: { "observations.json": '"head_changed": true' } },
+    shows: { "observations.json": ['"head_changed": true', '"landed": false'] } },
+  // 第 174 轮：别的主任务在运行期间落地（HEAD 只往前快进）
+  { label: "运行期间别的主任务落地：随落地变化的文件记 landed_paths，摘要写成备注", status: 0, scenario: "landed", finished: {},
+    shows: { "observations.json": ['"landed": true', '"A docs/landed.md"', "另一片落地", '"other_paths": []'], "summary.md": "快进到" } },
+  { label: "落地之后又被改写的文件、运行前就脏的文件：照旧列为其他路径", status: 0, scenario: "landedtouch", finished: {},
+    before: ({ repo }) => put(repo, "README.md", `# locally edited before the run${LF}`),
+    shows: { "observations.json": ['"landed": true', "run_tests.py", '"A docs/landed.md"', '"M README.md"'], "summary.md": "一致的文件 1 个" } },
+  { label: "运行期间主工作区的历史被改写：不算落地", status: 0, scenario: "rewound", finished: {},
+    shows: { "observations.json": ['"head_changed": true', '"landed": false', '"landed_commits": []'] } },
   { label: "planner_paths 在 Windows 上不分大小写", status: 0, finished: {}, config: { planner_paths: ["Docs/**"] },
     after: ({ repo }) => put(repo, "docs/p.md", "p"), shows: { "observations.json": '"A docs/p.md"' } },
   { label: "planner_paths 写错：只记 diff_error", status: 0, scenario: "touchmain", finished: {}, config: { planner_paths: "docs" },

@@ -98,9 +98,11 @@ function markLanded(record: PyValue, how: string): void {
 
 /**
  * 挡着本主任务落地的：别的主任务挂着的执行标记（持有进程还在），后台在跑的门禁回归（第 62 轮；sweeps=False 时不算），以及调度器记着
- * 在跑的别的 attempt（站主手动派的也算；integrate 自己也会因为它们拒绝落地）。
+ * 在跑的别的 attempt（站主手动派的也算；integrate 自己也会因为它们拒绝落地）。第 174 轮：executors 为假时执行端的标记与在跑的 attempt
+ * 都不算。结项落地只让 HEAD 往前快进，调度器把运行期间随之变化的文件记进 landed_paths、不列进复审的注意事项，所以结项不再等别的执行端
+ * （integrate 带 --while-running）；站主的 exclusive 照旧等（合入新一轮内核不落在一个 attempt 的中途）。
  */
-export function landingBlockers(hub: Hub, ts: PyDict, sweeps: PyValue = true, deps: LandDeps = REAL_LAND_DEPS): PyValue[] {
+export function landingBlockers(hub: Hub, ts: PyDict, sweeps: PyValue = true, executors: PyValue = true, deps: LandDeps = REAL_LAND_DEPS): PyValue[] {
   const found: PyValue[] = [];
   const marks = execMarks(hub);
   for (const path of isDir(marks) ? globPaths(marks, ["*.json"]).map((item) => purePathStr(item)).sort(comparePaths) : []) {
@@ -112,11 +114,13 @@ export function landingBlockers(hub: Hub, ts: PyDict, sweeps: PyValue = true, de
       mark = new Map();
     }
     const task = pyGet(mark, "task");
-    if (pyEq(task, pyItem(ts, "task")) || (pyTruthy(pyGet(mark, "sweep")) && !pyTruthy(sweeps))) continue;
+    const sweep = pyTruthy(pyGet(mark, "sweep"));
+    if (pyEq(task, pyItem(ts, "task")) || (sweep && !pyTruthy(sweeps)) || (!sweep && !pyTruthy(executors))) continue;
     // 进程已经不在：标记作废。不知道（None）照样算挡着
     if (pyTruthy(pyGet(mark, "pid")) && deps.pidAlive(Number(pyIntOf(pyItem(mark, "pid")))) === false) continue;
     found.push(or(pyGet(mark, "label"), `${pyStrValue(or(pyGet(mark, "task"), stem(path)))} 的执行端`));
   }
+  if (!pyTruthy(executors)) return found;
   let running: string[];
   try {
     running = deps.runningAttempts(new Repo(hub.repo));
@@ -141,7 +145,7 @@ export async function finalize(hub: Hub, ts: PyDict, deps: LandDeps = REAL_LAND_
   let problem = (await landOracle(hub, ts)) || (await landReworkChain(hub, ts));
   let out = "";
   if (!problem) {
-    const [code, text] = await deps.runPd(hub, ["integrate", runDir, ...rehearsedWaiver(hub, ts)], 3600);
+    const [code, text] = await deps.runPd(hub, ["integrate", runDir, "--while-running", ...rehearsedWaiver(hub, ts)], 3600);
     out = text;
     ts.set("integrated", new Map<string, PyValue>([["exit", BigInt(code)], ["tail", tail(out, 15n)], ["at", utcNow()]]));
     if (code !== 0) problem = `integrate 没有落地（退出码 ${code}）：${LF}${tail(out, 15n)}${landedMeanwhile(hub, ts, headBefore)}`;

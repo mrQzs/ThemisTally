@@ -640,7 +640,7 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   const runners = isDirectory(runnersDir)
     ? readdirSync(runnersDir).filter((name) => lockAlive(purePathStr(runnersDir, name), deps)).sort(cmpCodePoints)
     : [];
-  const executing = landingBlockers(hub, new Map<string, PyValue>([["task", null], ["contract_task", NUL]]), true, deps).map(pyStrValue);
+  const executing = landingBlockers(hub, new Map<string, PyValue>([["task", null], ["contract_task", NUL]]), true, true, deps).map(pyStrValue);
   out.print(`并行：最多 ${configuredParallel(hub, { parallel: null })} 个主任务；在跑的主任务 runner：${runners.join("、") || "无"}；`
     + `在跑的执行端：${executing.join("、") || "无"}`);
   const queue = laneQueue(hub, deps);

@@ -10,7 +10,7 @@ import { PyOSError, PyUnicodeDecodeError, pyDecodeUtf8Replace, pyOSErrorOf, pyRe
 import { type PyDict, type PyValue } from "@themis/base/pyjson";
 import { PyWinError, pyRename } from "@themis/base/pyos";
 import { pyExists } from "@themis/base/pypath";
-import { cmpCodePoints, codePoints, isDigitChar, pyIntParse, pyStrip } from "@themis/base/pyre";
+import { cmpCodePoints, codePoints, isDigitChar, pyIntParse, pySplitlines, pyStrip } from "@themis/base/pyre";
 import { pyEq } from "@themis/base/pyvalue";
 import { SHA_RE, mdSection } from "./contract.ts";
 import { DECISIONS_RECORD } from "./decision-records.ts";
@@ -195,15 +195,22 @@ function shaLike(value: PyValue): boolean {
 
 /**
  * main_repo_changes：比较运行前后的主工作区指纹，列出变化的路径，规划端自己的路径与其他路径分开。两次指纹都完整时才比
- * 内容树；HEAD 变化单独报（并行批次提前集成、越界提交都会导致）。
+ * 内容树；HEAD 变化单独报（并行批次提前集成、越界提交都会导致）。第 174 轮：HEAD 只是往前快进（别的主任务落地、站主合入）时记 landed
+ * 与快进过的提交；变了的路径里，运行前后都与当时的 HEAD 一致的是随落地变的，记进 landed_paths，不算规划路径也不算其他路径。
  */
 function mainRepoChanges(repoRoot: string, before: PyValue, after: PyDict, planner: readonly string[]): PyDict {
   const result = dict([
     ["changed", pyTruthy(before) && !pyEq(before, after)],
     ["head_before", pyGet(before, "head")], ["head_after", after.get("head") ?? null],
     ["head_changed", pyTruthy(before) && !pyEq(pyGet(before, "head"), after.get("head") ?? null)],
-    ["planner_paths", []], ["other_paths", []], ["diff_error", null],
+    ["landed", false], ["landed_commits", []],
+    ["planner_paths", []], ["other_paths", []], ["landed_paths", []], ["diff_error", null],
   ]);
+  if (result.get("head_changed")) {
+    const commits = fastForwardCommits(repoRoot, or(pyGet(before, "head"), "") as string, or(after.get("head") ?? null, "") as string);
+    result.set("landed_commits", commits);
+    result.set("landed", commits.length > 0);
+  }
   const treeBefore = or(pyGet(before, "content_tree"), "");
   const treeAfter = or(after.get("content_tree") ?? null, "");
   if (!result.get("changed") || pyEq(treeBefore, treeAfter)) return result;
@@ -218,15 +225,37 @@ function mainRepoChanges(repoRoot: string, before: PyValue, after: PyDict, plann
   }
   const fields = pyDecodeUtf8Replace(proc.stdout).split(NUL);
   const compiled = compilePatterns(planner, IS_WINDOWS);
-  const [plannerChanged, otherChanged]: [string[], string[]] = [[], []];
+  const dirty = result.get("landed")
+    ? [differsFromHead(repoRoot, pyItem(before, "head") as string, treeBefore as string), differsFromHead(repoRoot, pyItem(after, "head") as string, treeAfter as string)]
+    : [null, null];
+  const [plannerChanged, otherChanged, landedChanged]: [string[], string[], string[]] = [[], [], []];
   for (let index = 0; index < fields.length - 1; index += 2) {
     const [status, file] = [fields[index] as string, fields[index + 1] as string];
     if (!status || !file) continue;
-    (matches(compiled, file) ? plannerChanged : otherChanged).push(`${status} ${file}`);
+    const entry = `${status} ${file}`;
+    if (dirty[0] && dirty[1] && !dirty[0].has(file) && !dirty[1].has(file)) landedChanged.push(entry);
+    else (matches(compiled, file) ? plannerChanged : otherChanged).push(entry);
   }
   result.set("planner_paths", head(plannerChanged, 200));
   result.set("other_paths", head(otherChanged, 200));
+  result.set("landed_paths", head(landedChanged, 200));
   return result;
+}
+
+/** fast_forward_commits：HEAD 从 headBefore 往前快进到 headAfter 时，快进过的提交（新的在前，“短哈希 标题”，最多 20 条）；不是快进给 []。 */
+function fastForwardCommits(repoRoot: string, headBefore: string, headAfter: string): string[] {
+  if (!SHA_RE.test(headBefore) || !SHA_RE.test(headAfter) || headBefore === headAfter) return [];
+  if (git(["merge-base", "--is-ancestor", headBefore, headAfter], repoRoot).status !== 0) return [];
+  const proc = git(["log", "--format=%h %s", "-n", "20", `${headBefore}..${headAfter}`], repoRoot);
+  if (proc.status !== 0) return [];
+  return pySplitlines(pyDecodeUtf8Replace(proc.stdout)).filter((line) => pyStrip(line) !== "");
+}
+
+/** differs_from_head：内容树里与 HEAD 不一致的路径（运行时的脏文件与新文件）；读不出给 null。 */
+function differsFromHead(repoRoot: string, headSha: string, tree: string): Set<string> | null {
+  const proc = git(["diff-tree", "-r", "--no-renames", "--name-only", "-z", headSha, tree], repoRoot);
+  if (proc.status !== 0) return null;
+  return new Set(pyDecodeUtf8Replace(proc.stdout).split(NUL).filter((file) => file !== ""));
 }
 
 const lenOf = (value: PyValue): bigint => BigInt(pyLenValue(value));

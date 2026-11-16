@@ -51,7 +51,7 @@ import tempfile
 import time
 import warnings
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 # 正则的语法分析是私有模块（检查的输出模式，第 129 轮；kit_logs 的 logs search 同样用它）：环境里的 Python 固定为 3.12，
 # 升级时核对；3.10 叫 sre_parse、sre_constants。
@@ -1392,13 +1392,19 @@ def main_repo_changes(repo_root: Path, before: Dict[str, Any], after: Dict[str, 
     """比较运行前后的主工作区指纹，列出变化的路径，并把规划器自己的路径与其他路径分开。
 
     只在两次指纹都有效时比较内容树；HEAD 变化单独报告（并行批次提前集成、越界提交都会导致）。
+    第 174 轮：HEAD 只是往前快进（别的主任务落地、站主合入）时记 landed 与快进过的提交；变了的路径里，运行前后
+    都与当时的 HEAD 一致的是随落地变的，记进 landed_paths，不算规划路径也不算其他路径。
     """
     result: Dict[str, Any] = {
         "changed": bool(before) and before != after,
         "head_before": before.get("head"), "head_after": after.get("head"),
         "head_changed": bool(before) and before.get("head") != after.get("head"),
-        "planner_paths": [], "other_paths": [], "diff_error": None,
+        "landed": False, "landed_commits": [],
+        "planner_paths": [], "other_paths": [], "landed_paths": [], "diff_error": None,
     }
+    if result["head_changed"]:
+        result["landed_commits"] = fast_forward_commits(repo_root, before.get("head") or "", after.get("head") or "")
+        result["landed"] = bool(result["landed_commits"])
     tree_before, tree_after = before.get("content_tree") or "", after.get("content_tree") or ""
     if not result["changed"] or tree_before == tree_after:
         return result
@@ -1412,15 +1418,41 @@ def main_repo_changes(repo_root: Path, before: Dict[str, Any], after: Dict[str, 
         return result
     fields = proc.stdout.decode("utf-8", "replace").split("\0")
     compiled = compile_patterns(planner, ignore_case=IS_WINDOWS)
+    dirty = (differs_from_head(repo_root, before["head"], tree_before), differs_from_head(repo_root, after["head"], tree_after)) \
+        if result["landed"] else (None, None)
     for index in range(0, len(fields) - 1, 2):
         status, path = fields[index], fields[index + 1]
         if not status or not path:
             continue
         entry = "%s %s" % (status, path)
-        (result["planner_paths"] if matches(compiled, path) else result["other_paths"]).append(entry)
+        if dirty[0] is not None and dirty[1] is not None and path not in dirty[0] and path not in dirty[1]:
+            result["landed_paths"].append(entry)
+        else:
+            (result["planner_paths"] if matches(compiled, path) else result["other_paths"]).append(entry)
     result["planner_paths"] = result["planner_paths"][:200]
     result["other_paths"] = result["other_paths"][:200]
+    result["landed_paths"] = result["landed_paths"][:200]
     return result
+
+
+def fast_forward_commits(repo_root: Path, head_before: str, head_after: str) -> List[str]:
+    """HEAD 从 head_before 往前快进到 head_after 时，返回快进过的提交（新的在前，“短哈希 标题”，最多 20 条）；不是快进返回 []。"""
+    if not SHA_RE.match(head_before) or not SHA_RE.match(head_after) or head_before == head_after:
+        return []
+    if git(["merge-base", "--is-ancestor", head_before, head_after], repo_root, check=False).returncode != 0:
+        return []
+    proc = git(["log", "--format=%h %s", "-n", "20", "%s..%s" % (head_before, head_after)], repo_root, check=False)
+    if proc.returncode != 0:
+        return []
+    return [line for line in proc.stdout.decode("utf-8", "replace").splitlines() if line.strip()]
+
+
+def differs_from_head(repo_root: Path, head: str, tree: str) -> Optional[Set[str]]:
+    """内容树里与 HEAD 不一致的路径（运行时的脏文件与新文件）；读不出时返回 None。"""
+    proc = git(["diff-tree", "-r", "--no-renames", "--name-only", "-z", head, tree], repo_root, check=False)
+    if proc.returncode != 0:
+        return None
+    return {path for path in proc.stdout.decode("utf-8", "replace").split("\0") if path}
 
 
 # ---------------------------------------------------------------------------
@@ -4493,10 +4525,16 @@ def write_summary(run_dir: Path, repo: Repo) -> None:
         attention.append("候选没有收这个文件：`%s`（Windows 的保留设备名，git 打不开；多半是命令把输出写到了 nul、con "
                          "这类名字）" % path)
     changes = extra.get("main_repo_changes") or {}
-    if changes.get("head_changed"):
+    if changes.get("head_changed") and not changes.get("landed"):
         attention.append("运行期间主工作区 HEAD 由 `%s` 变为 `%s`：可能是规划器在批次运行期间集成了其他候选，"
                          "也可能是越界提交" % ((changes.get("head_before") or "?")[:12],
                                           (changes.get("head_after") or "?")[:12]))
+    if changes.get("landed"):
+        commits = [str(item).replace("`", "'") for item in changes.get("landed_commits") or []]
+        notes.append("运行期间主工作区 HEAD 由 `%s` 快进到 `%s`（别的主任务落地或站主合入）：%s%s；随之变化、运行前后都与当时的 HEAD "
+                     "一致的文件 %d 个，不是执行器写的" % ((changes.get("head_before") or "?")[:12], (changes.get("head_after") or "?")[:12],
+                                               "、".join("`%s`" % item for item in commits[:5]), "等" if len(commits) > 5 else "",
+                                               len(changes.get("landed_paths") or [])))
     if changes.get("other_paths"):
         attention.append("运行期间主工作区以下文件发生变化（不在规划路径内，需确认不是执行器写入）：%s"
                          % "、".join("`%s`" % p for p in changes["other_paths"][:10]))
@@ -6852,7 +6890,7 @@ def evaluate_gates(repo: Repo, run_dir: Path, meta: Dict[str, Any], contract: Di
         for violation in scope.get("violations", []):
             fail("G2", "%s %s" % (violation["kind"], violation["path"]))
     changes = read_json_or(run_dir / "observations.json", {}).get("main_repo_changes") or {}
-    if changes.get("head_changed") or changes.get("other_paths"):
+    if (changes.get("head_changed") and not changes.get("landed")) or changes.get("other_paths"):
         gates["G2"]["notes"].append("运行期间主工作区有规划路径之外的变化，复审时确认来源（见 summary.md）")
     for item in events.get("outside_worktree_paths", []):
         shell = item.get("tool") in ("bash", "powershell")

@@ -49,7 +49,7 @@ const TESTS = [
   "test_gate_rework_resets_a_worktree_the_state_lost_track_of", "test_held_letters_are_dropped_when_the_stage_was_restarted_meanwhile",
   "test_hotfix_rework_records_the_previous_baseline", "test_info_letters_do_not_wake_workers",
   "test_invalid_output_gets_one_retry", "test_kernel_runs_jev_right_after_a_passing_delivery",
-  "test_landing_waits_for_other_tasks_executors", "test_model_api_errors_are_not_retried_and_go_to_the_owner",
+  "test_landing_waits_for_sweeps_not_for_other_tasks_executors", "test_model_api_errors_are_not_retried_and_go_to_the_owner",
   "test_owner_adds_a_dependency_found_in_planning", "test_owner_takeover_closes_the_task",
   "test_passing_and_owner_close_release_the_dependents", "test_paused_worker_stage_can_be_started_again",
   "test_plan_delivery_must_list_its_external_facts", "test_plan_redelivery_replaces_the_external_facts",
@@ -156,14 +156,13 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(shortOf(tally(inner.map((entry) => entry.fn)), {
       "Engine.auto_jev": 2,
       "Engine.verify_delivery": 7,
-      "_running_attempts": 3, // 第 155 轮：land 先不拿锁看一眼有没有人挡着，进了车道再看一次
       "apply_candidate": 4,
       "budget_problems": 1,
       "engine.after_land": 1,
       "engine.handle_pass": 1,
       "ensure_worktree": 51,
       "finalize": 2,
-      "pid_alive": 4,
+      "pid_alive": 1, // 第 174 轮：land 只看后台回归的标记（执行端的标记跳过、不查 pid，也不再问调度器在跑的 attempt）
       "regression_sweep": 2,
       "rehearse_landing": 7,
       "revalidate_contract": 2,
