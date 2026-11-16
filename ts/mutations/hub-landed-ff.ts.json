@@ -59,8 +59,8 @@
     {
       "name": "T08 integrate 不带 --while-running",
       "file": "ts/packages/hub/src/land.ts",
-      "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts)]",
-      "new": "[\"integrate\", runDir, ...rehearsedWaiver(hub, ts)]"
+      "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts), ...regressionFloors(hub, ts)]",
+      "new": "[\"integrate\", runDir, ...rehearsedWaiver(hub, ts), ...regressionFloors(hub, ts)]"
     },
     {
       "name": "T09 先看一眼时照旧等执行端",

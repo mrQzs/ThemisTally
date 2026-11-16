@@ -1589,6 +1589,54 @@ def test_the_outer_check_timeouts_cover_the_contract_timeouts(tmp_path, monkeypa
         ("baseline", 5700), ("check", 5700), ("integrate", 5700)]
 
 
+def test_inflight_regression_checks_get_the_kernel_limit_from_the_dispatcher(tmp_path, monkeypatch):
+    # 第 178 轮：第 177 轮之前派遣的合同把 R01 写成 1800 秒，45 份门禁基准在空闲机器上也要 1913 秒（T045 attempt-002 两次都在
+    # 97% 处被掐断）。检查与落地时，时限比 regression_seconds 短的全量回归让调度器放宽：--timeout-at-least R01=秒数
+    seen = []
+
+    def recording(hub_, args, timeout=600):
+        seen.append(list(args))
+        return 0, "ok"
+
+    repo, _head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=recording)
+    (repo / "tests").mkdir()
+    gates = ["tests/test_gate_t%03d_baseline.py" % n for n in range(2, 34)]
+    for name in gates:
+        (repo / name).write_text("def test_x():\n    pass\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "先前各片"], repo)
+    ts["base_head"] = kh.git(["rev-parse", "HEAD"], repo).strip()
+    path = plans / "t001-doc.v1.json"
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    regression = {"id": "R01", "argv": ["python", "-m", "pytest"] + gates + ["-q"], "cwd": ".", "timeout_seconds": 1800}
+    contract["checks"] = [dict(contract["checks"][0], id="G01", timeout_seconds=600), regression,
+                          {"id": "R02", "argv": ["python", "-m", "pytest", gates[0], gates[0], "-q"], "timeout_seconds": 600},
+                          {"id": "V01", "argv": ["npm", "test"], "timeout_seconds": 60}]
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    # 32 份门禁基准给 1920 秒；只跑一份（写了两遍也是一份）的 R02 给 1800 秒；不跑门禁基准的 G01、V01 不管
+    assert kh.regression_floors(hub, ts) == ["--timeout-at-least", "R01=1920", "--timeout-at-least", "R02=1800"]
+    for seconds in (1920, "1800", None):  # 够长的、不是整数的、没写的都不管
+        contract["checks"][1] = dict(regression, timeout_seconds=seconds)
+        path.write_text(json.dumps(contract), encoding="utf-8")
+        assert kh.regression_floors(hub, ts) == ["--timeout-at-least", "R02=1800"], seconds
+    for broken in ("{", "[]", json.dumps({"checks": 5})):
+        path.write_text(broken, encoding="utf-8")
+        assert kh.regression_floors(hub, ts) == [], broken
+    contract["checks"] = [contract["checks"][0], regression]
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    # 执行端跑完的 check --fresh 与结项的 integrate 都带上；交付信写明放宽了哪条
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    fields = kh.finish_exec(hub, ts, run_dir, 0)
+    assert seen[-1] == ["check", str(run_dir), "--fresh", "--timeout-at-least", "R01=1920"]
+    assert "；全量回归的时限按内核的规矩放宽（R01=1920 秒）" in fields["验证"]
+    (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")
+    monkeypatch.setattr(kh, "land_oracle", lambda hub_, ts_: None)
+    monkeypatch.setattr(kh, "land_rework_chain", lambda hub_, ts_: None)
+    kh.finalize(hub, ts)
+    landed = [args for args in seen if args[0] == "integrate"]
+    assert landed == [["integrate", str(run_dir), "--while-running", "--timeout-at-least", "R01=1920"]]
+
+
 def test_an_identity_line_with_a_note_after_the_value_is_rewritten_whole(tmp_path, monkeypatch):
     # 第 177 轮（候选 #44）：T044 合同 v4 的 base_sha 行尾带一段全角括注，值是对的、内核原来不改写；门禁交付后改基线只认
     # 除了值别无他字的那一行，报“找不到唯一的‘- base_sha:’行”，门禁端怎么重交都收不了尾

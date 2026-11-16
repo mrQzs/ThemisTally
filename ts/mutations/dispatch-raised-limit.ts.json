@@ -1,0 +1,47 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "packages/contracts/test/integrate.contract.test.ts",
+    "-t",
+    "timeout-at-least",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "Z01 不放宽",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "    if (floor === undefined || floor <= current) return check;",
+      "new": "    return check;"
+    },
+    {
+      "name": "Z02 记录不写放宽",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (item.has(\"timeout_raised_from\")) {",
+      "new": "  if (false) {"
+    },
+    {
+      "name": "Z03 秒数 0 也收",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "    if (match === null || seconds < 1n || seconds > 86400n) throw",
+      "new": "    if (match === null) throw"
+    },
+    {
+      "name": "Z04 合同没有的检查不报",
+      "file": "ts/packages/dispatcher/src/command-runner.ts",
+      "old": "  if (unknown.length) throw new DispatchError(`--timeout-at-least 里有合同没有的检查",
+      "new": "  if (false) throw new DispatchError(`--timeout-at-least 里有合同没有的检查"
+    },
+    {
+      "name": "Z05 integrate 不放宽",
+      "file": "ts/packages/dispatcher/src/integrate.ts",
+      "old": "meta, contract, raised, skip,",
+      "new": "meta, contract, checks, skip,"
+    }
+  ]
+}

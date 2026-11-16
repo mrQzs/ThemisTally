@@ -73,8 +73,8 @@
   {
    "name": "K11 全量回归认反",
    "file": "ts/packages/hub/src/heavy.ts",
-   "old": "typeof item === \"string\" && gates.has(item)",
-   "new": "typeof item === \"string\" && !gates.has(item)"
+   "old": ".some((item) => typeof item === \"string\" && gates.has(item))",
+   "new": ".some((item) => typeof item === \"string\" && !gates.has(item))"
   },
   {
    "name": "K12 没过的检查认反",
@@ -109,8 +109,8 @@
   {
    "name": "K17 执行检查不进车道",
    "file": "ts/packages/hub/src/runexec.ts",
-   "old": "  const [checkCode, checkOut] = await checkedInLane(hub, ts, \"执行检查\", [\"check\", runDir, \"--fresh\"], checksSeconds(hub, ts, 3600), () => checkMismatches(runDir), deps.runPd, deps);",
-   "new": "  const [checkCode, checkOut] = await deps.runPd(hub, [\"check\", runDir, \"--fresh\"], checksSeconds(hub, ts, 3600));"
+   "old": "  const [checkCode, checkOut] = await checkedInLane(hub, ts, \"执行检查\", [\"check\", runDir, \"--fresh\", ...floors], checksSeconds(hub, ts, 3600), () => checkMismatches(runDir), deps.runPd, deps);",
+   "new": "  const [checkCode, checkOut] = await deps.runPd(hub, [\"check\", runDir, \"--fresh\", ...floors], checksSeconds(hub, ts, 3600));"
   },
   {
    "name": "K18 基线检查不进车道",

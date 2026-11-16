@@ -1,0 +1,60 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "inflight_regression_checks_get_the_kernel_limit"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "W01 在途合同的全量回归不放宽",
+      "file": "scripts/kit_hub.py",
+      "old": "            if count and type(seconds) is int and seconds < regression_seconds(count):",
+      "new": "            if False:"
+    },
+    {
+      "name": "W02 份数把别的参数也算上",
+      "file": "scripts/kit_hub.py",
+      "old": "count = len(gates & {item for item in check.get(\"argv\") or [] if isinstance(item, str)})",
+      "new": "count = len({item for item in check.get(\"argv\") or [] if isinstance(item, str)})"
+    },
+    {
+      "name": "W03 时限不是整数也放宽",
+      "file": "scripts/kit_hub.py",
+      "old": "if count and type(seconds) is int and seconds < regression_seconds(count):",
+      "new": "if count and seconds is not None and int(seconds) < regression_seconds(count):"
+    },
+    {
+      "name": "W04 check --fresh 不带放宽",
+      "file": "scripts/kit_hub.py",
+      "old": "[\"check\", str(run_dir), \"--fresh\"] + floors,",
+      "new": "[\"check\", str(run_dir), \"--fresh\"],"
+    },
+    {
+      "name": "W05 交付信不写放宽",
+      "file": "scripts/kit_hub.py",
+      "old": "    if floors:  # 第 178 轮",
+      "new": "    if False:  # 第 178 轮"
+    },
+    {
+      "name": "W06 integrate 不带放宽",
+      "file": "scripts/kit_hub.py",
+      "old": " + rehearsed_waiver(hub, ts)\n                           + regression_floors(hub, ts),",
+      "new": " + rehearsed_waiver(hub, ts),"
+    },
+    {
+      "name": "W07 读不出来的合同照崩",
+      "file": "scripts/kit_hub.py",
+      "old": "    except (ValueError, KeyError, TypeError, AttributeError):\n        return []\n    return floors",
+      "new": "    except (ValueError, KeyError, TypeError):\n        return []\n    return floors"
+    }
+  ]
+}

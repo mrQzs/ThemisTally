@@ -293,6 +293,18 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
     expect((returned(states[0]) as PyValue[])[0]).toBe(true);
   }, 600_000);
 
+  it("第 178 轮：合同里全量回归的时限比按份数给的短（600 秒、一份门禁基准该给 1800），integrate 带上 --timeout-at-least", () => {
+    const earlier = "tests/test_gate_t000_baseline.py";
+    const plan = JSON.stringify({ checks: [{ id: "R01", argv: ["python", "-m", "pytest", earlier, "-q"], cwd: ".", timeout_seconds: 600 }] });
+    const item = landing("PASS", "none", true, () => undefined, { ...BASE_FILES, [earlier]: lines("def test_earlier():", "    pass") },
+      (repo) => put(repo, ".agent/plans/t001-doc.v1.json", plan));
+    const states = agreeFlow([flow("finalize", item.sc, [ts(item)], {
+      inner: [pd(["integrate", runDirOf(item.sc), "--while-running", "--timeout-at-least", "R01=1800"], 0, many("integrated", 8), 3600)],
+    })]);
+    injectedCleanly(states);
+    expect((returned(states[0]) as PyValue[])[0]).toBe(true);
+  }, 600_000);
+
   it("undo_landing 的四种结局：末端没动、已经不是祖先、reset --keep 被本地改动挡住、撤回并恢复记录；记录是列表时撤回之后照样崩", () => {
     let side = "";
     let landed = "";

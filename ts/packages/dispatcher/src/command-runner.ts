@@ -4,13 +4,13 @@
 import { statSync } from "node:fs";
 import path from "node:path";
 import { utcNow } from "@themis/base/clock";
-import { PyCrash, pyFloatOf, pyGet, pyIntOf, pyItem, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
+import { PyCrash, type PyOut, pyFloatOf, pyGet, pyIntOf, pyItem, pyStrValue, pyTruthy, pyTypeName } from "@themis/base/pyfmt";
 import { pyReadTextReplace } from "@themis/base/pyio";
 import { pathMkdir } from "@themis/base/pyos";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
 import { expanduser, isWithin, ntIsabs, purePathStr, pyResolve } from "@themis/base/pypath";
 import { FLAG_MULTILINE, compilePy } from "@themis/base/pyregex";
-import { codePoints, isDigitChar, pyIntParse } from "@themis/base/pyre";
+import { cmpCodePoints, codePoints, isDigitChar, pyIntParse } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
 import { pyGettempdir, pyMkdtemp } from "@themis/base/pytempfile";
 import { type SuperviseResult, runSupervised } from "@themis/base/supervise";
@@ -101,6 +101,36 @@ export function supervisedRecord(result: SuperviseResult): [string, PyValue][] {
   ];
 }
 
+/** --timeout-at-least 的写法：检查编号=秒数（第 178 轮）。 */
+const TIMEOUT_AT_LEAST_RE = /^([A-Za-z][A-Za-z0-9_-]*)=([0-9]+)$/;
+
+/**
+ * --timeout-at-least 编号=秒数（第 178 轮）：这几条检查的时限至少放到给的秒数，合同写得更长就照合同。放宽了的检查带上 timeout_raised_from（合同写的
+ * 时限），检查记录照写，另打一行 NOTE。hub 给在途合同里内核规定的全量回归用：合同照第 177 轮之前的规矩写了 1800 秒，门禁基准一片片加上去，T045 的 R01
+ * 在空闲机器上也要 1913 秒。
+ */
+export function raisedChecks(checks: readonly PyDict[], given: readonly string[] | null, out: PyOut): PyDict[] {
+  if (!given?.length) return [...checks];
+  const floors = new Map<string, bigint>();
+  for (const item of given) {
+    const match = TIMEOUT_AT_LEAST_RE.exec(item);
+    const seconds = match === null ? 0n : BigInt(match[2] as string);
+    if (match === null || seconds < 1n || seconds > 86400n) throw new DispatchError(`--timeout-at-least 格式应为 检查编号=秒数（例如 R01=2700，秒数 1..86400）：${item}`, EXIT_USAGE);
+    floors.set(match[1] as string, seconds);
+  }
+  const ids = new Set(checks.map((check) => pyStrValue(check.get("id") as PyValue)));
+  const unknown = [...floors.keys()].filter((id) => !ids.has(id)).sort(cmpCodePoints);
+  if (unknown.length) throw new DispatchError(`--timeout-at-least 里有合同没有的检查：${unknown.join(", ")}`, EXIT_USAGE);
+  return checks.map((check) => {
+    const id = pyStrValue(check.get("id") as PyValue);
+    const floor = floors.get(id);
+    const current = check.get("timeout_seconds") as bigint;
+    if (floor === undefined || floor <= current) return check;
+    out.print(`NOTE  ${id} 的时限按 --timeout-at-least 放宽：${current} → ${floor} 秒`, { flush: true });
+    return new Map(check).set("timeout_seconds", floor).set("timeout_raised_from", current);
+  });
+}
+
 /**
  * _run_command_item：在 work_dir 下跑合同的一项检查或 setup，标准输出与标准错误进同一个日志（out_dir/<id>.log）。
  * cwd 跳出工作副本、argv 不安全、起不来都记 blocked；超时与取消记 failed；其余按退出码与输出模式判定。
@@ -120,6 +150,9 @@ export async function runCommandItem(item: PyDict, workDir: string, env: Readonl
     ["log", `${path.basename(outDir)}/${cid}.log`],
     ["started_at", utcNow()],
   ]);
+  if (item.has("timeout_raised_from")) { // 第 178 轮：--timeout-at-least 放宽过的检查，记下放宽后的与合同写的时限
+    record.set("timeout_seconds", item.get("timeout_seconds") as PyValue).set("timeout_raised_from", item.get("timeout_raised_from") as PyValue);
+  }
   const blocked = (reason: string): PyDict => {
     record.set("status", "blocked").set("passed", false).set("reason", reason);
     return record;

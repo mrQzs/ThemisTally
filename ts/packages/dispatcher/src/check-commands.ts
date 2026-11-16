@@ -14,7 +14,7 @@ import { cmpCodePoints, codePoints, pyLen, pySplitlines, pyStrip } from "@themis
 import { pyMkdtemp } from "@themis/base/pytempfile";
 import { pyEq } from "@themis/base/pyvalue";
 import { ProtocolError } from "@themis/base/protocols";
-import { prepareFreshWorkspace, runCommandItem, nextNumber, worktreeRoot } from "./command-runner.ts";
+import { prepareFreshWorkspace, raisedChecks, runCommandItem, nextNumber, worktreeRoot } from "./command-runner.ts";
 import { type PlanContext, loadFixedContractPair, planKeyFromArg, printMessages, validatePlan } from "./contract-plan.ts";
 import { PLACEHOLDER_RE } from "./contract.ts";
 import {
@@ -36,6 +36,8 @@ export interface CheckArgs {
   readonly only: string | null;
   readonly fresh: boolean;
   readonly keep_workspace: boolean;
+  /** 第 178 轮：这几条检查的时限至少放到给的秒数（编号=秒数）。 */
+  readonly timeout_at_least?: readonly string[] | null;
 }
 
 export interface BaselineArgs {
@@ -116,7 +118,7 @@ export async function cmdCheck(args: CheckArgs, out: PyOut, here: string): Promi
   const candidate = readJsonOr(path.join(runDir, "candidate.json"), new Map());
   if (!pyTruthy(pyGet(candidate, "tree"))) throw new DispatchError("没有候选记录（candidate.json），无法把检查绑定到确切内容");
   const candidateTree = (candidate as PyDict).get("tree") as PyValue;
-  const checks = selectChecks(contract.get("checks") as PyDict[], args.only);
+  const checks = selectChecks(raisedChecks(contract.get("checks") as PyDict[], args.timeout_at_least ?? null, out), args.only);
   const config = repoConfig(repo);
   const [env, removed] = childEnv(config);
   const grace = graceOf(config);

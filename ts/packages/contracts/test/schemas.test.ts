@@ -98,7 +98,7 @@ describe("pyargs-v1 与第 ④ 步的切换", () => {
     ["validate", "t.v1"], ["derive-json", "t.v1"], ["derive-json", "t.v1", "--title", "T", "--force", "--print"],
     ["baseline", "t.v1"], ["baseline", "t.v1", "--only", "V01", "--keep-workspace"], ["prepare", "t.v1"],
     ["run", "t"], ["run", "t", "--timeout", "5"], ["collect", "t"], ["collect", "t", "--recover"],
-    ["check", "t"], ["check", "t", "--only", "V01", "--fresh", "--keep-workspace"],
+    ["check", "t"], ["check", "t", "--only", "V01", "--fresh", "--keep-workspace"], ["check", "t", "--timeout-at-least", "R01=2700"],
     ["mutate", "--spec", "s.json"], ["mutate", "t", "--spec", "s.json", "--keep-workspace", "--tree", "x", "--out", "o", "--check-anchors"],
     ["wait", "t"], ["wait", "t", "--timeout", "5", "--interval", "1.5", "--assess", "--assess-interval", "2"],
     ["sync-adapters"], ["sync-adapters", "--check"],
@@ -110,7 +110,8 @@ describe("pyargs-v1 与第 ④ 步的切换", () => {
     ["branch", "t"], ["branch", "t", "--name", "n", "--rework", "--trailer", "K: v", "--no-config-trailers"],
     ["review-draft", "t"], ["review-draft", "t", "--out", "r.md", "--force"],
     ["integrate", "t"], ["integrate", "t", "--dry-run", "--skip", "V01", "--reason", "r", "--skip-if-tree", "x", "--recheck", "--name", "n",
-      "--trailer", "K: v", "--no-config-trailers", "--keep-worktree", "--keep-workspace", "--while-running"],
+      "--trailer", "K: v", "--no-config-trailers", "--keep-worktree", "--keep-workspace", "--while-running", "--timeout-at-least", "R01=2700",
+      "--timeout-at-least", "R02=1800"],
     ["mark", "t", "ABANDONED"], ["mark", "t", "INTEGRATED", "--ref", "abc", "--reason", "r", "--force"], ["cleanup", "t"], ["cleanup", "t", "--force"],
   ];
 

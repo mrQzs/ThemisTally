@@ -59,8 +59,8 @@
     {
       "name": "T08 结项不把豁免交给 integrate",
       "file": "ts/packages/hub/src/land.ts",
-      "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts)]",
-      "new": "[\"integrate\", runDir, \"--while-running\"]"
+      "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts), ...regressionFloors(hub, ts)]",
+      "new": "[\"integrate\", runDir, \"--while-running\", ...regressionFloors(hub, ts)]"
     },
     {
       "name": "T09 预演过了不记跑了哪几份",

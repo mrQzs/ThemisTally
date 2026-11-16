@@ -111,6 +111,19 @@ describe("第 155 轮：执行检查只有全量回归不符时原样重跑一�
     expect(states.map(errorOf)).toEqual([null, null, null, null]);
     expect(states.map((state) => (tsAfter(state).get("exec") as PyDict).get("check_ok"))).toEqual([true, true, true, true]);
   }, 600_000);
+
+  it("第 178 轮：合同里全量回归的时限比按份数给的短（600 秒、一份门禁基准该给 1800），check --fresh 带上 --timeout-at-least，交付信写明", () => {
+    const short = JSON.stringify({
+      budget: { max_attempts_total: 4 },
+      checks: [{ id: "V01", argv: ["python", "-m", "pytest", GATE, "-q"], timeout_seconds: 600 }, { id: "R01", argv: ["python", "-m", "pytest", OLD_GATE, "-q"], timeout_seconds: 600 }],
+    });
+    const { sc, runDir } = execScene((repo) => put(repo, V1.json, short));
+    const [state] = agreeFlow([flow("finish_exec", sc, [execTs(sc), runDir, 0], {
+      inner: [pd(["check", runDir, "--fresh", "--timeout-at-least", "R01=1800"], 0, "检查通过", 3600)],
+    })]);
+    expect(errorOf(state)).toBe(null);
+    expect(String((returned(state) as PyDict).get("验证"))).toContain("；全量回归的时限按内核的规矩放宽（R01=1800 秒）");
+  }, 600_000);
 });
 
 describe("第 160 轮：重活车道按号排队（手写）", () => {

@@ -3697,6 +3697,7 @@
         "only",
         "fresh",
         "keep_workspace",
+        "timeout_at_least",
         "context"
       ],
       "properties": {
@@ -3733,6 +3734,19 @@
         },
         "keep_workspace": {
           "type": "boolean"
+        },
+        "timeout_at_least": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "context": {
           "type": "object",
@@ -5129,6 +5143,7 @@
         "keep_worktree",
         "keep_workspace",
         "while_running",
+        "timeout_at_least",
         "context"
       ],
       "properties": {
@@ -5213,6 +5228,19 @@
         },
         "while_running": {
           "type": "boolean"
+        },
+        "timeout_at_least": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "context": {
           "type": "object",

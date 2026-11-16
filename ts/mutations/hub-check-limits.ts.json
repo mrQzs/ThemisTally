@@ -44,14 +44,14 @@
     {
       "name": "C06 执行检查照旧 3600",
       "file": "ts/packages/hub/src/runexec.ts",
-      "old": "[\"check\", runDir, \"--fresh\"], checksSeconds(hub, ts, 3600),",
-      "new": "[\"check\", runDir, \"--fresh\"], 3600,"
+      "old": "[\"check\", runDir, \"--fresh\", ...floors], checksSeconds(hub, ts, 3600),",
+      "new": "[\"check\", runDir, \"--fresh\", ...floors], 3600,"
     },
     {
       "name": "C07 落地检查照旧 3600",
       "file": "ts/packages/hub/src/land.ts",
-      "old": "...rehearsedWaiver(hub, ts)], checksSeconds(hub, ts, 3600))",
-      "new": "...rehearsedWaiver(hub, ts)], 3600)"
+      "old": "...rehearsedWaiver(hub, ts), ...regressionFloors(hub, ts)], checksSeconds(hub, ts, 3600))",
+      "new": "...rehearsedWaiver(hub, ts), ...regressionFloors(hub, ts)], 3600)"
     }
   ]
 }

@@ -20,7 +20,7 @@ import { BASELINE_RECORD_RE, contractPaths, tailFile } from "./contract.ts";
 import { HubError } from "./errors.ts";
 import { latestChecks } from "./exec.ts";
 import { DirLock, type Hub, dirLockAlive } from "./mailbox.ts";
-import { regressionGates } from "./prompt.ts";
+import { regressionGates, regressionSeconds } from "./prompt.ts";
 
 const LF = String.fromCharCode(10);
 const LINE_START = `(?<![^${LF}])`;
@@ -242,6 +242,32 @@ export function checksSeconds(hub: Hub, ts: PyDict, floor: number): number {
     throw error;
   }
   return Math.max(floor, Number(total) + CHECKS_MARGIN_SECONDS);
+}
+
+/**
+ * 第 178 轮：合同里跑先前各片门禁基准的检查，时限比 regression_seconds 按它跑的份数给的短（第 177 轮之前的合同一律写 1800 秒），检查与落地时让调度
+ * 器放宽：交回 --timeout-at-least 编号=秒数 的参数。时限没写成整数的不管，合同读不出来交回空。在途的 T045 不出新合同也能过：它的 R01 跑 45 份门禁基
+ * 准，空闲机器上也要 1913 秒。
+ */
+export function regressionFloors(hub: Hub, ts: PyDict): string[] {
+  const floors: string[] = [];
+  try {
+    const data = loads(readText(contractPaths(hub, ts)[1]) || "{}");
+    const gates = new Set(regressionGates(hub, ts));
+    for (const check of pyIter(or(pyGet(data, "checks"), []))) {
+      if (!(check instanceof Map)) continue;
+      const argv = pyIter(or(pyGet(check, "argv"), [])).filter((item): item is string => typeof item === "string" && gates.has(item));
+      const count = new Set(argv).size;
+      const seconds = check.get("timeout_seconds");
+      if (count && typeof seconds === "bigint" && seconds < BigInt(regressionSeconds(count))) {
+        floors.push("--timeout-at-least", `${pyStrValue(check.get("id") ?? null)}=${regressionSeconds(count)}`);
+      }
+    }
+  } catch (error) {
+    if (pyCaught(error, ["ValueError", "KeyError", "TypeError", "AttributeError"])) return [];
+    throw error;
+  }
+  return floors;
 }
 
 /** 检查日志末尾 pytest 汇总里红的用例名。 */

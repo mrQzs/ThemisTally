@@ -52,6 +52,8 @@ interface Flags {
   readonly keepWorktree?: boolean;
   readonly keepWorkspace?: boolean;
   readonly whileRunning?: boolean;
+  /** 第 178 轮：每项一个 --timeout-at-least。 */
+  readonly timeoutAtLeast?: readonly string[];
 }
 
 interface Scenario {
@@ -86,6 +88,7 @@ function argvOf(flags: Flags): string[] {
     ...(flags.name !== undefined ? ["--name", flags.name] : []), ...(flags.trailer ?? []).flatMap((item) => ["--trailer", item]),
     ...(flags.noConfig ? ["--no-config-trailers"] : []), ...(flags.keepWorktree ? ["--keep-worktree"] : []),
     ...(flags.keepWorkspace ? ["--keep-workspace"] : []), ...(flags.whileRunning ? ["--while-running"] : []),
+    ...(flags.timeoutAtLeast ?? []).flatMap((item) => ["--timeout-at-least", item]),
   ];
 }
 
@@ -94,7 +97,7 @@ function pyargsOf(flags: Flags): Record<string, unknown> {
     command: ["integrate"], run_dir: "t1", dry_run: flags.dryRun ?? false, skip: flags.skip ?? null, reason: flags.reason ?? null,
     skip_if_tree: flags.skipIfTree ?? null, recheck: flags.recheck ?? false, name: flags.name ?? null, trailer: [...(flags.trailer ?? [])], no_config_trailers: flags.noConfig ?? false,
     keep_worktree: flags.keepWorktree ?? false, keep_workspace: flags.keepWorkspace ?? false, while_running: flags.whileRunning ?? false,
-    context: TS_CONTEXT,
+    timeout_at_least: flags.timeoutAtLeast ? [...flags.timeoutAtLeast] : null, context: TS_CONTEXT,
   };
 }
 
@@ -162,6 +165,10 @@ const SCENARIOS: Scenario[] = [
   scenario("--skip-if-tree 不是那棵树、能沿用 check --fresh：沿用", landable({ checks: [OK()], after: ({ runDir }) => freshRecord(runDir) }),
     { skip: "V01", reason: "r", skipIfTree: "f".repeat(40) }, 0, ["豁免不生效", "检查沿用 checks/02"]),
   scenario("--skip-if-tree 不带 --skip：用法错误", landable(), { skipIfTree: "f".repeat(40) }, 2, "--skip-if-tree 需要 --skip"),
+  // 第 178 轮：--timeout-at-least 在验证副本里同样放宽；写法不对、合同没有的检查是用法错误
+  scenario("--timeout-at-least：合同 1 秒的检查睡 2 秒照样落地", landable({ checks: [py("V01", "import time; time.sleep(2); print('ok')", { timeout_seconds: 1 })] }),
+    { timeoutAtLeast: ["V01=30"] }, 0, "NOTE  V01 的时限按 --timeout-at-least 放宽：1 → 30 秒"),
+  scenario("--timeout-at-least 有合同没有的检查：用法错误", landable(), { timeoutAtLeast: ["V09=30"] }, 2, "--timeout-at-least 里有合同没有的检查：V09"),
   // --- 沿用 check --fresh ---
   scenario("沿用 check --fresh：树完全相同", landable({ after: ({ runDir }) => freshRecord(runDir) }), {}, 0,
     ["检查沿用 checks/02（check --fresh，<AT> 结束）：当前末端 + 候选与那次测过的树完全相同", "，沿用 checks/02"]),

@@ -18,7 +18,7 @@ import { pyMkdtemp } from "@themis/base/pytempfile";
 import { pyEq } from "@themis/base/pyvalue";
 import { cmdCleanup } from "./attempt-commands.ts";
 import { type BranchArgs, type TrailerRules, branchTrailers, candidateCommit } from "./branch.ts";
-import { firstPoints, headOf, nextNumber, pad3, runCommandItem, worktreeRoot } from "./command-runner.ts";
+import { firstPoints, headOf, nextNumber, pad3, raisedChecks, runCommandItem, worktreeRoot } from "./command-runner.ts";
 import { SHA_RE } from "./contract.ts";
 import { gitIdentityProblem } from "./doctor.ts";
 import { PASSING_VERDICTS, artifactMatchers, loadAttempt, logEvent, removeWorktree, setState, splitExtras, writeJson } from "./evidence.ts";
@@ -44,6 +44,8 @@ export interface IntegrateArgs extends Pick<BranchArgs, "repo" | "run_dir" | "na
   readonly keep_worktree: boolean;
   readonly keep_workspace: boolean;
   readonly while_running: boolean;
+  /** 第 178 轮：这几条检查的时限至少放到给的秒数（编号=秒数）。 */
+  readonly timeout_at_least?: readonly string[] | null;
 }
 
 /** 沿用的 check --fresh：哪次记录、几时结束、只差的规划路径、那次的结果。 */
@@ -76,6 +78,7 @@ export async function cmdIntegrate(args: IntegrateArgs, out: PyOut, rules: Trail
   }
   const checks = pyIter(pyItem(contract, "checks")) as PyDict[];
   let skip = checkSkips(args, checks);
+  const raised = raisedChecks(checks, args.timeout_at_least ?? null, out);
   const symbolic = git(["symbolic-ref", "-q", "HEAD"], repo.root);
   if (symbolic.status !== 0) throw new DispatchError("主工作区是游离 HEAD：integrate 只落到当前分支，先切到要集成的分支", EXIT_USAGE);
   const target = pyStrip(pyDecodeUtf8Replace(symbolic.stdout));
@@ -161,7 +164,7 @@ export async function cmdIntegrate(args: IntegrateArgs, out: PyOut, rules: Trail
     workspace = pyResolve(purePathStr(pyMkdtemp(prefix, root)));
     const verified = workspace;
     try {
-      await verifyOnTip(repo, verified, head, mergedTree, meta, contract, checks, skip, args.reason, outDir, env, grace, out, results);
+      await verifyOnTip(repo, verified, head, mergedTree, meta, contract, raised, skip, args.reason, outDir, env, grace, out, results);
       const after = snapshotTree(verified, head, outDir, "integrate-after", pyGet(meta, "git_autocrlf"));
       const drift = treeDrift(verified, mergedTree, after);
       unexpected = splitExtras(drift.added, artifacts)[1];

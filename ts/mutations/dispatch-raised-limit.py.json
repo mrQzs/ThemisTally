@@ -1,0 +1,47 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/check-commands.contract.test.ts",
+    "packages/contracts/test/integrate.contract.test.ts",
+    "-t",
+    "timeout-at-least",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "X01 不放宽",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        if floor is not None and floor > check[\"timeout_seconds\"]:",
+      "new": "        if False:"
+    },
+    {
+      "name": "X02 记录不写放宽",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        record.update(timeout_seconds=item[\"timeout_seconds\"], timeout_raised_from=item[\"timeout_raised_from\"])",
+      "new": "        pass"
+    },
+    {
+      "name": "X03 秒数 0 也收",
+      "file": "scripts/pi_dispatch.py",
+      "old": "        if not match or not 1 <= int(match.group(2)) <= 86400:",
+      "new": "        if not match:"
+    },
+    {
+      "name": "X04 合同没有的检查不报",
+      "file": "scripts/pi_dispatch.py",
+      "old": "    if unknown:\n        raise DispatchError(\"--timeout-at-least 里有合同没有的检查",
+      "new": "    if False:\n        raise DispatchError(\"--timeout-at-least 里有合同没有的检查"
+    },
+    {
+      "name": "X05 integrate 不放宽",
+      "file": "scripts/pi_dispatch.py",
+      "old": "            for item in raised:",
+      "new": "            for item in contract[\"checks\"]:"
+    }
+  ]
+}

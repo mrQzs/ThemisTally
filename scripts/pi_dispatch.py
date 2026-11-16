@@ -258,7 +258,7 @@ TS_DISPATCHER_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("prepare",): ("repo", "plan_key"),
     ("run",): ("repo", "run_dir", "timeout"),
     ("collect",): ("repo", "run_dir", "recover"),
-    ("check",): ("repo", "run_dir", "only", "fresh", "keep_workspace"),
+    ("check",): ("repo", "run_dir", "only", "fresh", "keep_workspace", "timeout_at_least"),
     ("mutate",): ("repo", "run_dir", "spec", "keep_workspace", "tree", "out", "check_anchors"),
     ("wait",): ("repo", "run_dir", "timeout", "interval", "assess", "assess_interval"),
     ("sync-adapters",): ("repo", "check"),
@@ -272,7 +272,7 @@ TS_DISPATCHER_COMMANDS: Dict[Tuple[str, ...], Tuple[str, ...]] = {
     ("branch",): ("repo", "run_dir", "name", "rework", "trailer", "no_config_trailers"),
     ("review-draft",): ("repo", "run_dir", "out", "force"),
     ("integrate",): ("repo", "run_dir", "dry_run", "skip", "reason", "skip_if_tree", "recheck", "name", "trailer",
-                     "no_config_trailers", "keep_worktree", "keep_workspace", "while_running"),
+                     "no_config_trailers", "keep_worktree", "keep_workspace", "while_running", "timeout_at_least"),
     ("mark",): ("repo", "run_dir", "state", "ref", "reason", "force"),
     ("cleanup",): ("repo", "run_dir", "force"),
 }
@@ -5097,6 +5097,37 @@ def _resolve_argv(argv: List[str], cwd: Path, env: Dict[str, str]) -> List[str]:
     return [found or program] + argv[1:]
 
 
+#: --timeout-at-least 的写法：检查编号=秒数（第 178 轮）
+TIMEOUT_AT_LEAST_RE = re.compile(r"([A-Za-z][A-Za-z0-9_-]*)=([0-9]+)")
+
+
+def raised_checks(checks: List[Dict[str, Any]], given: Optional[Sequence[str]]) -> List[Dict[str, Any]]:
+    """--timeout-at-least 编号=秒数（第 178 轮）：这几条检查的时限至少放到给的秒数，合同写得更长就照合同。放宽了的检查带上
+    timeout_raised_from（合同写的时限），检查记录照写，另打一行 NOTE。hub 给在途合同里内核规定的全量回归用：合同照第 177 轮
+    之前的规矩写了 1800 秒，门禁基准一片片加上去，T045 的 R01 在空闲机器上也要 1913 秒。"""
+    if not given:
+        return list(checks)
+    floors: Dict[str, int] = {}
+    for item in given:
+        match = TIMEOUT_AT_LEAST_RE.fullmatch(item)
+        if not match or not 1 <= int(match.group(2)) <= 86400:
+            raise DispatchError("--timeout-at-least 格式应为 检查编号=秒数（例如 R01=2700，秒数 1..86400）：%s"
+                                % item, EXIT_USAGE)
+        floors[match.group(1)] = int(match.group(2))
+    unknown = sorted(set(floors) - {check["id"] for check in checks})
+    if unknown:
+        raise DispatchError("--timeout-at-least 里有合同没有的检查：%s" % ", ".join(unknown), EXIT_USAGE)
+    raised = []
+    for check in checks:
+        floor = floors.get(check["id"])
+        if floor is not None and floor > check["timeout_seconds"]:
+            print("NOTE  %s 的时限按 --timeout-at-least 放宽：%d → %d 秒" % (check["id"], check["timeout_seconds"], floor),
+                  flush=True)
+            check = dict(check, timeout_seconds=floor, timeout_raised_from=check["timeout_seconds"])
+        raised.append(check)
+    return raised
+
+
 def _run_command_item(item: Dict[str, Any], work_dir: Path, env: Dict[str, str], out_dir: Path,
                       grace: float) -> Dict[str, Any]:
     cid = item["id"]
@@ -5105,6 +5136,8 @@ def _run_command_item(item: Dict[str, Any], work_dir: Path, env: Dict[str, str],
                               "required": item.get("required", True),
                               "expected_exit_code": item.get("expected_exit_code", 0),
                               "log": "%s/%s.log" % (out_dir.name, cid), "started_at": utc_now()}
+    if "timeout_raised_from" in item:  # 第 178 轮：--timeout-at-least 放宽过的检查，记下放宽后的与合同写的时限
+        record.update(timeout_seconds=item["timeout_seconds"], timeout_raised_from=item["timeout_raised_from"])
     if not is_within(cwd, work_dir) or not cwd.is_dir():
         record.update(status="blocked", passed=False, reason="cwd 不存在或位于工作副本之外")
         return record
@@ -6635,7 +6668,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     candidate = read_json_or(run_dir / "candidate.json", {})
     if not candidate.get("tree"):
         raise DispatchError("没有候选记录（candidate.json），无法把检查绑定到确切内容")
-    checks = contract["checks"]
+    checks = raised_checks(contract["checks"], getattr(args, "timeout_at_least", None))
     if args.only:
         wanted = [x.strip() for x in args.only.split(",") if x.strip()]
         unknown = [x for x in wanted if x not in {c["id"] for c in checks}]
@@ -7529,6 +7562,7 @@ def cmd_integrate(args: argparse.Namespace) -> int:
         raise DispatchError("--skip 需要 --reason：写明这项检查为什么在当前末端上不成立（例如只对基线成立）", EXIT_USAGE)
     if args.skip_if_tree and not skip:
         raise DispatchError("--skip-if-tree 需要 --skip：它只决定豁免在哪棵树上生效", EXIT_USAGE)
+    raised = raised_checks(contract["checks"], getattr(args, "timeout_at_least", None))
     symbolic = git(["symbolic-ref", "-q", "HEAD"], repo.root, check=False)
     if symbolic.returncode != 0:
         raise DispatchError("主工作区是游离 HEAD：integrate 只落到当前分支，先切到要集成的分支", EXIT_USAGE)
@@ -7632,7 +7666,7 @@ def cmd_integrate(args: argparse.Namespace) -> int:
                         raise DispatchError("验证副本的 setup %s 失败：%s" % (item["id"], setup.get("reason")))
                 if snapshot_tree(workspace, head, out_dir, "integrate-setup", meta.get("git_autocrlf")) != merged_tree:
                     raise DispatchError("setup 改动了验证副本中的文件或产生了未忽略的新文件")
-            for item in contract["checks"]:
+            for item in raised:
                 if item["id"] in skip:
                     results.append({"id": item["id"], "required": item.get("required", True), "status": "skipped",
                                     "passed": None, "reason": args.reason})
@@ -8741,6 +8775,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only", help="只运行指定检查，逗号分隔（不能作为 PASS 依据）")
     p.add_argument("--fresh", action="store_true", help="在干净副本（基线 + 候选补丁 + setup）上运行")
     p.add_argument("--keep-workspace", action="store_true", help="--fresh 时保留干净副本，便于排查")
+    p.add_argument("--timeout-at-least", action="append", metavar="ID=秒数",
+                   help="这条检查的时限至少放到这么多秒（例如 R01=2700，可写几次）；检查记录写明合同的时限与放宽后的时限。"
+                        "hub 给内核规定的全量回归用")
     p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("mutate", help="在干净副本上逐个套用最小变异，检查测试能否抓住")
@@ -8853,6 +8890,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-workspace", action="store_true", help="保留验证副本，便于排查")
     p.add_argument("--while-running", action="store_true",
                    help="有 attempt 正在运行时也落地（它们的复审会把这次改动列为主工作区变化）")
+    p.add_argument("--timeout-at-least", action="append", metavar="ID=秒数",
+                   help="这条检查的时限至少放到这么多秒（例如 R01=2700，可写几次）；检查记录写明合同的时限与放宽后的时限。"
+                        "hub 给内核规定的全量回归用")
     p.set_defaults(func=cmd_integrate)
 
     p = sub.add_parser("mark", help="标记 INTEGRATED / ABANDONED / SUPERSEDED")

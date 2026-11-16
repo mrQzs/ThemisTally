@@ -2931,6 +2931,22 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 在途合同（T045 的 v3）里 R01 仍是 1800 秒，这一轮管不到：第 178 轮让调度器按内核的规矩放宽。
   - 合入后回归与落地预演跑全部门禁基准的 2400 秒（SWEEP_SECONDS）照旧：45 份 1913 秒，还有约四分之一的余量，大约到 55 份会不够（候选 #54）。
 
+### 第 178 轮：在途合同的全量回归，时限按内核的规矩放宽（调度器的 check、integrate 加 --timeout-at-least；候选 #53 的在途一半）
+
+- **起因**：第 177 轮管的是之后写的合同。之前派遣的合同照旧规矩把 R01 写成 1800 秒，T045 的 v3 就是这样：45 份门禁基准在空闲机器上要 1913 秒（14:00 合入第 176 轮之后的站主回归实测），照原样重核必然超时；站主 14:08 起的那次 exec-recheck 在 14:36 停掉。出新合同又不划算：合同重新交付会让战前门禁、JEV、一审、执行全部作废（DEPENDS），执行端多半要从门禁的基线起把做完的实现重做一遍，最后一次 attempt 也搭进去。调度器的 verdict PASS 要求检查门禁全过，内核也没有绕过它的路。
+- **改法**：
+  - 调度器（Python 与 TS，交接 Schema pyargs-v1 一并）：check、integrate 加 `--timeout-at-least 编号=秒数`（可写几次）。这几条检查的时限至少放到给的秒数，合同写得更长照合同；放宽过的检查在记录里带 timeout_seconds（放宽后的）与 timeout_raised_from（合同写的），并打一行 NOTE。写法不对、秒数不在 1..86400、合同里没有这条检查都是用法错误（退出码 2）。不给这个参数时什么都不变。check 里先放宽再按 --only 选；integrate 在验证副本里照放宽后的跑。
+  - 内核（Python 与 TS）：regression_floors 找出合同里跑先前各片门禁基准、整数时限低于 regression_seconds（按这条检查跑的份数，同一份写两遍算一份）的检查，执行端跑完的 check --fresh 与结项的 integrate 带上 `--timeout-at-least`；执行端交付信的“验证”写明放宽了哪条。没有这样的检查、时限没写成整数的、合同读不出来的照旧不带。T045 的 v3：R01 跑 45 份，1800 秒放宽到 2700 秒。
+- **测试**：
+  - test_kit_hub 新加 `test_inflight_regression_checks_get_the_kernel_limit_from_the_dispatcher`：32 份真门禁基准，R01（1800 秒）给 1920，只跑一份（写了两遍）的 R02 给 1800，够长的、不是整数的、没写的、不跑门禁基准的不管，读不出来的三种交回空；记下的 run_pd 里 check --fresh 与 integrate 都带着，交付信写明。
+  - 调度器的契约（Python、Node、Bun 三边逐字比证据与输出）：check 加五个场景（合同 1 秒的检查睡 2 秒、放到 30 秒照样过，合同写得更长的不动；与 --only 一起先放宽再选；少了秒数、秒数是 0、合同没有的检查），integrate 加两个（睡 2 秒照样落地；合同没有的检查）；pyargs 的 Schema 样本带上这个参数。
+  - 内核的场景：hub-heavy-scenes 一条（R01 写 600 秒、一份门禁基准，check --fresh 带 R01=1800、交付信写明），hub-land-scenes 一条（integrate 带 R01=1800）。
+- **变异**：新写 4 份 22 条（hub-raised-limit py 7、ts 5，dispatch-raised-limit py 5、ts 5）全抓住；改锚 8 条（C06、C07、L24、K17、两条 T08 改到带 regressionFloors 的新参数上，K11 在 regressionFloors 里有了同样的文字、改锚到 regressionCheckIds 的整段 .some，L02 改到多了新键的交接名单那一行）单跑都抓住。
+- **检查**：类型检查 0 错；内核测试 416 passed；调度器测试与内核选择测试（test_dispatch、test_kernel_impl）240 passed；契约 D（check、baseline、verdict、integrate 与 pyargs 样本）175、K（九份走到 check --fresh 与 integrate 的内核场景）100、S 17、E 24、P 30、C 5 全过。套用改动之后的快查里类型检查红过一处（TS 把 PyDict 摊进 Map<string, PyValue>，键类型装不下），改成 new Map(check).set(…) 之后再排全套。
+- **没做**：
+  - 基线检查不带这个参数：之后的合同照第 177 轮写对时限，之前的合同基线早跑过了。
+  - 门禁扫描（合入后回归、落地预演、站主提交之后的回归）的 2400 秒照旧，见候选 #54。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

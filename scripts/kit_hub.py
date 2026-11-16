@@ -4255,7 +4255,8 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     # 状态在 state.json 的 "state" 键（pi_dispatch.get_state）；T001 时这里读成了 "status"，恒为空，执行阶段永远判不过
     status = pd.get_state(run_dir)
     flaky_before = len(ts.get("flaky") or [])
-    check_code, check_out = checked_in_lane(hub, ts, "执行检查", ["check", str(run_dir), "--fresh"],
+    floors = regression_floors(hub, ts)
+    check_code, check_out = checked_in_lane(hub, ts, "执行检查", ["check", str(run_dir), "--fresh"] + floors,
                                             checks_seconds(hub, ts, 3600), lambda _text: check_mismatches(run_dir))
     scope = json.loads(read_text(run_dir / "scope.json") or "{}")
     violations = scope.get("violations") or []
@@ -4289,6 +4290,8 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     for item in (ts.get("flaky") or [])[flaky_before:]:  # 第 155 轮：重跑之后才相符的，写给协调人看
         verdict_line += "；全量回归 %s 第一次红（%s），内核原样重跑一次相符" % (
             "、".join(item["checks"]), "、".join(item["failed"][:3]) or "没读出用例名")
+    if floors:  # 第 178 轮：在途合同里时限偏短的全量回归，内核让调度器放宽过
+        verdict_line += "；全量回归的时限按内核的规矩放宽（%s 秒）" % "、".join(floors[1::2])
     if ts["exec"]["attempts_left"] is not None:
         # T012 的协调人数 attempt 目录，说“预算已耗尽”；预检失败的那一次没领取预算，其实还剩 1 次（第 39 轮）
         verdict_line += "；合同预算还剩 %d 次 attempt" % ts["exec"]["attempts_left"]
@@ -4638,6 +4641,26 @@ def checks_seconds(hub: Hub, ts: Dict[str, Any], floor: int) -> int:
     return max(floor, total + CHECKS_MARGIN_SECONDS)
 
 
+def regression_floors(hub: Hub, ts: Dict[str, Any]) -> List[str]:
+    """第 178 轮：合同里跑先前各片门禁基准的检查，时限比 regression_seconds 按它跑的份数给的短（第 177 轮之前的合同一律写 1800
+    秒），检查与落地时让调度器放宽：交回 --timeout-at-least 编号=秒数 的参数。时限没写成整数的不管，合同读不出来交回空。在
+    途的 T045 不出新合同也能过：它的 R01 跑 45 份门禁基准，空闲机器上也要 1913 秒。"""
+    floors: List[str] = []
+    try:
+        data = json.loads(read_text(contract_paths(hub, ts)[1]) or "{}")
+        gates = set(regression_gates(hub, ts))
+        for check in data.get("checks") or []:
+            if not isinstance(check, dict):
+                continue
+            count = len(gates & {item for item in check.get("argv") or [] if isinstance(item, str)})
+            seconds = check.get("timeout_seconds")
+            if count and type(seconds) is int and seconds < regression_seconds(count):
+                floors += ["--timeout-at-least", "%s=%d" % (check.get("id"), regression_seconds(count))]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return []
+    return floors
+
+
 def failed_test_names(logs: Sequence[Path]) -> List[str]:
     """检查日志末尾 pytest 汇总里红的用例名。"""
     names: List[str] = []
@@ -4745,7 +4768,8 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     records_before = [dict(record) for record in landing_records(ts)]
     problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
     if not problem:
-        code, out = run_pd(hub, ["integrate", str(run_dir), "--while-running"] + rehearsed_waiver(hub, ts),
+        code, out = run_pd(hub, ["integrate", str(run_dir), "--while-running"] + rehearsed_waiver(hub, ts)
+                           + regression_floors(hub, ts),
                            timeout=checks_seconds(hub, ts, 3600))
         ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
         if code != 0:

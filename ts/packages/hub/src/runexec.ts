@@ -34,7 +34,7 @@ import {
   reportLeftovers, retrySection, returnedBlockers, reworkSection, unreportedGateClaims,
 } from "./exec.ts";
 import { REAL_GATE_POST_DEPS, addWorktree, attemptBase } from "./gatepost.ts";
-import { checkMismatches, checkedInLane, checksSeconds } from "./heavy.ts";
+import { checkMismatches, checkedInLane, checksSeconds, regressionFloors } from "./heavy.ts";
 import { TEMPLATE_DIR, git } from "./kernel.ts";
 import { DirLock, type Hub } from "./mailbox.ts";
 import { relativeTo } from "./taskstate.ts";
@@ -426,7 +426,8 @@ const textOf = (item: PyValue): string => pyStrValue(item instanceof Map && pyTr
 export async function finishExec(hub: Hub, ts: PyDict, runDir: string, runCode: bigint | null, deps: ExecDeps = REAL_EXEC_DEPS): Promise<PyDict> {
   const status = getState(runDir);
   const flakyBefore = pyIter(or(pyGet(ts, "flaky"), [])).length;
-  const [checkCode, checkOut] = await checkedInLane(hub, ts, "执行检查", ["check", runDir, "--fresh"], checksSeconds(hub, ts, 3600), () => checkMismatches(runDir), deps.runPd, deps);
+  const floors = regressionFloors(hub, ts);
+  const [checkCode, checkOut] = await checkedInLane(hub, ts, "执行检查", ["check", runDir, "--fresh", ...floors], checksSeconds(hub, ts, 3600), () => checkMismatches(runDir), deps.runPd, deps);
   const scope = loads(readText(purePathStr(runDir, "scope.json")) || "{}");
   const violations = or(pyGet(scope, "violations"), []);
   const report = loads(readText(purePathStr(runDir, "executor-report.json")) || "{}");
@@ -458,6 +459,8 @@ export async function finishExec(hub: Hub, ts: PyDict, runDir: string, runCode: 
     const names = pyIter(pyItem(item, "failed")).slice(0, 3).map(pyStrValue).join("、");
     verdictLine += `；全量回归 ${pyIter(pyItem(item, "checks")).map(pyStrValue).join("、")} 第一次红（${names || "没读出用例名"}），内核原样重跑一次相符`;
   }
+  const raised = floors.filter((_, at) => at % 2 === 1);
+  if (raised.length) verdictLine += `；全量回归的时限按内核的规矩放宽（${raised.join("、")} 秒）`; // 第 178 轮
   if (exec.get("attempts_left") !== null) {
     // T012 的协调人数 attempt 目录，说“预算已耗尽”；预检失败的那一次没领取预算，其实还剩 1 次（第 39 轮）
     verdictLine += `；合同预算还剩 ${pyPercentD(exec.get("attempts_left"))} 次 attempt`;

@@ -45,13 +45,17 @@ interface CheckFlags {
   readonly only?: string;
   readonly fresh?: boolean;
   readonly keep?: boolean;
+  /** 第 178 轮：每项一个 --timeout-at-least。 */
+  readonly timeoutAtLeast?: readonly string[];
 }
 
 const check = (label: string, o: AttemptOptions, flags: CheckFlags, status: number, text?: string, crash = false): Scenario => ({
   label,
   build: (repo, head, runner) => fullAttempt(repo, head, runner, o),
-  argv: ["check", "t1", ...(flags.only !== undefined ? ["--only", flags.only] : []), ...(flags.fresh ? ["--fresh"] : []), ...(flags.keep ? ["--keep-workspace"] : [])],
-  args: { command: ["check"], run_dir: "t1", only: flags.only ?? null, fresh: flags.fresh ?? false, keep_workspace: flags.keep ?? false, context: TS_CONTEXT },
+  argv: ["check", "t1", ...(flags.only !== undefined ? ["--only", flags.only] : []), ...(flags.fresh ? ["--fresh"] : []), ...(flags.keep ? ["--keep-workspace"] : []),
+    ...(flags.timeoutAtLeast ?? []).flatMap((item) => ["--timeout-at-least", item])],
+  args: { command: ["check"], run_dir: "t1", only: flags.only ?? null, fresh: flags.fresh ?? false, keep_workspace: flags.keep ?? false,
+    timeout_at_least: flags.timeoutAtLeast ? [...flags.timeoutAtLeast] : null, context: TS_CONTEXT },
   status,
   text,
   crash,
@@ -103,6 +107,15 @@ const CHECKS: Scenario[] = [
   check("--only 选一项，没有覆盖全部必要检查", { checks: [OK(), FAIL("V02")] }, { only: " V01 ,," }, 0, "CHECK V01 passed"),
   check("--only 有未知的检查", { checks: [OK(), OK("V02")] }, { only: "V09,V01,V08" }, 2, "未知检查：V09, V08"),
   check("--only 只有逗号", {}, { only: ", ," }, 2, "合同没有可运行的检查"),
+  // 第 178 轮：--timeout-at-least 把检查的时限至少放到给的秒数（合同写得更长照合同），放宽的写进记录、打一行 NOTE
+  check("--timeout-at-least：合同 1 秒的检查睡 2 秒照样过，合同写得更长的不动", {
+    checks: [py("V01", "import time; time.sleep(2); print('ok')", { timeout_seconds: 1 }), OK("V02", { timeout_seconds: 90 })],
+  }, { timeoutAtLeast: ["V01=30", "V02=30"] }, 0, "NOTE  V01 的时限按 --timeout-at-least 放宽：1 → 30 秒"),
+  check("--timeout-at-least 与 --only 一起：先放宽再选", { checks: [OK(), OK("V02")] }, { only: "V02", timeoutAtLeast: ["V01=99"] }, 0,
+    "NOTE  V01 的时限按 --timeout-at-least 放宽：60 → 99 秒"),
+  check("--timeout-at-least 少了秒数", {}, { timeoutAtLeast: ["V01"] }, 2, "--timeout-at-least 格式应为 检查编号=秒数"),
+  check("--timeout-at-least 秒数是 0", {}, { timeoutAtLeast: ["V01=0"] }, 2, "（例如 R01=2700，秒数 1..86400）：V01=0"),
+  check("--timeout-at-least 有合同没有的检查", {}, { timeoutAtLeast: ["V09=30", "V08=30"] }, 2, "--timeout-at-least 里有合同没有的检查：V08, V09"),
   check("合同没有检查", { checks: [] }, {}, 2, "合同没有可运行的检查"),
   check("状态不能检查", { files: { "state.json": state("RUNNING") } }, {}, 3, "状态 RUNNING 不能运行验收检查"),
   check("没有候选记录", { files: { "candidate.json": null } }, {}, 3, "没有候选记录（candidate.json）"),
