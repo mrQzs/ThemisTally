@@ -76,3 +76,16 @@
   font: var(--tt-mono-sm);
   color: var(--tt-tone-danger-fg);
 }
+
+/* quizs 分支追加：档案读取中/读不出的原因与凭据说明（pf-note）、档位越界的提示（pf-warn）。 */
+.pf-note {
+  margin: 0;
+  font: var(--tt-text-caption);
+  color: var(--tt-text-3);
+}
+
+.pf-warn {
+  margin: 0;
+  font: var(--tt-text-caption);
+  color: var(--tt-tone-warning-fg);
+}

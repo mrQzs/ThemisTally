@@ -3,11 +3,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Dialog, SegmentedControl, Select, Tag, TextField, dispatchCommand } from '../components';
 import { XIcon } from '../icons';
-import { getRuntimes, type WriteAction, type WriteArgs } from '../api';
+import { getQuizsProviders, getRuntimes, type WriteAction, type WriteArgs } from '../api';
 import { useWriteFlow, type WriteSpec } from './useWriteFlow';
 import { WriteFlow } from './WriteConfirmDialog';
 import { useLivePreview } from './useLivePreview';
 import { sameStringArray, validEnvName, validId, validModel } from './profileRules';
+import {
+  QUIZS_LEVELS,
+  isQuizsRuntime,
+  modelInArchive,
+  quizsProviderOptions,
+  thinkingAllowed,
+  thinkingLevelsFor,
+  type QuizsProviderOption,
+} from './quizsProfile';
 import './profile-form.css';
 
 // 逐字提示（合同第三节）：只在这里出现，入口文件不写（T013 / T022 S15 / D09）。
@@ -16,6 +25,13 @@ const MODEL_ERROR = '模型要写成 provider/model，两段都只能用字母�
 const ENV_ERROR = '变量名只能用字母、数字与下划线，不能以数字开头，最长 128 个字符';
 const MODEL_HELP = '手填的模型没有核实';
 const ENV_HELP = '值在‘凭据’页录入';
+
+// quizs 分支的逐字文案（合同第四、五节）：档案三种读不出的原因、档案外的模型、档位越界与凭据说明。
+const QUIZS_READING = '正在读 Quizs 的提供方档案…';
+const QUIZS_READ_FAILED = '读不出 Quizs 的提供方档案';
+const QUIZS_NO_PROVIDERS = 'Quizs 没有列出可用的提供方档案';
+const QUIZS_MODEL_OUTSIDE = '不在 Quizs 已批准的档案里';
+const QUIZS_CREDS_NOTE = '凭据由 Quizs 保管';
 
 const THINKING_OPTIONS = [
   { value: 'off', label: 'off' },
@@ -35,6 +51,18 @@ interface LooseProfile {
   options?: { thinking?: string | null } | null;
   credential_env?: readonly string[] | null;
 }
+
+// runtime 下拉的一行：id 是下拉的取值，adapter 用来认 quizs（不看 id）。
+interface RuntimeRow {
+  id: string;
+  adapter: string;
+}
+
+// quizs 运行时的提供方档案：读取中、读到（可能一项都转不出来）与读不出三种状态。
+type QuizsArchive =
+  | { kind: 'loading' }
+  | { kind: 'ready'; options: QuizsProviderOption[] }
+  | { kind: 'failed'; reason: string };
 
 interface FormInitial {
   id: string;
@@ -81,7 +109,11 @@ function ProfileFormDialog({
   const [creds, setCreds] = useState<string[]>(initial.creds);
   const [envInput, setEnvInput] = useState('');
   const [envError, setEnvError] = useState<string | null>(null);
-  const [runtimes, setRuntimes] = useState<string[]>([]);
+  const [runtimes, setRuntimes] = useState<RuntimeRow[]>([]);
+  // null：没读过档案（非 quizs 运行时，或对话框还没开）。
+  const [archive, setArchive] = useState<QuizsArchive | null>(null);
+  // quizs 分支的档位改动口径：用户点过档位段就算改动（点回初值也照传）。
+  const [thinkingTouched, setThinkingTouched] = useState(false);
 
   const action: WriteAction = mode === 'new' ? 'profile.add' : 'profile.edit';
 
@@ -92,9 +124,9 @@ function ProfileFormDialog({
     getRuntimes().then(
       (env) => {
         if (!alive) return;
-        const ids = env.ok && env.data ? env.data.runtimes.map((r) => r.id) : [];
-        setRuntimes(ids);
-        if (mode === 'new') setRuntime((cur) => cur || ids[0] || '');
+        const rows: RuntimeRow[] = env.ok && env.data ? env.data.runtimes.map((r) => ({ id: r.id, adapter: r.adapter })) : [];
+        setRuntimes(rows);
+        if (mode === 'new') setRuntime((cur) => cur || rows[0]?.id || '');
       },
       () => {
         if (alive) setRuntimes([]);
@@ -104,6 +136,40 @@ function ProfileFormDialog({
       alive = false;
     };
   }, [open, mode]);
+
+  // quizs 运行时的提供方档案：对话框打开、且所选运行时的适配器是 quizs 时读一次（每次打开只读一次，
+  // 几个 quizs 运行时共用同一份；非 quizs 一次都不调）。迟到的结果按 alive 丢弃，重新打开会重读。
+  const archiveRead = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      archiveRead.current = false;
+      setArchive(null);
+      setThinkingTouched(false);
+      return;
+    }
+    if (!isQuizsRuntime(runtime, runtimes) || archiveRead.current) return;
+    archiveRead.current = true;
+    let alive = true;
+    setArchive({ kind: 'loading' });
+    getQuizsProviders().then(
+      (env) => {
+        if (!alive) return;
+        if (!env.ok || env.data == null) {
+          const first = env.messages.length > 0 ? env.messages[0] : null;
+          setArchive({ kind: 'failed', reason: first === null ? QUIZS_READ_FAILED : `${QUIZS_READ_FAILED}：${first}` });
+          return;
+        }
+        const options = quizsProviderOptions(env.data.providers);
+        setArchive(options.length > 0 ? { kind: 'ready', options } : { kind: 'failed', reason: QUIZS_NO_PROVIDERS });
+      },
+      () => {
+        if (alive) setArchive({ kind: 'failed', reason: QUIZS_READ_FAILED });
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [open, runtime, runtimes]);
 
   // 成功（重读之后弹轻提示）才清空表单；执行失败不清，重开还在原来的值。
   const aPieceWasOpen = useRef(false);
@@ -125,13 +191,42 @@ function ProfileFormDialog({
   const modelValid = validModel(model);
   const fieldValid = idValid && modelValid;
   const hasRuntime = runtimes.length > 0;
-  const credsChanged = !sameStringArray(creds, initial.creds);
+  const quizs = isQuizsRuntime(runtime, runtimes);
+  // quizs 分支的凭据由 Quizs 保管：界面不加也不撤，改动检测只对非 quizs 算。
+  const credsChanged = !quizs && !sameStringArray(creds, initial.creds);
   // 凭据变量改成空的：服务侧空数组不合法，本片不做清空。
-  const clearingCred = mode === 'edit' && credsChanged && creds.length === 0 && initial.creds.length > 0;
+  const clearingCred = mode === 'edit' && !quizs && credsChanged && creds.length === 0 && initial.creds.length > 0;
   const runtimeChanged = mode === 'edit' && runtime !== initial.runtime;
   const modelChanged = mode === 'edit' && model !== initial.model;
   const thinkingChanged = thinking !== initial.thinking;
   const hasChanges = mode === 'new' || runtimeChanged || modelChanged || thinkingChanged || credsChanged;
+
+  // 档案三态转成控面：quizs 且读到有选项 → 模型从档案里选；其余（读取中、读不出、非 quizs）→ 手填文本框照旧。
+  const archiveOptions = archive !== null && archive.kind === 'ready' ? archive.options : [];
+  const hasArchive = quizs && archiveOptions.length > 0;
+  const archiveOption = hasArchive ? archiveOptions.find((o) => o.value === model) ?? null : null;
+  const modelOutsideArchive = hasArchive && !modelInArchive(model, archiveOptions);
+  const archiveLoading = quizs && (archive === null || archive.kind === 'loading');
+  // 档位可选项：模型在档案里 → 该档案允许的档位；quizs 但档案不明或读不出 → 六值；非 quizs → 七段。
+  const thinkingLevels: readonly string[] = quizs
+    ? thinkingLevelsFor(archiveOption)
+    : THINKING_OPTIONS.map((o) => o.value);
+  const thinkingOptions = thinkingLevels.map((value) => ({ value, label: value }));
+  // 档位从不自动改：当前档位不在所选档案允许的范围里就一个段都不选、写明原因并不调预览。
+  const thinkingOutOfRange = archiveOption !== null && !thinkingAllowed(thinking, archiveOption.thinking);
+  const quizsNote = !quizs
+    ? null
+    : archiveLoading
+      ? QUIZS_READING
+      : archive !== null && archive.kind === 'failed'
+        ? archive.reason
+        : null;
+
+  // 新建时模型为空：档案读到之后自动选第一项（不替用户改已有取值）。
+  useEffect(() => {
+    if (!hasArchive || mode !== 'new' || model !== '') return;
+    setModel(archiveOptions[0].value);
+  }, [hasArchive, mode, archiveOptions, model]);
 
   // 只传与打开时初值不同的字段（编辑）；thinking 原来缺省、界面显示 high 但没动过就不传；数组按顺序原样传。
   const buildArgs = (): WriteArgs => {
@@ -143,13 +238,16 @@ function ProfileFormDialog({
       if (runtimeChanged) args.runtime = runtime;
       if (modelChanged) args.model = model;
     }
-    if (thinkingChanged) args.thinking = thinking;
-    if (creds.length > 0 && (mode === 'new' || credsChanged)) args.credential_env = creds;
+    // quizs 分支：用户点过档位段就算改动（点回初值也照传 --thinking=），不把档案不认的档位悄悄交上去。
+    if (quizs ? thinkingTouched || thinkingChanged : thinkingChanged) args.thinking = thinking;
+    if (!quizs && creds.length > 0 && (mode === 'new' || credsChanged)) args.credential_env = creds;
     return args;
   };
 
   // 表单合法才调 preview；[确认…] 只在「合法 + 有改动 + 最后一次预览对应当前取值 + 200 + ok」时可点。
-  const canPreview = fieldValid && hasRuntime && !clearingCred && hasChanges;
+  // quizs 分支再加三条：档案不在读取中、模型在档案里、档位在档案允许的范围内。
+  const quizsBlocked = quizs && (archiveLoading || modelOutsideArchive || thinkingOutOfRange);
+  const canPreview = fieldValid && hasRuntime && !clearingCred && hasChanges && !quizsBlocked;
   const args = buildArgs();
   const { result, current } = useLivePreview(action, args, canPreview);
   const confirmEnabled = canPreview && current && result !== null && result.ok;
@@ -169,6 +267,11 @@ function ProfileFormDialog({
     setCreds(creds.filter((c) => c !== name));
     setEnvError(null);
   };
+  // 档位段的点击：quizs 分支里点过即算改动（buildArgs 照此传 --thinking=）。
+  const onThinkingChange = (value: string) => {
+    setThinking(value);
+    setThinkingTouched(true);
+  };
 
   const onConfirm = () => {
     const spec: WriteSpec = { action, args: buildArgs() };
@@ -176,7 +279,7 @@ function ProfileFormDialog({
     start(spec);
   };
 
-  const runtimeOptions = runtimes.map((r) => ({ value: r, label: r }));
+  const runtimeOptions = runtimes.map((r) => ({ value: r.id, label: r.id }));
   const title = mode === 'new' ? '新建 profile' : `修改 profile ${initial.id}`;
 
   const renderBottom = (): ReactNode => {
@@ -224,40 +327,62 @@ function ProfileFormDialog({
             error={id !== '' && !idValid ? ID_ERROR : undefined}
           />
           <Select label="runtime" value={runtime} onChange={(e) => setRuntime(e.target.value)} options={runtimeOptions} />
-          <TextField
-            label="模型"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            mono
-            help={MODEL_HELP}
-            error={model !== '' && !modelValid ? MODEL_ERROR : undefined}
-          />
+          {hasArchive ? (
+            <Select
+              label="模型"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              options={modelOutsideArchive ? [{ value: model, label: model }, ...archiveOptions] : archiveOptions}
+              error={modelOutsideArchive ? QUIZS_MODEL_OUTSIDE : undefined}
+            />
+          ) : (
+            <>
+              <TextField
+                label="模型"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                mono
+                help={MODEL_HELP}
+                error={model !== '' && !modelValid ? MODEL_ERROR : undefined}
+              />
+              {quizsNote !== null && <p className="pf-note">{quizsNote}</p>}
+            </>
+          )}
           <div className="pf-field">
             <span className="pf-field__label">thinking</span>
-            <SegmentedControl aria-label="thinking" options={THINKING_OPTIONS} value={thinking} onChange={setThinking} />
+            <SegmentedControl aria-label="thinking" options={thinkingOptions} value={thinking} onChange={onThinkingChange} />
+            {thinkingOutOfRange && <p className="pf-warn">{thinking} 不在这个档案允许的档位里</p>}
           </div>
-          <div className="pf-env">
-            <TextField
-              label="凭据变量"
-              value={envInput}
-              onChange={(e) => setEnvInput(e.target.value)}
-              mono
-              help={ENV_HELP}
-              error={envError ?? undefined}
-            />
-            <Button variant="secondary" size="sm" onClick={addEnv}>添加</Button>
-          </div>
-          {creds.length > 0 && (
-            <div className="pf-env__tags">
-              {creds.map((name) => (
-                <span key={name} className="pf-env__tag">
-                  <Tag tone="neutral" mono>{name}</Tag>
-                  <Button variant="ghost" size="sm" aria-label={`移除 ${name}`} className="pf-env__remove" onClick={() => removeEnv(name)}>
-                    <XIcon width={14} height={14} />
-                  </Button>
-                </span>
-              ))}
+          {quizs ? (
+            <div className="pf-env" role="group" aria-label="凭据变量">
+              <p className="pf-note">{QUIZS_CREDS_NOTE}</p>
             </div>
+          ) : (
+            <>
+              <div className="pf-env">
+                <TextField
+                  label="凭据变量"
+                  value={envInput}
+                  onChange={(e) => setEnvInput(e.target.value)}
+                  mono
+                  help={ENV_HELP}
+                  error={envError ?? undefined}
+                />
+                <Button variant="secondary" size="sm" onClick={addEnv}>添加</Button>
+              </div>
+              {creds.length > 0 && (
+                <div className="pf-env__tags">
+                  {creds.map((name) => (
+                    <span key={name} className="pf-env__tag">
+                      <Tag tone="neutral" mono>{name}</Tag>
+                      <Button variant="ghost" size="sm" aria-label={`移除 ${name}`} className="pf-env__remove" onClick={() => removeEnv(name)}>
+                        <XIcon width={14} height={14} />
+                      </Button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           <div className="pf-bottom">{renderBottom()}</div>
         </div>
