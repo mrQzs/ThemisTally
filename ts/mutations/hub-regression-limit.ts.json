@@ -1,0 +1,32 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "R01 每份门禁基准给 40 秒",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "export const REGRESSION_SECONDS_PER_GATE = 60;",
+      "new": "export const REGRESSION_SECONDS_PER_GATE = 40;"
+    },
+    {
+      "name": "R02 回归时限写死 1800",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "  return Math.max(1800, REGRESSION_SECONDS_PER_GATE * gates);",
+      "new": "  return 1800;"
+    },
+    {
+      "name": "R03 提示照旧写 1800s",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "超时：${regressionSeconds(regression.length)}s",
+      "new": "超时：1800s"
+    }
+  ]
+}

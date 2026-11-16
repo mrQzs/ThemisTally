@@ -243,6 +243,17 @@ export function regressionGates(hub: Hub, ts: PyDict): string[] {
   return pySplitlines(listing).filter((path) => GATE_BASELINE.match(path) !== null && path !== own).sort(cmpCodePoints);
 }
 
+/** 全量回归里每份门禁基准给的时限（第 177 轮）：每份各跑一遍整套前端测试与几次探针，11-16 实测一份 35–41 秒。 */
+export const REGRESSION_SECONDS_PER_GATE = 60;
+
+/**
+ * 全量回归检查的时限（第 177 轮）：每份门禁基准 60 秒，不少于 1800 秒。此前一律写 1800 秒：T045 的 45 份门禁基准在基线上跑了 1575 秒、attempt-001
+ * 跑了 1707 秒，attempt-002 两次都跑到 97% 被掐断，没有一条红用例。
+ */
+export function regressionSeconds(gates: number): number {
+  return Math.max(1800, REGRESSION_SECONDS_PER_GATE * gates);
+}
+
 /** 合同端下一份合同的版本号，以及是不是原号重写（第 17 轮）：没派遣、也没通过核验的草稿原号重写。 */
 export function nextContractVersion(ts: PyDict): [bigint, boolean] {
   const current = pyItem(ts, "contract");
@@ -485,7 +496,7 @@ function contractParts(hub: Hub, ts: PyDict, parts: PyValue[]): void {
   const regression = regressionGates(hub, ts);
   if (regression.length) {
     parts.push("- 先前各片的门禁基准测试是回归测试，Validation commands 要有一条回归检查，照这个格式写："
-      + code("- R01（必要，基线应通过）：" + code(`python -m pytest ${regression.join(" ")} -q`) + " · cwd：仓库根 · 超时：1800s · 期望退出码：0 · 输出须匹配：" + code(`${BS}d+ passed`))
+      + code("- R01（必要，基线应通过）：" + code(`python -m pytest ${regression.join(" ")} -q`) + ` · cwd：仓库根 · 超时：${regressionSeconds(regression.length)}s · 期望退出码：0 · 输出须匹配：` + code(`${BS}d+ passed`))
       + "。");
   }
   parts.push("- Budget 的 max_attempts_total 与 max_wall_seconds_total 是 " + code(task) + " 各版本的累计上限（调度器跨版本累计）："

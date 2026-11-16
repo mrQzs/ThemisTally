@@ -33,12 +33,12 @@ const kinds = (state: Record<string, unknown> | undefined, prefix: string): unkn
   events(state).filter((event) => String(event["event"]).startsWith(prefix)).map((event) => [event["event"], event["label"], event["exit"] ?? null]);
 
 /** 一次 check：checks/<nn>/checks.json 照给的结果写（没过的那几条带日志）。 */
-function checked(runDir: string, nn: string, code: number, failed: string[]): unknown {
+function checked(runDir: string, nn: string, code: number, failed: string[], limit = 3600): unknown {
   const results = ["V01", "R01"].map((id) => (failed.includes(id) ? { id, status: "failed", log: `${nn}/${id}.log` } : { id, status: "passed" }));
   const write: Record<string, string> = { [`0/${RUN}/checks/${nn}/checks.json`]: JSON.stringify({ results }) };
   // 日志是 CRLF、汇总行不带“ - 原因”：用例名取到空白为止
   for (const id of failed) write[`0/${RUN}/checks/${nn}/${id}.log`] = ["....F", `FAILED ${id === "R01" ? RED : `${GATE}::test_title`}`, "1 failed, 3 passed", ""].join(`${CR}${LF}`);
-  return pd(["check", runDir, "--fresh"], code, code === 0 ? "检查通过" : `检查没过：${failed.join("、")}`, 3600, write);
+  return pd(["check", runDir, "--fresh"], code, code === 0 ? "检查通过" : `检查没过：${failed.join("、")}`, limit, write);
 }
 
 /** .agent/mailbox 下的一把锁由跑这份测试的进程拿着。 */
@@ -97,6 +97,19 @@ describe("第 155 轮：执行检查只有全量回归不符时原样重跑一�
     const queued = events(states[3]).filter((event) => String(event["event"]).startsWith("heavy."));
     expect(queued.map((event) => [event["event"], event["task"], event["behind"]])).toEqual([["heavy.queued", "T001", "T009 的执行检查"]]);
     expect(String(exec[3]?.get("check_tail"))).toContain("重活车道排到上限（1 秒）也没排到（车道里是 T009 的执行检查）：执行检查 没有跑，不是检查不过");
+  }, 600_000);
+
+  it("第 177 轮：外层时限是合同里准备命令与各条检查的时限之和加 600 秒，不少于 3600；不是整数的时限、不是对象的条目不算，合同读不出来照 3600", () => {
+    const big = JSON.stringify({
+      budget: { max_attempts_total: 4 }, setup: [{ id: "S01", timeout_seconds: 900 }, { id: "S02", timeout_seconds: true }],
+      checks: [{ id: "V01", argv: ["python", "-m", "pytest", GATE, "-q"], timeout_seconds: 600 },
+        { id: "R01", argv: ["python", "-m", "pytest", OLD_GATE, "-q"], timeout_seconds: 2700 }, { id: "V02", timeout_seconds: "600" }, "V03"],
+    });
+    const scenes = [big, "[]", JSON.stringify({ checks: 5 }), "{"].map((plan) => execScene((repo) => put(repo, V1.json, plan)));
+    const states = agreeFlow(scenes.map(({ sc, runDir }, index) =>
+      flow("finish_exec", sc, [execTs(sc), runDir, 0], { inner: [checked(runDir, "01", 0, [], index === 0 ? 4800 : 3600)] })));
+    expect(states.map(errorOf)).toEqual([null, null, null, null]);
+    expect(states.map((state) => (tsAfter(state).get("exec") as PyDict).get("check_ok"))).toEqual([true, true, true, true]);
   }, 600_000);
 });
 
@@ -181,9 +194,9 @@ describe("第 155 轮：基线检查只有全量回归不符时原样重跑一�
   });
   const item = (id: string, gate: string, code: number, nn: string): Record<string, unknown> =>
     ({ id, argv: ["python", "-m", "pytest", gate, "-q"], log: `${nn}/${id}.log`, exit_code: code, timed_out: false, interrupted: false, spawn_error: null });
-  const baseline = (nn: string, code: number, mismatches: string[], r01: number, r01Log: string): unknown => {
+  const baseline = (nn: string, code: number, mismatches: string[], r01: number, r01Log: string, limit = 1800): unknown => {
     const dir = `.agent/runs/t001-doc/baseline/${nn}`;
-    return pd(["baseline", KEY], code, `基线检查记录：${dir}/checks.json${LF}`, 1800, {
+    return pd(["baseline", KEY], code, `基线检查记录：${dir}/checks.json${LF}`, limit, {
       [`0/${dir}/checks.json`]: JSON.stringify({ mismatches, results: [item("V01", GATE, 1, nn), item("R01", OLD_GATE, r01, nn)] }),
       [`0/${dir}/V01.log`]: lines("1 failed in 0.01s"), [`0/${dir}/R01.log`]: r01Log,
     });
@@ -210,5 +223,25 @@ describe("第 155 轮：基线检查只有全量回归不符时原样重跑一�
     const [first] = after.get("flaky") as PyDict[];
     expect([first?.get("label"), first?.get("checks"), first?.get("failed")]).toEqual(["基线检查", ["R01"], [RED]]);
     expect(kinds(state, "regression.")).toEqual([["regression.rerun", "基线检查", 0], ["regression.flaky", "基线检查", null]]);
+  }, 600_000);
+
+  it("第 177 轮：基线检查的外层时限是合同里准备命令与各条检查的时限之和加 600 秒（这份是 4800），不少于 1800", () => {
+    const timed = JSON.stringify({ ...JSON.parse(json), setup: [{ id: "S01", argv: ["npm", "ci"], timeout_seconds: 900 }],
+      checks: JSON.parse(json).checks.map((check: Record<string, unknown>) => ({ ...check, timeout_seconds: check["id"] === "R01" ? 2700 : 600 })) });
+    const sc = scene({ "src/doc.py": FILES["src/doc.py"], [OLD_GATE]: FILES[OLD_GATE] }, (repo, wt, head) => {
+      put(repo, V1.md, md(head));
+      put(repo, V1.json, timed);
+      put(wt, GATE, GATE_TEST);
+    });
+    const ts = newTaskState("T001", "doc", "改文档", sc.head, true, AT);
+    ts.set("contract", py(V1));
+    ts.set("workspaces", py({ gate: { path: sc.wt } }));
+    const inner = [
+      pd(["derive-json", KEY, "--force", "--title", "改文档"], 0, "ok"), pd(["validate", KEY], 0, "ok"),
+      baseline("01", 0, [], 0, lines("1 passed in 0.01s"), 4800),
+    ];
+    const [state] = agreeFlow([flow("accept_gate_pre", sc, [ts, sc.wt], { inner })]);
+    expect([errorOf(state), returned(state)]).toEqual([null, []]);
+    expect((tsAfter(state).get("oracle") as PyDict).get("baseline_exit")).toBe(0n);
   }, 600_000);
 });

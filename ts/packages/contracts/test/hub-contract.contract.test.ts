@@ -258,8 +258,13 @@ describe("第 ⑤e1a 片：手写的对照", () => {
       call("normalize_identity", [md("1", sha), { base_sha: sha }]),
       call("normalize_identity", [md("1", sha), "不是字典"]),
       call("normalize_identity", [9, {}]),
+      // 第 177 轮（候选 #44）：值后面同一行还有别的字，整行写成“- 字段: 值”（值对不对都一样；反引号与空白不算别的字）
+      call("normalize_identity", [md(`3${BT} （第三版）`, `${sha}${BT} （内核会再改成基准测试的提交）`), { plan_version: "3", base_sha: sha }]),
+      call("normalize_identity", [md("2（照抄上一版）", `abc1234${BT}${TAB}说明`), { plan_version: 4, base_sha: sha }]),
+      call("normalize_identity", [`- plan_version: 5${CR}${LF}- base_sha: ${sha}  ${LF}`, { plan_version: "5", base_sha: sha }]),
+      call("normalize_identity", [md(`1${C(0x3000)}`, sha), { plan_version: "1", base_sha: sha }]),
     ], 0.5);
-    expect(results.slice(-3).map((result) => result["error"])).toEqual(["KeyError", "TypeError", "TypeError"]);
+    expect(results.slice(7, 10).map((result) => result["error"])).toEqual(["KeyError", "TypeError", "TypeError"]);
   });
 
   it("粗体编号与 Scope 的括号说明：几种粗体写法改成调度器认得的，括号说明去掉（嵌套的、不在行尾的、Scope 之外的不动）；交回改了几处", () => {

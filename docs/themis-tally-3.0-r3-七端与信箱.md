@@ -2911,6 +2911,26 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 战后门禁之后的终审、第二次热修补等别的重做，任务书照旧；要不要也只审差异，等碰到再说。
   - Quizs 那边同一天另做了候选 #52（M8，5f6c8a9 + 4ab8473，12:12 合进主检出）：给了 --final-schema 时，解析不了的回答拿到的那一次修正写明哪里坏了（代码块外有字、代码块不止一个、JSON 在第几个字符解析不下去与前后几十个字），记一条 final_format_rejected 事件。内核还没把这条事件写进 warnings，下一轮顺手接。
 
+### 第 177 轮：全量回归的时限按份数给，三处外层时限照合同加总；Quizs 的格式退回进 warnings；Identity 行尾带说明的整行改写（候选 #53、#52、#44）
+
+- **起因**：
+  - **#53**：11-16 T045 的 attempt-002，R01（之前各片的 45 份门禁基准、1030 条）两次都跑到 97% 被 1800 秒掐断，一条红用例都没有；同一检查在基线上 1575 秒、attempt-001 1707 秒。14:00 合入第 176 轮之后的站主回归在同样 45 份上跑了 1913 秒（机器空闲）。1800 秒是内核从第 14 轮起写死交给合同端的；门禁基准每片加一份，每份都跑整套前端测试与几次探针，前端测试也逐片变多，R01 越跑越久。内核外层给调度器的时限也是定值：baseline 1800 秒、check --fresh 3600 秒、integrate 3600 秒，T045 的基线检查光 R01 就用掉 1575 秒。
+  - **#52**：Quizs M8 起，给了 --final-schema 时，解析不了的最后回答退回修一次、写明哪里坏了（final_format_rejected 事件），内核没记。
+  - **#44**：T044 合同 v4 的 base_sha 行尾带一段全角括注，值是对的，normalize_identity 不改写；门禁交付后 set_contract_base 只认除了值别无他字的那一行，报“找不到唯一的‘- base_sha:’行”，门禁端怎么重交都收不了尾。
+- **改法（Python 与 TS 两份）**：
+  - regression_seconds(份数) = max(1800, 60 × 份数)；合同要求里 R01 那一行的时限照它写。
+  - checks_seconds(hub, ts, 原定值) = max(原定值, 合同里准备命令与各条检查的整数时限之和 + 600)，合同读不出来就是原定值（同 attempts_left 的读法）；baseline（1800）、check --fresh（3600）、integrate（3600）三处用它。
+  - audit_quizs_stream 把 final_format_rejected 记进这一回合的 warnings：“交差 JSON 解析不了，quizs 在回合里退回修了一次：”接头三条原因，写法同第 175 轮的 final_schema_rejected。
+  - IDENTITY_FIELD_RES 吃到行尾：值后面同一行还有别的字（反引号与空白不算）就整行写成“- 字段: 值”，原来写的整段记进 contract.identity_normalized；只是值不对的照旧只换值。
+- **测试**：
+  - test_kit_hub 新加三条：`test_the_regression_check_timeout_follows_the_gate_count`（32 份真门禁基准，提示写 1920s；hub-prompt 的契约采样它）、`test_the_outer_check_timeouts_cover_the_contract_timeouts`（时限加总、不是整数与读不出来的照原定值；记下的 run_pd 里 baseline、check、integrate 三处都是 5700）、`test_an_identity_line_with_a_note_after_the_value_is_rewritten_whole`（带括注的两行整行改写、事件记原文、之后改基线找得到那一行）。改两条：回归检查那条钉住一份门禁基准写 1800s；第 175 轮 Quizs 事件流那条多带两条 final_format_rejected（四条原因记头三条、errors 不是列表记空），hub-turn 的契约采样它。
+  - 契约：hub-heavy-scenes 加两条（执行检查：合同时限大的给 4800 秒，读不出来的三种照 3600；基线检查给 4800）、hub-land-scenes 一条（integrate 给 4800）、hub-contract 四条手写 normalize_identity（括注、Tab 之后的说明、CRLF、全角空格）。
+- **变异**：新写 7 份 32 条（hub-check-limits py 10、ts 7，hub-regression-limit ts 3，hub-identity-note py 3、ts 3，hub-format-note py 3、ts 3）全抓住；改锚 7 条（E06、G08、L24、K17、K18 改到新的调用上，Q07、T06 加上下一行，因为格式退回那一支有了同样的文字）单跑都抓住。
+- **检查**：类型检查 0 错；内核测试 415 passed；契约 S（hub-state、hub-step）17、K（十份走到这三处调用与 normalize_identity 的契约）111、E 24、P 30、C 5 全过。S 第一遍红了一条与本轮无关的 supervisor 重放：Bun 读快照时 ENOENT、清临时目录时 EPERM，%TEMP% 里的文件被别的进程动过；单独重跑 17 条全过。
+- **没做**：
+  - 在途合同（T045 的 v3）里 R01 仍是 1800 秒，这一轮管不到：第 178 轮让调度器按内核的规矩放宽。
+  - 合入后回归与落地预演跑全部门禁基准的 2400 秒（SWEEP_SECONDS）照旧：45 份 1913 秒，还有约四分之一的余量，大约到 55 份会不够（候选 #54）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

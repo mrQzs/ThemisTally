@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "-t",
+    "记下的 TurnRunner.run 与 stage_inputs 三边",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "F01 不记格式退回",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "} else if (kind === \"final_format_rejected\") { // 第 177 轮",
+      "new": "} else if (kind === \"final_format_rejected_off\") { // 第 177 轮"
+    },
+    {
+      "name": "F02 格式退回只写第一条原因",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "const text = errors.slice(0, 3).map((error) => pyStrValue(error)).join(\"；\");\n      warnings.push(QUIZS_FORMAT_NOTE",
+      "new": "const text = errors.slice(0, 1).map((error) => pyStrValue(error)).join(\"；\");\n      warnings.push(QUIZS_FORMAT_NOTE"
+    },
+    {
+      "name": "F03 errors 不是一列时照拆",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "{ // 第 177 轮\n      const errors = Array.isArray(event.get(\"errors\")) ? (event.get(\"errors\") as PyValue[]) : [];",
+      "new": "{ // 第 177 轮\n      const errors = event.get(\"errors\") as PyValue[];"
+    }
+  ]
+}

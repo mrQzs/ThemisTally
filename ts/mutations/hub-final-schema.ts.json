@@ -45,8 +45,8 @@
     {
       "name": "T06 错误不止记头三条",
       "file": "ts/packages/hub/src/quizs.ts",
-      "old": "const text = errors.slice(0, 3)",
-      "new": "const text = errors.slice(0)"
+      "old": "const text = errors.slice(0, 3).map((error) => pyStrValue(error)).join(\"；\");\n      warnings.push((QUIZS_SCHEMA_NOTES[event.get(\"action\") as string] as string)",
+      "new": "const text = errors.slice(0).map((error) => pyStrValue(error)).join(\"；\");\n      warnings.push((QUIZS_SCHEMA_NOTES[event.get(\"action\") as string] as string)"
     }
   ]
 }

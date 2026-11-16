@@ -25,7 +25,7 @@ import { HubError } from "./errors.ts";
 import { removeInputs } from "./inputs.ts";
 import { ATTEMPT_IN_FLIGHT, emptyCommit, pySliceHead } from "./exec.ts";
 import { attemptBase } from "./gatepost.ts";
-import { regressionCheckIds } from "./heavy.ts";
+import { checksSeconds, regressionCheckIds } from "./heavy.ts";
 import { git, workspaceStatus } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 import { argText, execMarks, runGit, runMerged, writeReview } from "./runexec.ts";
@@ -145,7 +145,7 @@ export async function finalize(hub: Hub, ts: PyDict, deps: LandDeps = REAL_LAND_
   let problem = (await landOracle(hub, ts)) || (await landReworkChain(hub, ts));
   let out = "";
   if (!problem) {
-    const [code, text] = await deps.runPd(hub, ["integrate", runDir, "--while-running", ...rehearsedWaiver(hub, ts)], 3600);
+    const [code, text] = await deps.runPd(hub, ["integrate", runDir, "--while-running", ...rehearsedWaiver(hub, ts)], checksSeconds(hub, ts, 3600));
     out = text;
     ts.set("integrated", new Map<string, PyValue>([["exit", BigInt(code)], ["tail", tail(out, 15n)], ["at", utcNow()]]));
     if (code !== 0) problem = `integrate 没有落地（退出码 ${code}）：${LF}${tail(out, 15n)}${landedMeanwhile(hub, ts, headBefore)}`;

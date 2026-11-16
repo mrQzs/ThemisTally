@@ -304,5 +304,10 @@ export const QUIZS_SCHEMA_NOTES: Readonly<Record<string, string>> = {
   repair: "交差 JSON 不合 schema，quizs 在回合里退回修了一次：%s",
   deliver: "交差 JSON 修过仍不合 schema（或来不及修），quizs 原样交回、由内核复核：%s",
 };
+/**
+ * 第 177 轮：Quizs 当场退回解析不了的最后回答（final_format_rejected 事件；Quizs M8 起，给了 --final-schema 时退回的那一次修正写明哪里坏了：代码块
+ * 外有字、代码块不止一个、JSON 在第几个字符解析不下去），也写进这一回合的 warnings，带上头三条原因。
+ */
+export const QUIZS_FORMAT_NOTE = "交差 JSON 解析不了，quizs 在回合里退回修了一次：%s";
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

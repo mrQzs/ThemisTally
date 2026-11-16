@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "identity_line_with_a_note or contract_version_and_base"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "I01 行尾的说明不管",
+      "file": "scripts/kit_hub.py",
+      "old": "        if match and match.group(4):",
+      "new": "        if False:"
+    },
+    {
+      "name": "I02 整行改写时只记值",
+      "file": "scripts/kit_hub.py",
+      "old": "            changed[field] = text[match.start(2):match.end()]",
+      "new": "            changed[field] = match.group(2)"
+    },
+    {
+      "name": "I03 整行改写照留前缀",
+      "file": "scripts/kit_hub.py",
+      "old": "            text = text[:match.start()] + \"- %s: %s\" % (field, values[field]) + text[match.end():]",
+      "new": "            text = text[:match.start(2)] + \"%s\" % values[field] + text[match.end():]"
+    }
+  ]
+}

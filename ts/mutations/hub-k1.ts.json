@@ -109,14 +109,14 @@
   {
    "name": "K17 执行检查不进车道",
    "file": "ts/packages/hub/src/runexec.ts",
-   "old": "  const [checkCode, checkOut] = await checkedInLane(hub, ts, \"执行检查\", [\"check\", runDir, \"--fresh\"], 3600, () => checkMismatches(runDir), deps.runPd, deps);",
-   "new": "  const [checkCode, checkOut] = await deps.runPd(hub, [\"check\", runDir, \"--fresh\"], 3600);"
+   "old": "  const [checkCode, checkOut] = await checkedInLane(hub, ts, \"执行检查\", [\"check\", runDir, \"--fresh\"], checksSeconds(hub, ts, 3600), () => checkMismatches(runDir), deps.runPd, deps);",
+   "new": "  const [checkCode, checkOut] = await deps.runPd(hub, [\"check\", runDir, \"--fresh\"], checksSeconds(hub, ts, 3600));"
   },
   {
    "name": "K18 基线检查不进车道",
    "file": "ts/packages/hub/src/accept.ts",
-   "old": "  const [code, out] = await checkedInLane(hub, ts, \"基线检查\", [\"baseline\", pyItem(pyItem(ts, \"contract\"), \"key\") as string], 1800,\n    (text) => baselineMismatches(hub, text), deps.runPd, deps);",
-   "new": "  const [code, out] = await deps.runPd(hub, [\"baseline\", pyItem(pyItem(ts, \"contract\"), \"key\") as string], 1800);"
+   "old": "  const [code, out] = await checkedInLane(hub, ts, \"基线检查\", [\"baseline\", pyItem(pyItem(ts, \"contract\"), \"key\") as string], checksSeconds(hub, ts, 1800),\n    (text) => baselineMismatches(hub, text), deps.runPd, deps);",
+   "new": "  const [code, out] = await deps.runPd(hub, [\"baseline\", pyItem(pyItem(ts, \"contract\"), \"key\") as string], checksSeconds(hub, ts, 1800));"
   },
   {
    "name": "K19 基线检查不读记录里的不符",

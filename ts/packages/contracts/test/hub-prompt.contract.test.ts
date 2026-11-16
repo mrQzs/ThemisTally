@@ -87,7 +87,8 @@ const TESTS = [
   "test_gate_rules_keep_the_regression_tests_valid_after_integration", "test_gate_post_judges_mutations_from_the_record",
   "test_gate_post_checks_the_anchors_before_mutating", "test_candidate_defects_go_to_the_final_review_which_cannot_pass_them",
   "test_review_history_survives_rework_and_seals_the_next_round", "test_kernel_writes_the_contract_version_and_base_it_assigns",
-  "test_contract_runs_the_earlier_gates_as_regression_checks", "test_mutations_must_cover_the_changed_files",
+  "test_contract_runs_the_earlier_gates_as_regression_checks", "test_the_regression_check_timeout_follows_the_gate_count", // 第 177 轮
+  "test_mutations_must_cover_the_changed_files",
   "test_unverified_external_facts_wait_for_the_owner", "test_legacy_task_without_external_facts_is_not_blocked",
   "test_a_turn_killed_midway_restarts_in_a_new_session_and_is_requeued_only_once", "test_requeue_leaves_unread_and_kernel_run_stages_alone",
   "test_a_hotfix_gate_redelivery_keeps_the_version_and_the_original_baseline", "test_role_prompt_only_renders_the_workers_own_duties",

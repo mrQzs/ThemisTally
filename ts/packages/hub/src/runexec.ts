@@ -34,7 +34,7 @@ import {
   reportLeftovers, retrySection, returnedBlockers, reworkSection, unreportedGateClaims,
 } from "./exec.ts";
 import { REAL_GATE_POST_DEPS, addWorktree, attemptBase } from "./gatepost.ts";
-import { checkMismatches, checkedInLane } from "./heavy.ts";
+import { checkMismatches, checkedInLane, checksSeconds } from "./heavy.ts";
 import { TEMPLATE_DIR, git } from "./kernel.ts";
 import { DirLock, type Hub } from "./mailbox.ts";
 import { relativeTo } from "./taskstate.ts";
@@ -426,7 +426,7 @@ const textOf = (item: PyValue): string => pyStrValue(item instanceof Map && pyTr
 export async function finishExec(hub: Hub, ts: PyDict, runDir: string, runCode: bigint | null, deps: ExecDeps = REAL_EXEC_DEPS): Promise<PyDict> {
   const status = getState(runDir);
   const flakyBefore = pyIter(or(pyGet(ts, "flaky"), [])).length;
-  const [checkCode, checkOut] = await checkedInLane(hub, ts, "执行检查", ["check", runDir, "--fresh"], 3600, () => checkMismatches(runDir), deps.runPd, deps);
+  const [checkCode, checkOut] = await checkedInLane(hub, ts, "执行检查", ["check", runDir, "--fresh"], checksSeconds(hub, ts, 3600), () => checkMismatches(runDir), deps.runPd, deps);
   const scope = loads(readText(purePathStr(runDir, "scope.json")) || "{}");
   const violations = or(pyGet(scope, "violations"), []);
   const report = loads(readText(purePathStr(runDir, "executor-report.json")) || "{}");

@@ -669,6 +669,9 @@ QUIZS_FENCED_POLICY = "fenced_json_final_once_v1"
 #: Quizs 当场按 schema 退回的记录（final_schema_rejected 事件，action 是 repair 或 deliver）写进这一回合的 warnings，带上头三条错误
 QUIZS_SCHEMA_NOTES = {"repair": "交差 JSON 不合 schema，quizs 在回合里退回修了一次：%s",
                       "deliver": "交差 JSON 修过仍不合 schema（或来不及修），quizs 原样交回、由内核复核：%s"}
+#: 第 177 轮：Quizs 当场退回解析不了的最后回答（final_format_rejected 事件；Quizs M8 起，给了 --final-schema 时退回的那一次修
+#: 正写明哪里坏了：代码块外有字、代码块不止一个、JSON 在第几个字符解析不下去），也写进这一回合的 warnings，带上头三条原因
+QUIZS_FORMAT_NOTE = "交差 JSON 解析不了，quizs 在回合里退回修了一次：%s"
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -2335,6 +2338,9 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
         elif kind == "final_schema_rejected" and isinstance(event.get("action"), str) and event["action"] in QUIZS_SCHEMA_NOTES:  # 第 175 轮
             errors = event.get("errors") if isinstance(event.get("errors"), list) else []
             audit["warnings"].append(QUIZS_SCHEMA_NOTES[event["action"]] % "；".join(str(error) for error in errors[:3]))
+        elif kind == "final_format_rejected":  # 第 177 轮
+            errors = event.get("errors") if isinstance(event.get("errors"), list) else []
+            audit["warnings"].append(QUIZS_FORMAT_NOTE % "；".join(str(error) for error in errors[:3]))
         elif kind == "result":
             result = event
     if result is None:
@@ -2865,6 +2871,16 @@ def regression_gates(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     return sorted(path for path in listing.splitlines() if GATE_BASELINE_RE.match(path) and path != own)
 
 
+#: 全量回归里每份门禁基准给的时限（第 177 轮）：每份各跑一遍整套前端测试与几次探针，11-16 实测一份 35–41 秒
+REGRESSION_SECONDS_PER_GATE = 60
+
+
+def regression_seconds(gates: int) -> int:
+    """全量回归检查的时限（第 177 轮）：每份门禁基准 60 秒，不少于 1800 秒。此前一律写 1800 秒：T045 的 45 份门禁基准在基线
+    上跑了 1575 秒、attempt-001 跑了 1707 秒，attempt-002 两次都跑到 97% 被掐断，没有一条红用例。"""
+    return max(1800, REGRESSION_SECONDS_PER_GATE * gates)
+
+
 def unparsed_check_ids(md: str) -> List[str]:
     """Validation commands 里看着像检查、调度器却认不出的行的编号。"""
     lines = (pd._md_section(md, "Validation commands") or "").splitlines()
@@ -2981,9 +2997,9 @@ def dod_coverage_problems(hub: Hub, ts: Dict[str, Any], report: str) -> List[str
     return []
 
 
-#: 合同 Identity 里由内核决定的两项：版本号与基线
-IDENTITY_FIELD_RES = {"plan_version": re.compile(r"(?m)^(-[ \t]*plan_version:[ \t]*`?)(\d+)"),
-                      "base_sha": re.compile(r"(?m)^(-[ \t]*base_sha:[ \t]*`?)([0-9a-f]{7,40})")}
+#: 合同 Identity 里由内核决定的两项：版本号与基线。第 3、4 组是值后面同一行的反引号、空白与别的字（第 177 轮）
+IDENTITY_FIELD_RES = {"plan_version": re.compile(r"(?m)^(-[ \t]*plan_version:[ \t]*`?)(\d+)(`?[ \t]*)(.*)$"),
+                      "base_sha": re.compile(r"(?m)^(-[ \t]*base_sha:[ \t]*`?)([0-9a-f]{7,40})(`?[ \t]*)(.*)$")}
 
 
 def next_contract_version(ts: Dict[str, Any]) -> Tuple[int, bool]:
@@ -2998,13 +3014,18 @@ def next_contract_version(ts: Dict[str, Any]) -> Tuple[int, bool]:
 
 def normalize_identity(text: str, values: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
     """把 Identity 里的版本号与基线写成内核决定的值；返回（改正后的全文，改了的字段 → 合同端原来写的）。
-    T004 的合同端返工时照抄了上一版的 plan_version，base_sha 写成了当时的 HEAD（第 16、17 轮）。"""
+    T004 的合同端返工时照抄了上一版的 plan_version，base_sha 写成了当时的 HEAD（第 16、17 轮）。
+    第 177 轮（候选 #44）：值后面同一行还带着说明的，整行写成“- 字段: 值”。门禁交付后改基线只认除了值别无他字的 base_sha 行：
+    T044 合同 v4 的这一行带着一段全角括注，值是对的、这里原来不改写，门禁端怎么重交都收不了尾。"""
     changed: Dict[str, str] = {}
     for field, pattern in IDENTITY_FIELD_RES.items():
         match = pattern.search(text)
-        if match and match.group(2) != values[field]:
+        if match and match.group(4):
+            changed[field] = text[match.start(2):match.end()]
+            text = text[:match.start()] + "- %s: %s" % (field, values[field]) + text[match.end():]
+        elif match and match.group(2) != values[field]:
             changed[field] = match.group(2)
-            text = pattern.sub(r"\g<1>%s" % values[field], text, count=1)
+            text = text[:match.start(2)] + "%s" % values[field] + text[match.end(2):]
     return text, changed
 
 
@@ -3254,7 +3275,7 @@ def accept_gate_pre(hub: Hub, ts: Dict[str, Any], workspace: Path) -> List[str]:
         ts["oracle"]["baseline_deferred"] = rework
         hub.append_event("oracle.baseline_deferred", task=ts["task"], suffix=rework)
         return []
-    code, out = checked_in_lane(hub, ts, "基线检查", ["baseline", ts["contract"]["key"]], 1800,
+    code, out = checked_in_lane(hub, ts, "基线检查", ["baseline", ts["contract"]["key"]], checks_seconds(hub, ts, 1800),
                                 lambda text: baseline_mismatches(hub, text))
     ts["oracle"]["baseline_exit"] = code
     ts["oracle"]["baseline_tail"] = tail(out, 20)
@@ -4234,8 +4255,8 @@ def finish_exec(hub: Hub, ts: Dict[str, Any], run_dir: Path, run_code: Optional[
     # 状态在 state.json 的 "state" 键（pi_dispatch.get_state）；T001 时这里读成了 "status"，恒为空，执行阶段永远判不过
     status = pd.get_state(run_dir)
     flaky_before = len(ts.get("flaky") or [])
-    check_code, check_out = checked_in_lane(hub, ts, "执行检查", ["check", str(run_dir), "--fresh"], 3600,
-                                            lambda _text: check_mismatches(run_dir))
+    check_code, check_out = checked_in_lane(hub, ts, "执行检查", ["check", str(run_dir), "--fresh"],
+                                            checks_seconds(hub, ts, 3600), lambda _text: check_mismatches(run_dir))
     scope = json.loads(read_text(run_dir / "scope.json") or "{}")
     violations = scope.get("violations") or []
     report = json.loads(read_text(run_dir / "executor-report.json") or "{}")
@@ -4601,6 +4622,22 @@ def regression_check_ids(hub: Hub, ts: Dict[str, Any]) -> Set[str]:
     return {str(check.get("id")) for check in data.get("checks") or [] if gates & set(check.get("argv") or [])}
 
 
+#: 合同检查的外层时限在准备命令与各条检查的时限之和上另留的余量：建干净副本、套候选补丁（第 177 轮）
+CHECKS_MARGIN_SECONDS = 600
+
+
+def checks_seconds(hub: Hub, ts: Dict[str, Any], floor: int) -> int:
+    """跑一遍合同全部检查（baseline、check --fresh、integrate）的外层时限：合同里准备命令与各条检查的时限之和加余量，不少于
+    原来的定值；合同读不出来就是原来的定值（第 177 轮）。外层写死 1800 秒时，T045 的基线检查光 R01 一条就跑了 1575 秒。"""
+    try:
+        data = json.loads(read_text(contract_paths(hub, ts)[1]) or "{}")
+        total = sum(item["timeout_seconds"] for key in ("setup", "checks") for item in data.get(key) or []
+                    if isinstance(item, dict) and type(item.get("timeout_seconds")) is int)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return floor
+    return max(floor, total + CHECKS_MARGIN_SECONDS)
+
+
 def failed_test_names(logs: Sequence[Path]) -> List[str]:
     """检查日志末尾 pytest 汇总里红的用例名。"""
     names: List[str] = []
@@ -4708,7 +4745,8 @@ def finalize(hub: Hub, ts: Dict[str, Any]) -> Tuple[bool, str]:
     records_before = [dict(record) for record in landing_records(ts)]
     problem = land_oracle(hub, ts) or land_rework_chain(hub, ts)
     if not problem:
-        code, out = run_pd(hub, ["integrate", str(run_dir), "--while-running"] + rehearsed_waiver(hub, ts), timeout=3600)
+        code, out = run_pd(hub, ["integrate", str(run_dir), "--while-running"] + rehearsed_waiver(hub, ts),
+                           timeout=checks_seconds(hub, ts, 3600))
         ts["integrated"] = {"exit": code, "tail": tail(out, 15), "at": utc_now()}
         if code != 0:
             problem = "integrate 没有落地（退出码 %d）：\n%s%s" % (code, tail(out, 15),
@@ -5622,8 +5660,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             regression = regression_gates(hub, ts)
             if regression:
                 parts.append("- 先前各片的门禁基准测试是回归测试，Validation commands 要有一条回归检查，照这个格式写："
-                             "`- R01（必要，基线应通过）：`python -m pytest %s -q` · cwd：仓库根 · 超时：1800s · "
-                             "期望退出码：0 · 输出须匹配：`\\d+ passed``。" % " ".join(regression))
+                             "`- R01（必要，基线应通过）：`python -m pytest %s -q` · cwd：仓库根 · 超时：%ds · "
+                             "期望退出码：0 · 输出须匹配：`\\d+ passed``。" % (
+                                 " ".join(regression), regression_seconds(len(regression))))
             parts += ["- Budget 的 max_attempts_total 与 max_wall_seconds_total 是 `%s` 各版本的累计上限（调度器跨版本累计）："
                       "已用掉 %d 次、%d 秒。总数要把它们算进去，给这一版至少留 %d 次 attempt 与 %d 倍单次时限。" % (
                           ts["contract_task"], used["attempts_started"], used["wall_seconds_used"],

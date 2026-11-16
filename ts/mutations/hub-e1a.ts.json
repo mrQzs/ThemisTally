@@ -43,8 +43,8 @@
     {
       "name": "E06 值是整数时按文字比",
       "file": "ts/packages/hub/src/contract.ts",
-      "old": "if (match[2] === wanted) continue;",
-      "new": "if (match[2] === pyStrValue(wanted)) continue;"
+      "old": "    } else if (match[2] !== wanted) {",
+      "new": "    } else if (match[2] !== pyStrValue(wanted)) {"
     },
     {
       "name": "E07 改了的字段记成新值",

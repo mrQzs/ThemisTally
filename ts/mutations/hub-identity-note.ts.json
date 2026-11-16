@@ -1,0 +1,32 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "N01 行尾的说明不管",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "    if (match[4]) {",
+      "new": "    if (false) {"
+    },
+    {
+      "name": "N02 整行改写时只记值",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "      changed.set(field, out.slice(start, end));",
+      "new": "      changed.set(field, match[2] as string);"
+    },
+    {
+      "name": "N03 整行改写照留前缀",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "      out = `${out.slice(0, match.index)}- ${field}: ${pyStrValue(wanted)}${out.slice(end)}`;",
+      "new": "      out = `${out.slice(0, start)}${pyStrValue(wanted)}${out.slice(end)}`;"
+    }
+  ]
+}

@@ -53,8 +53,8 @@
     {
       "name": "Q07 错误不止记头三条",
       "file": "scripts/kit_hub.py",
-      "old": "for error in errors[:3]))",
-      "new": "for error in errors))"
+      "old": "QUIZS_SCHEMA_NOTES[event[\"action\"]] % \"；\".join(str(error) for error in errors[:3]))",
+      "new": "QUIZS_SCHEMA_NOTES[event[\"action\"]] % \"；\".join(str(error) for error in errors))"
     }
   ]
 }

@@ -11,7 +11,7 @@ import { copyFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import {
   EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_PERMIT_HELD,
-  QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_SCHEMA_NOTES, QUIZS_STATE_DIR,
+  QUIZS_FORMAT_NOTE, QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_SCHEMA_NOTES, QUIZS_STATE_DIR,
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
@@ -245,6 +245,10 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
       const errors = Array.isArray(event.get("errors")) ? (event.get("errors") as PyValue[]) : [];
       const text = errors.slice(0, 3).map((error) => pyStrValue(error)).join("；");
       warnings.push((QUIZS_SCHEMA_NOTES[event.get("action") as string] as string).replace("%s", () => text));
+    } else if (kind === "final_format_rejected") { // 第 177 轮
+      const errors = Array.isArray(event.get("errors")) ? (event.get("errors") as PyValue[]) : [];
+      const text = errors.slice(0, 3).map((error) => pyStrValue(error)).join("；");
+      warnings.push(QUIZS_FORMAT_NOTE.replace("%s", () => text));
     } else if (kind === "result") {
       result = event;
     }

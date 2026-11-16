@@ -1524,8 +1524,85 @@ def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypa
         (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
         assert (kh.contract_requirements(hub, ts) == []) is ok, check
     prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], repo)
-    assert "R01（必要，基线应通过）：`python -m pytest tests/test_gate_t000_baseline.py -q`" in prompt
+    assert "R01（必要，基线应通过）：`python -m pytest tests/test_gate_t000_baseline.py -q` · cwd：仓库根 · 超时：1800s · " in prompt
     assert "VG1" not in prompt and "VR1" not in prompt  # 调度器只认一个大写字母加两位数字（第 43 轮）
+
+
+def test_the_regression_check_timeout_follows_the_gate_count(tmp_path, monkeypatch):
+    # 第 177 轮：合同的全量回归原来一律写 1800 秒；T045 的 45 份门禁基准在基线上跑了 1575 秒，attempt-002 两次都在 97% 处被掐断，
+    # 没有一条红用例。改成每份 60 秒、不少于 1800 秒。门禁基准是真文件（hub-prompt 的契约采样这一条，TS 照样算）
+    assert [kh.regression_seconds(n) for n in (0, 1, 30, 31, 45)] == [1800, 1800, 1800, 1860, 2700]
+    repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
+    (repo / "tests").mkdir()
+    gates = ["tests/test_gate_t%03d_baseline.py" % n for n in range(2, 34)]  # t001 是本任务自己的
+    for name in gates:
+        (repo / name).write_text("def test_x():\n    pass\n", encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "先前各片"], repo)
+    ts["base_head"] = kh.git(["rev-parse", "HEAD"], repo).strip()
+    prompt = kh.turn_prompt(hub, ts, "contract-glm", "T001-2-contract", [], repo)
+    assert "`python -m pytest %s -q` · cwd：仓库根 · 超时：1920s · " % " ".join(gates) in prompt
+
+
+def test_the_outer_check_timeouts_cover_the_contract_timeouts(tmp_path, monkeypatch):
+    # 第 177 轮：baseline、check --fresh、integrate 的外层时限原来写死 1800 / 3600 秒，T045 的基线检查光 R01 一条就跑了 1575 秒。
+    # 改成合同里准备命令与各条检查的时限之和再加 600 秒，不少于原来的定值；合同读不出来照原来的定值
+    seen = []
+    inner = pd_with_baseline([])
+
+    def recording(hub_, args, timeout=600):
+        seen.append((args[0], timeout))
+        return inner(hub_, args, timeout)
+
+    repo, head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch, run_pd=recording)
+    path = plans / "t001-doc.v1.json"
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    contract["setup"] = [{"id": "S01", "argv": ["npm", "ci"], "cwd": "desktop/web", "timeout_seconds": 900}]
+    contract["checks"][0]["timeout_seconds"] = 600
+    contract["checks"] += [{"id": "V01", "argv": ["npm", "test"], "timeout_seconds": 900},
+                           {"id": "R01", "argv": ["python", "-m", "pytest", "-q"], "timeout_seconds": 2700}]
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    assert [kh.checks_seconds(hub, ts, floor) for floor in (1800, 3600, 9000)] == [5700, 5700, 9000]
+    odd = dict(contract, setup=contract["setup"] + [{"id": "S02", "timeout_seconds": True}, "S03"],
+               checks=contract["checks"] + [{"id": "V02", "timeout_seconds": "600"}, {"id": "V03", "timeout_seconds": 1.5}])
+    path.write_text(json.dumps(odd), encoding="utf-8")
+    assert kh.checks_seconds(hub, ts, 1800) == 5700  # 不是整数的时限、不是对象的条目不算
+    for broken in ("{", "[]", json.dumps({"checks": 5}), ""):
+        path.write_text(broken, encoding="utf-8")
+        assert kh.checks_seconds(hub, ts, 1800) == 1800, broken
+    assert kh.checks_seconds(hub, {"contract": {}}, 3600) == 3600
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    # 三处都照它给外层时限：战前门禁交付后的基线检查、执行端跑完的 check --fresh、结项的 integrate
+    workspace = kh.ensure_worktree(hub, ts, "gate", head)
+    target = workspace / "tests" / "test_gate_t001_baseline.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def test_x():\n    from not_written_yet import feature\n    assert feature()\n", encoding="utf-8")
+    assert kh.accept_gate_pre(hub, ts, workspace) == []
+    kh.git(["worktree", "remove", "--force", str(workspace)], repo)
+    run_dir = attempt_dir(hub, {"state": "NEEDS_REVIEW"})
+    kh.finish_exec(hub, ts, run_dir, 0)
+    (run_dir / "state.json").write_text(json.dumps({"state": "PASS"}), encoding="utf-8")
+    monkeypatch.setattr(kh, "land_oracle", lambda hub_, ts_: None)
+    monkeypatch.setattr(kh, "land_rework_chain", lambda hub_, ts_: None)
+    kh.finalize(hub, ts)
+    assert [item for item in seen if item[0] in ("baseline", "check", "integrate")] == [
+        ("baseline", 5700), ("check", 5700), ("integrate", 5700)]
+
+
+def test_an_identity_line_with_a_note_after_the_value_is_rewritten_whole(tmp_path, monkeypatch):
+    # 第 177 轮（候选 #44）：T044 合同 v4 的 base_sha 行尾带一段全角括注，值是对的、内核原来不改写；门禁交付后改基线只认
+    # 除了值别无他字的那一行，报“找不到唯一的‘- base_sha:’行”，门禁端怎么重交都收不了尾
+    _repo, head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
+    note = "（有意选择的输入版本；门禁提交后内核会再把 base_sha 改成基准测试的提交）"
+    md = "# TASK: t001-doc\n\n## Identity\n- plan_version: `1` （第一版）\n- base_sha: `%s` %s\n- risk_level: low\n" % (head, note)
+    kh.accept_contract(hub, ts, {"contract_md": md})
+    text = (plans / "t001-doc.v1.md").read_text(encoding="utf-8")
+    assert "\n- plan_version: 1\n- base_sha: %s\n- risk_level: low\n" % head in text
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["written"] for e in events if e["event"] == "contract.identity_normalized"] == [
+        {"plan_version": "1` （第一版）", "base_sha": "%s` %s" % (head, note)}]
+    assert not [problem for problem in kh.set_contract_base(hub, ts, "c" * 40) if "找不到唯一" in problem]
+    assert "\n- base_sha: %s\n" % ("c" * 40) in (plans / "t001-doc.v1.md").read_text(encoding="utf-8")
 
 
 def test_mutant_timeout_follows_the_whitebox_time():
@@ -6846,7 +6923,12 @@ def test_a_quizs_turn_without_the_fenced_plan_gets_no_final_schema_and_notes_its
                        "final_text": newline.join(["```json", json.dumps(delivery, ensure_ascii=False), "```", ""])}, ensure_ascii=False)
     init = json.dumps({"type": "init", "tools": [{"name": name} for name in ("find", "grep", "ls", "read")]})
     errors = ['/letters/0 is missing required property "摘要"', '/letters/0/type must be one of ["汇报"]', "第三条", "第四条"]
-    notes = [json.dumps({"type": "final_schema_rejected", "errors": errors[:1], "action": "repair"}, ensure_ascii=False),
+    # 第 177 轮（候选 #52 的内核一半）：解析不了的最后回答，Quizs 退回修一次、写明哪里坏了（final_format_rejected），也进 warnings
+    reasons = ["代码块外面有字：Here is the JSON", "代码块不止一个（2 个）", "JSON 在第 1977 个字符解析不下去：Extra data", "第四条"]
+    notes = [json.dumps({"type": "final_format_rejected", "logical_request_id": "r1", "physical_attempt_id": "a1", "errors": reasons},
+                        ensure_ascii=False),
+             json.dumps({"type": "final_format_rejected", "errors": "不是一列"}, ensure_ascii=False),
+             json.dumps({"type": "final_schema_rejected", "errors": errors[:1], "action": "repair"}, ensure_ascii=False),
              json.dumps({"type": "final_schema_rejected", "errors": errors, "action": "deliver"}, ensure_ascii=False),
              json.dumps({"type": "final_schema_rejected", "errors": errors, "action": "other"}, ensure_ascii=False)]
     outputs = [newline.join([init] + notes + [done]) + newline, newline.join([init, "{没写完", done]) + newline]
@@ -6867,7 +6949,8 @@ def test_a_quizs_turn_without_the_fenced_plan_gets_no_final_schema_and_notes_its
     assert noted["output"] == delivery and "--final-schema" not in seen[0]
     assert not (Path(noted["turn_dir"]) / kh.QUIZS_FINAL_SCHEMA).exists()
     record = json.loads((Path(noted["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
-    assert record["warnings"] == [kh.QUIZS_SCHEMA_NOTES["repair"] % errors[0], kh.QUIZS_SCHEMA_NOTES["deliver"] % "；".join(errors[:3])]
+    assert record["warnings"] == [kh.QUIZS_FORMAT_NOTE % "；".join(reasons[:3]), kh.QUIZS_FORMAT_NOTE % "",
+                                  kh.QUIZS_SCHEMA_NOTES["repair"] % errors[0], kh.QUIZS_SCHEMA_NOTES["deliver"] % "；".join(errors[:3])]
     broken = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
     record = json.loads((Path(broken["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert broken["output"] == delivery and record["warnings"] == ["quizs 的事件流里有 1 行读不出"]

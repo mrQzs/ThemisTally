@@ -8,6 +8,7 @@ import { statSync, unlinkSync } from "node:fs";
 import { utcCompact, utcNow } from "@themis/base/clock";
 import { readText, sleepSync, writeTextAtomic } from "@themis/base/fsutil";
 import { pidAlive } from "@themis/base/process";
+import { pyCaught } from "@themis/base/pyexc";
 import { pyGet, pyItem, pyIter, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { type PyDict, PyJsonError, type PyValue, dumps, loads } from "@themis/base/pyjson";
 import { purePathName, purePathParent, purePathStr } from "@themis/base/pypath";
@@ -217,6 +218,30 @@ export function regressionCheckIds(hub: Hub, ts: PyDict): Set<string> {
     if (pyIter(or(pyGet(check, "argv"), [])).some((item) => typeof item === "string" && gates.has(item))) ids.add(pyStrValue(pyGet(check, "id")));
   }
   return ids;
+}
+
+/** 合同检查的外层时限在准备命令与各条检查的时限之和上另留的余量：建干净副本、套候选补丁（第 177 轮）。 */
+export const CHECKS_MARGIN_SECONDS = 600;
+
+/**
+ * 跑一遍合同全部检查（baseline、check --fresh、integrate）的外层时限：合同里准备命令与各条检查的时限之和加余量，不少于原来的定值；合同读不出来就是
+ * 原来的定值（第 177 轮）。外层写死 1800 秒时，T045 的基线检查光 R01 一条就跑了 1575 秒。
+ */
+export function checksSeconds(hub: Hub, ts: PyDict, floor: number): number {
+  let total = 0n;
+  try {
+    const data = loads(readText(contractPaths(hub, ts)[1]) || "{}");
+    for (const key of ["setup", "checks"]) {
+      for (const item of pyIter(or(pyGet(data, key), []))) {
+        const seconds = item instanceof Map ? item.get("timeout_seconds") : undefined;
+        if (typeof seconds === "bigint") total += seconds;
+      }
+    }
+  } catch (error) {
+    if (pyCaught(error, ["ValueError", "KeyError", "TypeError", "AttributeError"])) return floor;
+    throw error;
+  }
+  return Math.max(floor, Number(total) + CHECKS_MARGIN_SECONDS);
 }
 
 /** 检查日志末尾 pytest 汇总里红的用例名。 */

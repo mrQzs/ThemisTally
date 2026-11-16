@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "without_the_fenced_plan_gets_no_final_schema"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "J01 不记格式退回",
+      "file": "scripts/kit_hub.py",
+      "old": "        elif kind == \"final_format_rejected\":  # 第 177 轮",
+      "new": "        elif kind == \"final_format_rejected_off\":  # 第 177 轮"
+    },
+    {
+      "name": "J02 格式退回只写第一条原因",
+      "file": "scripts/kit_hub.py",
+      "old": "QUIZS_FORMAT_NOTE % \"；\".join(str(error) for error in errors[:3])",
+      "new": "QUIZS_FORMAT_NOTE % \"；\".join(str(error) for error in errors[:1])"
+    },
+    {
+      "name": "J03 errors 不是一列时照拆",
+      "file": "scripts/kit_hub.py",
+      "old": "            errors = event.get(\"errors\") if isinstance(event.get(\"errors\"), list) else []\n            audit[\"warnings\"].append(QUIZS_FORMAT_NOTE",
+      "new": "            errors = event.get(\"errors\")\n            audit[\"warnings\"].append(QUIZS_FORMAT_NOTE"
+    }
+  ]
+}

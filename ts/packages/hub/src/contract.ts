@@ -72,15 +72,16 @@ export function tailFile(path: string, lines: PyValue = 30n, limit: number | big
 
 // --- 合同的规整 ------------------------------------------------------------------------------------------------
 
-/** 合同 Identity 里由内核决定的两项：版本号与基线。 */
+/** 合同 Identity 里由内核决定的两项：版本号与基线。第 3、4 组是值后面同一行的反引号、空白与别的字（第 177 轮）。 */
 export const IDENTITY_FIELD_RES: ReadonlyArray<readonly [string, RegExp]> = [
-  ["plan_version", pyRegex(`${LINE_START}(-[ ${TAB}]*plan_version:[ ${TAB}]*${BT}?)(${D}+)`)],
-  ["base_sha", pyRegex(`${LINE_START}(-[ ${TAB}]*base_sha:[ ${TAB}]*${BT}?)([0-9a-f]{7,40})`)],
+  ["plan_version", pyRegex(`${LINE_START}(-[ ${TAB}]*plan_version:[ ${TAB}]*${BT}?)(${D}+)(${BT}?[ ${TAB}]*)([^${LF}]*)${LINE_END}`)],
+  ["base_sha", pyRegex(`${LINE_START}(-[ ${TAB}]*base_sha:[ ${TAB}]*${BT}?)([0-9a-f]{7,40})(${BT}?[ ${TAB}]*)([^${LF}]*)${LINE_END}`)],
 ];
 
 /**
  * 把 Identity 里的版本号与基线写成内核决定的值；交回（改正后的全文，改了的字段 → 合同端原来写的）。
- * Python 用 sub 的模板（第 1 组加值）拼：值里有反斜杠时会被当成转义，内核给的版本号与基线没有反斜杠，这里直接拼。
+ * 第 177 轮（候选 #44）：值后面同一行还带着说明的，整行写成“- 字段: 值”。门禁交付后改基线只认除了值别无他字的 base_sha 行：T044 合同 v4 的这一行带
+ * 着一段全角括注，值是对的、这里原来不改写，门禁端怎么重交都收不了尾。
  */
 export function normalizeIdentity(value: PyValue, values: PyValue): [string, PyDict] {
   let out = text(value, "re");
@@ -89,9 +90,15 @@ export function normalizeIdentity(value: PyValue, values: PyValue): [string, PyD
     const match = pattern.exec(out);
     if (match === null) continue;
     const wanted = pyItem(values, field);
-    if (match[2] === wanted) continue;
-    changed.set(field, match[2] as string);
-    out = out.slice(0, match.index) + (match[1] as string) + pyStrValue(wanted) + out.slice(match.index + match[0].length);
+    const start = match.index + (match[1] as string).length;
+    const end = match.index + match[0].length;
+    if (match[4]) {
+      changed.set(field, out.slice(start, end));
+      out = `${out.slice(0, match.index)}- ${field}: ${pyStrValue(wanted)}${out.slice(end)}`;
+    } else if (match[2] !== wanted) {
+      changed.set(field, match[2] as string);
+      out = out.slice(0, start) + pyStrValue(wanted) + out.slice(start + (match[2] as string).length);
+    }
   }
   return [out, changed];
 }

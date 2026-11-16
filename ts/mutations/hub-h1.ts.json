@@ -134,7 +134,7 @@
   {
    "name": "L24 integrate 的时限不是 3600",
    "file": "ts/packages/hub/src/land.ts",
-   "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts)], 3600)",
+   "old": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts)], checksSeconds(hub, ts, 3600))",
    "new": "[\"integrate\", runDir, \"--while-running\", ...rehearsedWaiver(hub, ts)], 600)"
   },
   {

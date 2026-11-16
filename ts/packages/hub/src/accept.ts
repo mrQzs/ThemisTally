@@ -19,7 +19,7 @@ import {
   budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, hollowBaselineProblems, normalizeIdentity, normalizeMarkup,
   stripDecisions, tail,
 } from "./contract.ts";
-import { type LaneDeps, REAL_LANE_DEPS, baselineMismatches, checkedInLane } from "./heavy.ts";
+import { type LaneDeps, REAL_LANE_DEPS, baselineMismatches, checkedInLane, checksSeconds } from "./heavy.ts";
 import { git, workspaceStatus } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
 import { nextContractVersion } from "./prompt.ts";
@@ -246,7 +246,7 @@ export async function acceptGatePre(hub: Hub, ts: PyDict, workspace: string, dep
     await hub.appendEvent("oracle.baseline_deferred", [["task", task], ["suffix", rework]]);
     return [];
   }
-  const [code, out] = await checkedInLane(hub, ts, "基线检查", ["baseline", pyItem(pyItem(ts, "contract"), "key") as string], 1800,
+  const [code, out] = await checkedInLane(hub, ts, "基线检查", ["baseline", pyItem(pyItem(ts, "contract"), "key") as string], checksSeconds(hub, ts, 1800),
     (text) => baselineMismatches(hub, text), deps.runPd, deps);
   dict(pyItem(ts, "oracle")).set("baseline_exit", BigInt(code));
   dict(pyItem(ts, "oracle")).set("baseline_tail", tail(out, 20n));

@@ -1,0 +1,78 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "regression_check_timeout_follows or outer_check_timeouts or earlier_gates_as_regression"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "H01 回归时限写死 1800",
+      "file": "scripts/kit_hub.py",
+      "old": "    return max(1800, REGRESSION_SECONDS_PER_GATE * gates)",
+      "new": "    return 1800"
+    },
+    {
+      "name": "H02 每份门禁基准给 40 秒",
+      "file": "scripts/kit_hub.py",
+      "old": "REGRESSION_SECONDS_PER_GATE = 60",
+      "new": "REGRESSION_SECONDS_PER_GATE = 40"
+    },
+    {
+      "name": "H03 提示照旧写 1800s",
+      "file": "scripts/kit_hub.py",
+      "old": "\" \".join(regression), regression_seconds(len(regression))))",
+      "new": "\" \".join(regression), 1800))"
+    },
+    {
+      "name": "H04 外层时限不算准备命令",
+      "file": "scripts/kit_hub.py",
+      "old": "for key in (\"setup\", \"checks\") for item in data.get(key) or []",
+      "new": "for key in (\"checks\",) for item in data.get(key) or []"
+    },
+    {
+      "name": "H05 外层时限不加余量",
+      "file": "scripts/kit_hub.py",
+      "old": "    return max(floor, total + CHECKS_MARGIN_SECONDS)",
+      "new": "    return max(floor, total)"
+    },
+    {
+      "name": "H06 不是整数的时限也算",
+      "file": "scripts/kit_hub.py",
+      "old": "if isinstance(item, dict) and type(item.get(\"timeout_seconds\")) is int)",
+      "new": "if isinstance(item, dict) and item.get(\"timeout_seconds\"))"
+    },
+    {
+      "name": "H07 读不出来的合同照崩",
+      "file": "scripts/kit_hub.py",
+      "old": "type(item.get(\"timeout_seconds\")) is int)\n    except (ValueError, KeyError, TypeError, AttributeError):",
+      "new": "type(item.get(\"timeout_seconds\")) is int)\n    except (ValueError, KeyError, TypeError):"
+    },
+    {
+      "name": "H08 基线检查照旧 1800",
+      "file": "scripts/kit_hub.py",
+      "old": "[\"baseline\", ts[\"contract\"][\"key\"]], checks_seconds(hub, ts, 1800),",
+      "new": "[\"baseline\", ts[\"contract\"][\"key\"]], 1800,"
+    },
+    {
+      "name": "H09 执行检查照旧 3600",
+      "file": "scripts/kit_hub.py",
+      "old": "checks_seconds(hub, ts, 3600), lambda _text: check_mismatches(run_dir))",
+      "new": "3600, lambda _text: check_mismatches(run_dir))"
+    },
+    {
+      "name": "H10 落地检查照旧 3600",
+      "file": "scripts/kit_hub.py",
+      "old": "timeout=checks_seconds(hub, ts, 3600))",
+      "new": "timeout=3600)"
+    }
+  ]
+}

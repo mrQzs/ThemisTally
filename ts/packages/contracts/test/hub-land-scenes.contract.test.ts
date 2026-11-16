@@ -285,6 +285,14 @@ describe("第 ⑤h1 片：finalize 与 undo_landing（手写）", () => {
     expect((returned(states[0]) as PyValue[])[0], "结项交给 integrate 的就是这份豁免（树由调度器核）").toBe(true);
   }, 600_000);
 
+  it("第 177 轮：integrate 的外层时限是合同里准备命令与各条检查的时限之和加 600 秒（这份是 4800），不少于 3600", () => {
+    const plan = JSON.stringify({ setup: [{ id: "S01", timeout_seconds: 900 }], checks: [{ id: "V01", timeout_seconds: 600 }, { id: "R01", timeout_seconds: 2700 }] });
+    const item = landing("PASS", "none", true, () => undefined, BASE_FILES, (repo) => put(repo, ".agent/plans/t001-doc.v1.json", plan));
+    const states = agreeFlow([flow("finalize", item.sc, [ts(item)], { inner: [pd(["integrate", runDirOf(item.sc), "--while-running"], 0, many("integrated", 8), 4800)] })]);
+    injectedCleanly(states);
+    expect((returned(states[0]) as PyValue[])[0]).toBe(true);
+  }, 600_000);
+
   it("undo_landing 的四种结局：末端没动、已经不是祖先、reset --keep 被本地改动挡住、撤回并恢复记录；记录是列表时撤回之后照样崩", () => {
     let side = "";
     let landed = "";
