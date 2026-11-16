@@ -1,0 +1,355 @@
+{
+  "schema_version": 1,
+  "task_id": "t044-desktop-web-hub-bind",
+  "plan_version": 4,
+  "title": "桌面端前端第 10 片：“七端岗位”一组改绑定与恢复缺省（模型配置 M4 之四，T038 拆出的 B 片）",
+  "repository": "ThemisTally",
+  "base_sha": "f454ef501dac57bc37f87cb19c541607e4de7faa",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/write-flow.css",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/tests/writes-flow.test.tsx",
+      "desktop/web/tests/writes-profile-form.test.tsx",
+      "desktop/web/tests/writes-dialog.test.tsx",
+      "tests/test_gate_t022_baseline.py"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/hubChangeLines.ts",
+      "desktop/web/tests/writes-hub-api.test.ts",
+      "desktop/web/tests/writes-hub-logic.test.ts",
+      "desktop/web/tests/writes-hub-flow.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t00*.py",
+      "tests/test_gate_t01*.py",
+      "tests/test_gate_t020_baseline.py",
+      "tests/test_gate_t021_baseline.py",
+      "tests/test_gate_t023_baseline.py",
+      "tests/test_gate_t024_baseline.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t027_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t03*.py",
+      "tests/test_gate_t04*.py",
+      "tests/test_gate_t044_*.py",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/hub-roles.ts",
+      "desktop/web/src/pages/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/page-hub.test.tsx",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/writes-live-flow.test.tsx",
+      "desktop/web/tests/writes-live-preview.test.tsx",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t044_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`PreviewData` 加了 `hub_changes` 与 `running_turns`，`toPreviewData` 照服务形状映射（post 非字符串跳过该项、侧与字段缺键/类型不对归 null、替补不是对象归 null），`unreadable` 照旧并进 `notes`，既有字段与 T037 的映射断言照旧通过；R01 这一格由「兼容性」一节那条门禁探针的期望键表更新（或门禁准备已合入）满足，详见 D13",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01",
+        "R01",
+        "review"
+      ],
+      "intent": "确认框要显示的东西必须与服务真的给的东西一致，形状不对时宁可显示「—」也不崩"
+    },
+    {
+      "id": "D02",
+      "text": "`hubSnapshot` 是纯函数，投影只有 `post`/`source`/`profile`/`fallback_profile`，按 `post` 排序",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "重读比对只认参与比对的字段，不把会自己变的字段算进「变了没有」"
+    },
+    {
+      "id": "D03",
+      "text": "`hub.set` 走 `POST /api/v1/hub/roles/<post>`、`hub.unset` 走 `POST /api/v1/hub/roles/<post>/unset`，正文带确认号；两个动作的 `readSnapshot` 读 `getHubRoles`；`titleOf`/`successTextOf`/`changeSummaryOf` 补了这两个动作；**没有**再落到 `setPluginEnabled`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "写错分支会悄悄调插件启停——那是最坏的一种错（改错东西还不报错）"
+    },
+    {
+      "id": "D04",
+      "text": "原因句一字未改，条件放宽成「没有在跑的 attempt 且没有在跑的回合」；`running_turns` 有内容时不出原因句，Risks 里逐行显示「在跑的回合照旧用原来的绑定，下一个回合起用新的；这次改动需要你确认」；`running_attempts` 有值时的既有说法照旧；T040 的三种情形照旧通过",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "有在跑的回合时原因句是错的（不是「状态读不出来」），但不能改那句话，只能换一种说法"
+    },
+    {
+      "id": "D05",
+      "text": "确认框「变化」一节在 `hubChanges` 非空时按岗位显示前后对比（运行时、模型、思考档位、替补；无替补显示「—」；缺省一侧标「默认」），`changes` 空且 `hubChanges` 非空时不显示「预览没有列出变化」；warnings 与 notes 原样",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "用户要在确认之前看见这次改动到底改了什么"
+    },
+    {
+      "id": "D06",
+      "text": "`hubChangeLines(change)` 是纯函数，恰好四行、次序固定，兜底与「默认」标记照合同（按侧生效，该侧四行都带）；`hubPostLabel` 给六个岗位中文名",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "确认框与将来的表单底部共用同一份前后对比文字，不能各写一套"
+    },
+    {
+      "id": "D07",
+      "text": "桩的 `hub.set`/`hub.unset` 预览按夹具算 `hub_changes`（before 取夹具该行、after 取所选 profile 或缺省），四个岗位情景 `hub-ok`/`hub-warn`/`hub-running`/`hub-unset` 在 `WriteScenario` 与 `SCENARIOS` 里都在，既有 23 个情景值一个不改；`desktop/web/src/mock` 仍恰 14 份 JSON；桩只在 `liveClient()` 为 null 时生效",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "开发与测试要能按 URL 复现四种岗位情景，真实模式不能看到桩的结果"
+    },
+    {
+      "id": "D08",
+      "text": "既有测试没被删、跳过或弱化：T040 的三种情形、T037 的预览映射断言、T038 的既有断言照旧通过；只给三处自己造数据的既有夹具（`writes-flow.test.tsx`、`writes-profile-form.test.tsx`、`writes-dialog.test.tsx`）补了 `hub_changes`/`running_turns`（第三处是 `ConfirmContent` 夹具，漏了它确认框会抛 `undefined.length`），既有断言一条没改；新测试不用 skip/only/todo",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "既有断言是长期保护，不能为了新功能放松"
+    },
+    {
+      "id": "D09",
+      "text": "所有修改都在允许集合内（10 个可改文件——9 个前端文件 + `tests/test_gate_t022_baseline.py` 的**一处**期望键表；4 个可新增文件），没有碰 `forbidden_paths`（含 `tests/test_gate_t044_*.py`、其余既有门禁测试文件、`ts/packages/ui/**`、`scripts/**`、`desktop/web/src/pages/**`、`desktop/web/src/mock/*.json`、`desktop/web/src/mock/hub-roles.ts`、`page-app.test.tsx`、`page-hub.test.tsx`、`live-api.test.ts`、`writes-live-flow.test.tsx`）；`package.json` 与锁文件不变",
+      "evidence": [
+        "scope",
+        "G01",
+        "R01",
+        "review"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘，也不许提前做 B 片"
+    },
+    {
+      "id": "D10",
+      "text": "新代码守既有源码规矩：`desktop/web/src/writes/hubChangeLines.ts` 只 `import type`、不碰 DOM 与时钟；`desktop/web/src/mock/writes.ts` 不出现网络词与危险 HTML 写入/动态求值类词（`page-static.test.ts` 按子串查）；`desktop/web/src/writes/write-flow.css` 只在末尾追加、只用令牌、带 px 的行有出处注释、**追加块里没有凑字节数的长注释**；`desktop/web/src` 下不渲染 `role=status`、不调 `matchMedia`/`scrollIntoView`/`ResizeObserver`/`IntersectionObserver`",
+      "evidence": [
+        "G01",
+        "R01",
+        "V02",
+        "V03",
+        "review"
+      ],
+      "intent": "不破 T006/T009/T013/T023/T037 的长期门禁"
+    },
+    {
+      "id": "D11",
+      "text": "`hub.set` 不再调 `setPluginEnabled` 有测试证明（断言发出的路径是 `/api/v1/hub/roles/<post>`、没有 `/api/v1/plugins/...`）；`hub.unset` 的路径与正文（只有确认号）也有断言",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "这是本片最容易错也最危险的一处"
+    },
+    {
+      "id": "D12",
+      "text": "**新写的**岗位桩数据（hub 分支的 after 侧、缺省表、替补 profile）只用 `profiles.json` 的 `step-high` 一条，**不引入 `step-low` 这个 id**；**既有**演示文案里的 `step-low`（`desktop/web/src/mock/writes.ts` 的 6 处）保留不动；替补只出现在主选适配器是 `quizs` 的岗位上（内核 `scripts/kit_roles.py:332-333` 的口径在本片只体现在桩数据里，不实现筛法）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "桩数据也要守内核的规则，且新数据不能让桩撞上 T009 D09 拿来当独有串的 id，同时既有演示数据一个字都不改"
+    },
+    {
+      "id": "D13",
+      "text": "`tests/test_gate_t022_baseline.py` 的 `test_d01_d02_probe_api` 期望键表要么**已由门禁准备**是十键（本片一个字没改），要么**由本片**改成十键（既有八键齐全 + `hub_changes`、`running_turns` 在位，照字母序插入）；该文件的其余部分一个字节没改（改动只有一个 hunk）；R01 因此退出码 0",
+      "evidence": [
+        "R01",
+        "scope",
+        "review"
+      ],
+      "intent": "D01 的两个必填字段必然打破旧的八键快照，这条门禁断言必须跟着更新，否则任何合规实现都过不了 R01——这一格就是 B5 那个洞的封口"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 21600,
+    "cost_budget": null
+  }
+}
