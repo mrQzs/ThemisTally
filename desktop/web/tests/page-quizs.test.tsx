@@ -179,14 +179,15 @@ describe('Quizs 一块：ok 情景', () => {
     }
   });
 
-  it('?mock=loading 挂起（三个读一起等）、?mock=empty 空态不渲染视图', async () => {
+  it('?mock=loading 挂起（三个读一起等）、?mock=empty 空态不渲染视图但 Quizs 一块照常', async () => {
     await mount('#/runtimes?mock=loading');
     expect(frame().getAttribute('data-page-state')).toBe('loading');
     expect(pageRoot()).toBeNull();
     cleanup();
     await mount('#/runtimes?mock=empty');
     expect(frame().getAttribute('data-page-state')).toBe('empty');
-    expect(pageRoot(), '空态不渲染视图，Quizs 一块也就看不到').toBeNull();
+    expect(pageRoot(), '空态不渲染视图（Quizs 一块在视图根外）').toBeNull();
+    expect(sectionNamed(frame(), 'Quizs'), '空态下 Quizs 一块照常摆在视图根外').toBeTruthy();
   });
 });
 
