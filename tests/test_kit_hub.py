@@ -17,6 +17,7 @@ import os
 import shutil
 import stat
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -6661,6 +6662,101 @@ def test_transient_interface_errors_are_held_three_times_then_go_to_the_owner(tm
     assert second.get("hold_reason") is None and second["rate_limited_until"] is None  # 别的 403（组织不许用）照旧交给站主
 
 
+def test_overloaded_interface_errors_are_held_five_times_then_go_to_the_owner(tmp_path):
+    # 第 179 轮（候选 #45）：MiniMax 的 529 overloaded_error（报错原文写着“通常 1-5 分钟内恢复”）原先算临时报错，扣三次就转站主：
+    # 11-16 T044 的一审 01:56–02:33 连着四次 529 转了站主，同一时段 T046、T049 的审核回合都跑通。过载单独一类，扣五次（5、10、
+    # 20、40、60 分钟）才交给站主；夹着别的报错就各算各的
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER["contract-glm"]
+    answers = []
+    good = {"letter": dict(planner_delivery()["letter"], 摘要="合同"), "report": "# 合同说明", "state": "",
+            "contract_md": "# TASK: t001-doc" + chr(10) + "正文"}
+
+    def message(error):
+        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [],
+                "stopReason": "error" if error else "toolUse"}
+        if error:
+            body["errorMessage"] = error
+        return {"type": "message_end", "message": body}
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        error = answers.pop(0)
+        events = [message(error)] + ([] if error else deliver_events((good, False)))
+        out.write((chr(10).join(json.dumps(event, ensure_ascii=False) for event in events) + chr(10)).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    seen, turns = [], []
+
+    def run(errors):
+        for error in errors:
+            answers.append(error)
+            before = int(time.time())
+            turn = runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
+            wait = turn["rate_limited_until"]
+            seen.append((None if wait is None else round((wait - before) / 300) * 300, turn.get("hold_reason")))
+            turns.append(turn)
+            assert (turn["output"] is None) == bool(error)
+
+    overloaded = '529 {"type":"error","error":{"type":"overloaded_error","message":"当前服务集群负载较高，请稍后重试，通常 1-5 分钟内恢复"}}'
+    bare = '{"type":"error","error":{"type":"overloaded_error"}}'  # 没带状态码，只认 overloaded
+    run([overloaded] * 6 + [bare, "Request timed out.", overloaded, None])
+    over, hold = kh.OVERLOAD_HOLD_REASON, kh.TRANSIENT_HOLD_REASON
+    assert seen == [(300, over), (600, over), (1200, over), (2400, over), (3600, over), (None, None),
+                    (300, over), (300, hold), (300, over), (None, None)]  # 第 6 次交给站主，之后重新起算；最长扣一小时
+    assert turns[5]["api_error"] == overloaded + "（过载，内核已经连着扣信重试过 5 次）"
+    session = hub.agent_record("contract-glm")["sessions"]["T001-2-contract"]
+    assert "overloads" not in session and "transients" not in session
+
+
+def test_handing_an_interface_error_to_the_owner_starts_the_count_again(tmp_path):
+    # 第 179 轮：T044 的一审第四次 529 转了站主，站主 02:38 回信“照原样重发”，02:42 第五次 529 当场又转站主：会话里的计数没清零。
+    # 交给站主时清零，站主回信之后的下一回合重新从 5 分钟扣起；限流、临时报错一样
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    spec = kh.ROSTER["contract-glm"]
+    answers = []
+    good = {"letter": dict(planner_delivery()["letter"], 摘要="合同"), "report": "# 合同说明", "state": "",
+            "contract_md": "# TASK: t001-doc" + chr(10) + "正文"}
+
+    def message(error):
+        body = {"role": "assistant", "provider": spec["provider"], "model": spec["model"], "content": [],
+                "stopReason": "error" if error else "toolUse"}
+        if error:
+            body["errorMessage"] = error
+        return {"type": "message_end", "message": body}
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        error = answers.pop(0)
+        events = [message(error)] + ([] if error else deliver_events((good, False)))
+        out.write((chr(10).join(json.dumps(event, ensure_ascii=False) for event in events) + chr(10)).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    seen, turns = [], []
+
+    def run(errors):
+        for error in errors:
+            answers.append(error)
+            before = int(time.time())
+            turn = runner.run("contract-glm", "T001-2-contract", tmp_path, "角色", "输入")
+            wait = turn["rate_limited_until"]
+            seen.append((None if wait is None else round((wait - before) / 300) * 300, turn.get("hold_reason")))
+            turns.append(turn)
+            assert (turn["output"] is None) == bool(error)
+
+    throttle, timeout = "429 Too Many Requests", "Request timed out."
+    run([throttle] * 7 + [timeout] * 5)
+    hold = kh.TRANSIENT_HOLD_REASON
+    assert seen == [(300, None), (600, None), (1200, None), (2400, None), (3600, None), (None, None), (300, None),
+                    (300, hold), (600, hold), (1200, hold), (None, None), (300, hold)]
+    assert turns[5]["api_error"] == throttle  # 限流交给站主时照旧不加说明
+    assert turns[10]["api_error"] == timeout + "（临时报错，内核已经连着扣信重试过 3 次）"
+    session = hub.agent_record("contract-glm")["sessions"]["T001-2-contract"]
+    assert session.get("transients") == 1 and "throttles" not in session
+
+
 def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path, monkeypatch):
     # 第 137 轮：quizs 载体（P1，名册没换）。输入目录交 quizs snapshot capture 冻成快照，回合只读快照、每回合一个新会话；
     # 交付是最后回答里的一个 json 代码块，内核照岗位 schema 核验。退出码 3 带 retry_at 就扣到那时；快照冻不了就不起回合
@@ -8131,6 +8227,46 @@ def test_background_sweeps_queue_behind_each_other(tmp_path, monkeypatch):
     assert not (hub.root / ".sweep").exists() and list(kh.exec_marks(hub).glob("*.json")) == []
     with kh.sweep_window(hub, "T001-after-land", "T001 合入后的门禁回归与落地预演"):
         pass  # 前一份跑完就轮到它
+
+
+def test_sweeps_get_more_time_past_forty_gate_baselines(tmp_path, monkeypatch):
+    # 第 179 轮（候选 #54）：合入后回归、落地预演、站主提交之后的回归跑全部门禁基准，时限写死 2400 秒；门禁基准逐片加一份，11-16
+    # 站主回归 45 份 1913 秒（机器空闲），约到 55 份就会掐断落地预演、挡住结项。超过 40 份的每份多给 60 秒，排队的上限多给两倍；
+    # 多给的只看份数，设短的时限照旧按设的掐断
+    assert [kh.sweep_extra_seconds(n) for n in (0, 40, 41, 46, 55)] == [0, 0, 60, 360, 900]
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    for index in range(40):
+        (tests / ("test_gate_t%03d_baseline.py" % index)).write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    (tests / "test_gate_t999_baseline.py").write_text("import time\n\n\ndef test_slow():\n    time.sleep(4)\n", encoding="utf-8")
+    monkeypatch.setattr(kh, "SWEEP_SECONDS", 2)
+    code, out, swept = kh.sweep_gates(tmp_path)
+    assert (code, len(swept), "41 passed" in out) == (0, 41, True)  # 41 份：2 秒之外多给 60 秒，睡 4 秒的那份跑得完
+    (tests / "test_gate_t000_baseline.py").unlink()
+    assert kh.sweep_gates(tmp_path) == (-1, "超过 2 秒没有跑完", kh.gate_baselines(tmp_path))  # 40 份不多给
+    monkeypatch.setattr(kh, "SWEEP_WAIT_SECONDS", 1)
+
+    def held_for(seconds):
+        lock = kh.DirLock(hub.root / ".sweep")
+        lock.__enter__()  # 前一份后台回归拿着 .sweep（持有者是本进程，活着）
+        timer = threading.Timer(seconds, lock.__exit__, args=(None, None, None))
+        timer.start()
+        return timer
+
+    timer = held_for(3)
+    with pytest.raises(kh.HubError, match="锁被占用"):
+        with kh.sweep_window(hub, "owner-sweep", "站主提交之后的回归"):
+            pytest.fail("40 份时排队照旧只等 1 秒")
+    timer.join()
+    (tests / "test_gate_t000_baseline.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    timer = held_for(3)
+    started = time.monotonic()
+    with kh.sweep_window(hub, "owner-sweep", "站主提交之后的回归"):
+        waited = time.monotonic() - started  # 41 份：1 秒之外多给 120 秒，等到前一份放掉
+    timer.join()
+    assert 2 < waited < 30
 
 
 # ---------------------------------------------------------------------------

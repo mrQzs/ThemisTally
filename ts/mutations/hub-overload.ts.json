@@ -1,0 +1,64 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "-t",
+    "pi：交差成功|记下的 TurnRunner.run",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "Q01 过载不单独算",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "const OVERLOAD = compilePy(`${BS}b529${BS}b|overloaded`, FLAG_IGNORECASE);",
+      "new": "const OVERLOAD = compilePy(\"(?!x)x\", FLAG_IGNORECASE);"
+    },
+    {
+      "name": "Q02 过载照临时报错只扣三次",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "export const OVERLOAD_MAX_HOLDS = 5;",
+      "new": "export const OVERLOAD_MAX_HOLDS = 3;"
+    },
+    {
+      "name": "Q03 交给站主时不清零",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "    session.delete(key);\n    audit.set(\"api_error\"",
+      "new": "    audit.set(\"api_error\""
+    },
+    {
+      "name": "Q04 限流交给站主时不清零",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "        current.delete(\"throttles\"); // 第 179 轮",
+      "new": "        // 第 179 轮"
+    },
+    {
+      "name": "Q05 退避不封顶",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "Math.min(THROTTLE_BACKOFF_SECONDS * 2 ** Number(count - 1n), THROTTLE_BACKOFF_MAX)",
+      "new": "THROTTLE_BACKOFF_SECONDS * 2 ** Number(count - 1n)"
+    },
+    {
+      "name": "Q06 过载的扣信原因写成临时报错",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, \"过载\", seconds);",
+      "new": "OVERLOAD_MAX_HOLDS, TRANSIENT_HOLD_REASON, \"过载\", seconds);"
+    },
+    {
+      "name": "Q07 换新会话不带过载的次数",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "[\"throttles\", \"transients\", \"overloads\"].filter",
+      "new": "[\"throttles\", \"transients\"].filter"
+    },
+    {
+      "name": "Q08 Python 换新会话不带过载的次数",
+      "file": "scripts/kit_hub.py",
+      "old": "for key in (\"throttles\", \"transients\", \"overloads\") if",
+      "new": "for key in (\"throttles\", \"transients\") if"
+    }
+  ]
+}

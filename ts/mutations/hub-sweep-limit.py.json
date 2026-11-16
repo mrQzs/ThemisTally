@@ -1,0 +1,48 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "sweeps_get_more_time_past_forty or background_sweeps_queue"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "S01 门禁基准再多也不多给",
+      "file": "scripts/kit_hub.py",
+      "old": "    limit = SWEEP_SECONDS + sweep_extra_seconds(len(tests))",
+      "new": "    limit = SWEEP_SECONDS"
+    },
+    {
+      "name": "S02 排队的上限不多给",
+      "file": "scripts/kit_hub.py",
+      "old": "wait_seconds=SWEEP_WAIT_SECONDS + 2 * sweep_extra_seconds(len(gate_baselines(hub.repo)))):",
+      "new": "wait_seconds=SWEEP_WAIT_SECONDS):"
+    },
+    {
+      "name": "S03 份数从零起算",
+      "file": "scripts/kit_hub.py",
+      "old": "    return REGRESSION_SECONDS_PER_GATE * max(0, gates - SWEEP_GATES_COVERED)",
+      "new": "    return REGRESSION_SECONDS_PER_GATE * gates"
+    },
+    {
+      "name": "S04 掐断照常数",
+      "file": "scripts/kit_hub.py",
+      "old": "stderr=subprocess.STDOUT, timeout=limit,",
+      "new": "stderr=subprocess.STDOUT, timeout=SWEEP_SECONDS,"
+    },
+    {
+      "name": "S05 份数界线差一",
+      "file": "scripts/kit_hub.py",
+      "old": "SWEEP_GATES_COVERED = 40\n",
+      "new": "SWEEP_GATES_COVERED = 41\n"
+    }
+  ]
+}

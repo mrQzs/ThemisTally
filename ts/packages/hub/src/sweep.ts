@@ -1,6 +1,6 @@
-// 后台回归与落地预演（迁移第 ⑤h2 片）：kit_hub.py 的 LAND_WAIT_SECONDS、sweep_window、SWEEP_SECONDS、SWEEP_WAIT_SECONDS、gate_baselines、
-// sweep_gates、keep_sweep_output、regression_sweep、rehearse_landing、rehearsal_letter、owner_sweep_path、read_owner_sweep、mark_owner_moved、
-// owner_sweep、TS_INSTALL_TIMEOUT、ts_install_if_stale、owner_sweep_run。结项与落地在 land.ts（⑤h1）。
+// 后台回归与落地预演（迁移第 ⑤h2 片）：kit_hub.py 的 LAND_WAIT_SECONDS、sweep_window、SWEEP_SECONDS、SWEEP_WAIT_SECONDS、SWEEP_GATES_COVERED、
+// sweep_extra_seconds、gate_baselines、sweep_gates、keep_sweep_output、regression_sweep、rehearse_landing、rehearsal_letter、owner_sweep_path、
+// read_owner_sweep、mark_owner_moved、owner_sweep、TS_INSTALL_TIMEOUT、ts_install_if_stale、owner_sweep_run。结项与落地在 land.ts（⑤h1）。
 // deps 只给契约用：用例当时换掉的 sweep_gates、rehearse_landing、调度器的 find_bun 与 read_kernel_impl、ts_install_if_stale 的 runner，以及
 // 几个时限照记录注入；生产调用方不传。门禁基准在临时 worktree 里真跑：Python 是 subprocess.run 加 timeout（超时只杀 pytest 本身），这里照
 // accept.ts 的先例经 runSupervised，超时整棵树一起结束（计划第 10 节）。
@@ -31,6 +31,7 @@ import { withHeavyLane } from "./heavy.ts";
 import { git, hubImpl } from "./kernel.ts";
 import { landedMeanwhile, landingChain, onBranch } from "./land.ts";
 import { DirLock, type Hub } from "./mailbox.ts";
+import { REGRESSION_SECONDS_PER_GATE } from "./prompt.ts";
 import { KERNEL_IMPL_PATH, kernelEnv, kernelPytest, kernelPytestEnv } from "./runpd.ts";
 import { type ExecDeps, REAL_EXEC_DEPS, execMarks, runMerged, scratchWorktree } from "./runexec.ts";
 
@@ -42,6 +43,10 @@ export const LAND_WAIT_SECONDS = 3600.0;
 export const SWEEP_SECONDS = 2400;
 /** 后台回归排队等前一份跑完的上限（第 68 轮）：一份最长 SWEEP_SECONDS，再留出它附带的落地预演。 */
 export const SWEEP_WAIT_SECONDS = 2 * SWEEP_SECONDS;
+/**
+ * 第 179 轮：SWEEP_SECONDS 按每份门禁基准 REGRESSION_SECONDS_PER_GATE 秒算够跑的份数；再多的每份加这么多秒，排队的上限加两倍。
+ */
+export const SWEEP_GATES_COVERED = 40;
 /** 主工作区 ts/ 重装依赖的时限（第 64 轮）。 */
 export const TS_INSTALL_TIMEOUT = 900;
 
@@ -79,6 +84,15 @@ export const REAL_SWEEP_DEPS: SweepDeps = {
   sweepWaitSeconds: SWEEP_WAIT_SECONDS,
 };
 
+/**
+ * 门禁基准超过 SWEEP_GATES_COVERED 份时，跑全部门禁基准要在 SWEEP_SECONDS 之外多给的秒数（第 179 轮）：门禁基准逐片加一份、每份跑整套前端测试，11-16
+ * 站主回归 45 份 1913 秒（机器空闲），照旧写死 2400 秒约到 55 份就会掐断落地预演、挡住结项。多给的只看份数，不跟着 SWEEP_SECONDS 走：契约场景把时限
+ * 设短时照旧按设的掐断。
+ */
+export function sweepExtraSeconds(gates: number): number {
+  return REGRESSION_SECONDS_PER_GATE * Math.max(0, gates - SWEEP_GATES_COVERED);
+}
+
 /** x or y。 */
 const or = (value: PyValue, fallback: PyValue): PyValue => (pyTruthy(value) ? value : fallback);
 /** value[:12]。 */
@@ -104,7 +118,7 @@ export async function withSweepWindow<T>(hub: Hub, name: string, label: string, 
   const marks = execMarks(hub);
   pathMkdir(marks, true, true);
   const path = purePathStr(marks, `${name}.json`);
-  const sweep = new DirLock(purePathStr(hub.root, ".sweep"), deps.sweepWaitSeconds).acquire();
+  const sweep = new DirLock(purePathStr(hub.root, ".sweep"), deps.sweepWaitSeconds + 2 * sweepExtraSeconds(gateBaselines(hub.repo).length)).acquire();
   try {
     const land = new DirLock(purePathStr(hub.root, ".land"), deps.landLockWaitSeconds).acquire();
     try {
@@ -132,17 +146,18 @@ export function gateBaselines(root: string): string[] {
   return globPaths(purePathStr(root, "tests"), ["test_gate_*_baseline.py"]).map((path) => `tests/${purePathName(path)}`).sort(cmpCodePoints);
 }
 
-/** 在 path 里跑全部门禁基准（白盒不算）；返回（退出码, 输出, 跑了哪几份）。 */
+/** 在 path 里跑全部门禁基准（白盒不算）；返回（退出码, 输出, 跑了哪几份）。时限照份数放宽（第 179 轮）。 */
 export async function sweepGates(path: string, seconds = SWEEP_SECONDS): Promise<SweepResult> {
   const tests = gateBaselines(path);
   if (!tests.length) return [0, "没有门禁基准可跑", tests];
+  const limit = seconds + sweepExtraSeconds(tests.length);
   const dir = mkdtempSync(join(tmpdir(), "themis-sweep-"));
   try {
     const out = join(dir, "output");
     const result = await runSupervised([...kernelPytest(), "-q", "-rfE", ...tests], {
-      cwd: path, env: [...kernelPytestEnv()], stdout: { path: out, how: "create-new" }, stderr: "stdout", timeout: seconds, grace: 0, handleSignals: false,
+      cwd: path, env: [...kernelPytestEnv()], stdout: { path: out, how: "create-new" }, stderr: "stdout", timeout: limit, grace: 0, handleSignals: false,
     });
-    if (result.timed_out) return [-1, `超过 ${pyPercentD(seconds)} 秒没有跑完`, tests];
+    if (result.timed_out) return [-1, `超过 ${pyPercentD(limit)} 秒没有跑完`, tests];
     if (result.spawn_error !== null) throw new PyCrash("OSError", result.spawn_error);
     return [result.exit_code as number, pyDecodeUtf8Replace(readFileSync(out)), tests];
   } finally {

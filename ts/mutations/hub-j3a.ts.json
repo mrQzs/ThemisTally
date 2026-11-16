@@ -64,8 +64,8 @@
   {
    "name": "A09 标记挂在拿 .sweep 之前（7055）",
    "file": "ts/packages/hub/src/sweep.ts",
-   "old": "  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds).acquire();",
-   "new": "  writeTextAtomic(path, `${dumps(new Map<string, PyValue>([[\"pid\", BigInt(process.pid)], [\"task\", name], [\"label\", label], [\"sweep\", true], [\"at\", utcNow()]]))}${LF}`);\n  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds).acquire();"
+   "old": "  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds + 2 * sweepExtraSeconds(gateBaselines(hub.repo).length)).acquire();",
+   "new": "  writeTextAtomic(path, `${dumps(new Map<string, PyValue>([[\"pid\", BigInt(process.pid)], [\"task\", name], [\"label\", label], [\"sweep\", true], [\"at\", utcNow()]]))}${LF}`);\n  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds + 2 * sweepExtraSeconds(gateBaselines(hub.repo).length)).acquire();"
   }
  ]
 }

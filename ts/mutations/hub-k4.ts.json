@@ -13,56 +13,56 @@
   {
    "name": "R01 临时报错一概不认",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "&& TRANSIENT.search(pyTruthy(apiError) ? pyStrValue(apiError) : \"\") !== null",
-   "new": "&& false"
+   "old": "loose && !overloaded && TRANSIENT.search(error) !== null",
+   "new": "loose && !overloaded && false"
   },
   {
    "name": "R02 quizs 也认",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "    const transient = !quizs && ",
-   "new": "    const transient = "
+   "old": "    const loose = !quizs && ",
+   "new": "    const loose = "
   },
   {
    "name": "R03 扣满的次数差一",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "      if (transients <= BigInt(TRANSIENT_MAX_HOLDS)) {",
-   "new": "      if (transients < BigInt(TRANSIENT_MAX_HOLDS)) {"
+   "old": "  if (count <= BigInt(limit)) {",
+   "new": "  if (count < BigInt(limit)) {"
   },
   {
    "name": "R04 成功一回不清零",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "      current.delete(\"transients\");",
-   "new": "      current.get(\"transients\");"
+   "old": "  if (!hit) {\n    session.delete(key);\n    return;",
+   "new": "  if (!hit) {\n    session.get(key);\n    return;"
   },
   {
    "name": "R05 换新会话不带临时报错的次数",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "[\"throttles\", \"transients\"].filter",
-   "new": "[\"throttles\"].filter"
+   "old": "[\"throttles\", \"transients\", \"overloads\"].filter",
+   "new": "[\"throttles\", \"overloads\"].filter"
   },
   {
    "name": "R06 扣信不写原因",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "        audit.set(\"hold_reason\", TRANSIENT_HOLD_REASON);\n",
+   "old": "    audit.set(\"hold_reason\", reason);\n",
    "new": ""
   },
   {
    "name": "R07 Python 换新会话不带临时报错的次数",
    "file": "scripts/kit_hub.py",
-   "old": "for key in (\"throttles\", \"transients\") if",
-   "new": "for key in (\"throttles\",) if"
+   "old": "for key in (\"throttles\", \"transients\", \"overloads\") if",
+   "new": "for key in (\"throttles\", \"overloads\") if"
   },
   {
    "name": "R08 换新会话不带限流的次数（第 145 轮）",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "[\"throttles\", \"transients\"].filter",
-   "new": "[\"transients\"].filter"
+   "old": "[\"throttles\", \"transients\", \"overloads\"].filter",
+   "new": "[\"transients\", \"overloads\"].filter"
   },
   {
    "name": "R09 Python 换新会话不带限流的次数（第 145 轮）",
    "file": "scripts/kit_hub.py",
-   "old": "for key in (\"throttles\", \"transients\") if",
-   "new": "for key in (\"transients\",) if"
+   "old": "for key in (\"throttles\", \"transients\", \"overloads\") if",
+   "new": "for key in (\"transients\", \"overloads\") if"
   }
  ]
 }

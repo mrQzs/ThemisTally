@@ -1,0 +1,46 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-sweep-scenes.contract.test.ts",
+    "-t",
+    "第 179 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "U01 门禁基准再多也不多给",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "  const limit = seconds + sweepExtraSeconds(tests.length);",
+      "new": "  const limit = seconds;"
+    },
+    {
+      "name": "U02 排队的上限不多给",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "deps.sweepWaitSeconds + 2 * sweepExtraSeconds(gateBaselines(hub.repo).length)).acquire();",
+      "new": "deps.sweepWaitSeconds).acquire();"
+    },
+    {
+      "name": "U03 份数从零起算",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "  return REGRESSION_SECONDS_PER_GATE * Math.max(0, gates - SWEEP_GATES_COVERED);",
+      "new": "  return REGRESSION_SECONDS_PER_GATE * gates;"
+    },
+    {
+      "name": "U04 掐断照给的时限",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "stderr: \"stdout\", timeout: limit,",
+      "new": "stderr: \"stdout\", timeout: seconds,"
+    },
+    {
+      "name": "U05 份数界线差一",
+      "file": "ts/packages/hub/src/sweep.ts",
+      "old": "export const SWEEP_GATES_COVERED = 40;",
+      "new": "export const SWEEP_GATES_COVERED = 41;"
+    }
+  ]
+}

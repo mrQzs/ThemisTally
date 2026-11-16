@@ -17,32 +17,32 @@
   {
    "name": "P01 临时报错一概不认",
    "file": "scripts/kit_hub.py",
-   "old": "                     and bool(TRANSIENT_RE.search(str(audit.get(\"api_error\") or \"\"))))",
-   "new": "                     and False)"
+   "old": "loose and not overloaded and bool(TRANSIENT_RE.search(error)),",
+   "new": "loose and not overloaded and False,"
   },
   {
    "name": "P02 quizs 也认",
    "file": "scripts/kit_hub.py",
-   "old": "        transient = (not quizs and audit.get(\"rate_limited_until\") is None",
-   "new": "        transient = (audit.get(\"rate_limited_until\") is None"
+   "old": "        loose = not quizs and audit.get(\"rate_limited_until\") is None",
+   "new": "        loose = audit.get(\"rate_limited_until\") is None"
   },
   {
    "name": "P03 扣满的次数差一",
    "file": "scripts/kit_hub.py",
-   "old": "            if session[\"transients\"] <= TRANSIENT_MAX_HOLDS:",
-   "new": "            if session[\"transients\"] < TRANSIENT_MAX_HOLDS:"
+   "old": "    if session[key] <= limit:",
+   "new": "    if session[key] < limit:"
   },
   {
    "name": "P04 成功一回不清零",
    "file": "scripts/kit_hub.py",
-   "old": "            session.pop(\"transients\", None)",
-   "new": "            session.get(\"transients\")"
+   "old": "    if not hit:\n        session.pop(key, None)\n        return",
+   "new": "    if not hit:\n        session.get(key)\n        return"
   },
   {
    "name": "P05 扣信不写原因",
    "file": "scripts/kit_hub.py",
-   "old": "                audit[\"hold_reason\"] = TRANSIENT_HOLD_REASON",
-   "new": "                pass"
+   "old": "        audit[\"hold_reason\"] = reason",
+   "new": "        pass"
   },
   {
    "name": "P06 回合结果不带原因",
@@ -65,14 +65,14 @@
   {
    "name": "P09 扣满之后交给站主时不说已经重试过",
    "file": "scripts/kit_hub.py",
-   "old": "                audit[\"api_error\"] = \"%s（临时报错，内核已经连着扣信重试过 %d 次）\" % (audit[\"api_error\"], TRANSIENT_MAX_HOLDS)",
-   "new": "                pass"
+   "old": "        audit[\"api_error\"] = \"%s（%s，内核已经连着扣信重试过 %d 次）\" % (audit[\"api_error\"], kind, limit)",
+   "new": "        pass"
   },
   {
    "name": "P10 退避不加倍",
    "file": "scripts/kit_hub.py",
-   "old": "                audit[\"rate_limited_until\"] = int(time.time()) + THROTTLE_BACKOFF_SECONDS * 2 ** (session[\"transients\"] - 1)",
-   "new": "                audit[\"rate_limited_until\"] = int(time.time()) + THROTTLE_BACKOFF_SECONDS"
+   "old": "min(THROTTLE_BACKOFF_SECONDS * 2 ** (session[key] - 1),\n                                                             THROTTLE_BACKOFF_MAX)",
+   "new": "min(THROTTLE_BACKOFF_SECONDS,\n                                                             THROTTLE_BACKOFF_MAX)"
   }
  ]
 }

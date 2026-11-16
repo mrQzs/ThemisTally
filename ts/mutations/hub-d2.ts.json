@@ -109,8 +109,8 @@
     {
       "name": "T17 没限流时不清掉限流次数",
       "file": "ts/packages/hub/src/turn.ts",
-      "old": "      current.delete(\"throttles\");",
-      "new": "      void current;"
+      "old": "    } else {\n      current.delete(\"throttles\");\n    }",
+      "new": "    } else {\n      void current;\n    }"
     },
     {
       "name": "T18 pi 的生效档位空的时候是空串",

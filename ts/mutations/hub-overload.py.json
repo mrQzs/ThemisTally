@@ -1,0 +1,60 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "overloaded_interface or handing_an_interface or transient_interface or throttled_pi_turn"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "O01 过载不单独算",
+      "file": "scripts/kit_hub.py",
+      "old": "OVERLOAD_RE = re.compile(r\"\\b529\\b|overloaded\", re.IGNORECASE)",
+      "new": "OVERLOAD_RE = re.compile(r\"(?!x)x\", re.IGNORECASE)"
+    },
+    {
+      "name": "O02 过载照临时报错只扣三次",
+      "file": "scripts/kit_hub.py",
+      "old": "OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON = 5, \"模型接口过载\"",
+      "new": "OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON = 3, \"模型接口过载\""
+    },
+    {
+      "name": "O03 交给站主时不清零",
+      "file": "scripts/kit_hub.py",
+      "old": "        session.pop(key)\n        audit[\"api_error\"]",
+      "new": "        audit[\"api_error\"]"
+    },
+    {
+      "name": "O04 限流交给站主时不清零",
+      "file": "scripts/kit_hub.py",
+      "old": "                session.pop(\"throttles\")  # 第 179 轮",
+      "new": "                pass  # 第 179 轮"
+    },
+    {
+      "name": "O05 退避不封顶",
+      "file": "scripts/kit_hub.py",
+      "old": "min(THROTTLE_BACKOFF_SECONDS * 2 ** (session[key] - 1),\n                                                             THROTTLE_BACKOFF_MAX)",
+      "new": "(THROTTLE_BACKOFF_SECONDS * 2 ** (session[key] - 1))"
+    },
+    {
+      "name": "O06 过载的扣信原因写成临时报错",
+      "file": "scripts/kit_hub.py",
+      "old": "hold_interface_error(session, audit, \"overloads\", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, \"过载\")",
+      "new": "hold_interface_error(session, audit, \"overloads\", overloaded, OVERLOAD_MAX_HOLDS, TRANSIENT_HOLD_REASON, \"过载\")"
+    },
+    {
+      "name": "O07 过载交给站主的说明写成临时报错",
+      "file": "scripts/kit_hub.py",
+      "old": "hold_interface_error(session, audit, \"overloads\", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, \"过载\")",
+      "new": "hold_interface_error(session, audit, \"overloads\", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, \"临时报错\")"
+    }
+  ]
+}

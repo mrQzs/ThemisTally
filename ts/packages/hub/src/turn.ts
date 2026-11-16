@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_FENCED_POLICY, QUIZS_FINAL_SCHEMA, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_FENCED_POLICY, QUIZS_FINAL_SCHEMA, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, OVERLOAD_HOLD_REASON, OVERLOAD_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
 } from "./constants.ts";
 import { boundSpec, hubBindings } from "./bindings.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, toolSchema, workerEnv, workerFileProblem } from "./delivery.ts";
@@ -40,8 +40,10 @@ const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
 /** 第 38 轮：pi 的模型接口限流（429、throttling、rate limit……）。 */
 const THROTTLE = compilePy(`${BS}b429${BS}b|throttl|rate[ _-]?limit|too many requests|quota`, FLAG_IGNORECASE);
-/** 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、过载、连接断开）；quizs 不认。 */
-const TRANSIENT = compilePy(`timed ?out|timeout|attention required|cloudflare|${BS}b50[0234]${BS}b|overloaded|econnreset|socket hang up|fetch failed`, FLAG_IGNORECASE);
+/** 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、连接断开）；quizs 不认。 */
+const TRANSIENT = compilePy(`timed ?out|timeout|attention required|cloudflare|${BS}b50[0234]${BS}b|econnreset|socket hang up|fetch failed`, FLAG_IGNORECASE);
+/** 第 179 轮：提供方集群过载（529、overloaded_error）单独一类，见 OVERLOAD_MAX_HOLDS；quizs 不认。 */
+const OVERLOAD = compilePy(`${BS}b529${BS}b|overloaded`, FLAG_IGNORECASE);
 const THROTTLE_RESET = /([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})/u;
 
 /**
@@ -56,6 +58,26 @@ export function throttleReset(error: string, now: number): number | null {
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || hour > 23 || minute > 59 || second > 59) return null;
   const reset = date.getTime() / 1000 - THROTTLE_RESET_OFFSET;
   return now < reset && reset <= now + THROTTLE_RESET_HORIZON ? reset + THROTTLE_RESET_MARGIN : null;
+}
+
+/**
+ * 模型接口的临时报错与过载（第 158、179 轮）照限流扣信：同一会话连着撞上同一类，从 THROTTLE_BACKOFF_SECONDS 起加倍、最长 THROTTLE_BACKOFF_MAX，扣信
+ * 不写信给站主；连着 limit 次还不好才按接口报错交给站主，计数随之清零，站主回信“照原样重发”之后重新起算。这一类没撞上就清零。
+ */
+function holdInterfaceError(session: PyDict, audit: PyDict, key: string, hit: boolean, limit: number, reason: string, kind: string, seconds: () => number): void {
+  if (!hit) {
+    session.delete(key);
+    return;
+  }
+  const count = pyIntOf(pyGet(session, key, 0n)) + 1n;
+  session.set(key, count);
+  if (count <= BigInt(limit)) {
+    audit.set("rate_limited_until", BigInt(seconds() + Math.min(THROTTLE_BACKOFF_SECONDS * 2 ** Number(count - 1n), THROTTLE_BACKOFF_MAX)));
+    audit.set("hold_reason", reason);
+  } else {
+    session.delete(key);
+    audit.set("api_error", `${pyStrValue(pyItem(audit, "api_error"))}（${kind}，内核已经连着扣信重试过 ${limit} 次）`);
+  }
 }
 
 /**
@@ -145,8 +167,8 @@ export class TurnRunner {
       [session, generation] = [null, generation + 1n]; // 返工重开，或工作目录变了（claude 按目录找会话）
     }
     // 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）
-    // 第 158 轮：临时报错的次数也带上
-    const carried = quizs || fallback !== null ? ["throttles", "transients"].filter((key) => pyTruthy(pyGet(session ?? new Map(), key)))
+    // 第 158 轮：临时报错的次数也带上；第 179 轮：过载的次数也带上
+    const carried = quizs || fallback !== null ? ["throttles", "transients", "overloads"].filter((key) => pyTruthy(pyGet(session ?? new Map(), key)))
       .map((key) => [key, pyGet(session as PyDict, key)] as const) : [];
     if (quizs || fallback !== null) session = null; // 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
     const cut = session !== null && sessionCutShort(this.hub.root, agent, spec.adapter, pyStrValue(pyItem(session, "id"))) ? pyStrValue(pyItem(session, "id")) : null;
@@ -233,23 +255,18 @@ export class TurnRunner {
         const now = this.sources.seconds();
         const reset = throttleReset(pyStrValue(apiError), now);
         audit.set("rate_limited_until", BigInt(reset ?? now + Math.min(THROTTLE_BACKOFF_SECONDS * 2 ** Number(throttles - 1n), THROTTLE_BACKOFF_MAX)));
+      } else {
+        current.delete("throttles"); // 第 179 轮：交给站主时清零，站主回信“照原样重发”之后重新起算
       }
     } else {
       current.delete("throttles");
     }
-    const transient = !quizs && pyGet(audit, "rate_limited_until") === null && TRANSIENT.search(pyTruthy(apiError) ? pyStrValue(apiError) : "") !== null;
-    if (transient) {
-      const transients = pyIntOf(pyGet(current, "transients", 0n)) + 1n;
-      current.set("transients", transients);
-      if (transients <= BigInt(TRANSIENT_MAX_HOLDS)) {
-        audit.set("rate_limited_until", BigInt(this.sources.seconds() + THROTTLE_BACKOFF_SECONDS * 2 ** Number(transients - 1n)));
-        audit.set("hold_reason", TRANSIENT_HOLD_REASON);
-      } else {
-        audit.set("api_error", `${pyStrValue(pyItem(audit, "api_error"))}（临时报错，内核已经连着扣信重试过 ${TRANSIENT_MAX_HOLDS} 次）`);
-      }
-    } else {
-      current.delete("transients");
-    }
+    const error = pyTruthy(apiError) ? pyStrValue(apiError) : "";
+    const loose = !quizs && pyGet(audit, "rate_limited_until") === null;
+    const overloaded = loose && OVERLOAD.search(error) !== null;
+    const seconds = (): number => this.sources.seconds();
+    holdInterfaceError(current, audit, "overloads", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, "过载", seconds);
+    holdInterfaceError(current, audit, "transients", loose && !overloaded && TRANSIENT.search(error) !== null, TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON, "临时报错", seconds);
     if (pyTruthy(pyGet(audit, "api_error"))) outputError = `模型接口报错（环境问题，不是工人的输出问题）：${pyStrValue(pyItem(audit, "api_error"))}`;
     else if (!pyTruthy(pyItem(audit, "violations"))) {
       [output, outputError] = pyTruthy(pyGet(audit, "delivery_error")) ? [null, pyStrValue(pyGet(audit, "delivery_error"))]

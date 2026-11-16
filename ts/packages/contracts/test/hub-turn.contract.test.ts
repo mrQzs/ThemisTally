@@ -182,6 +182,23 @@ describe("第 ⑤d2 片：TurnRunner 的手写场景", () => {
         agent: COORDINATOR, script: { stdout: b64(stream(...delivers([{ letters: [], state: "四" }, false]), piDone(COORDINATOR))) },
         prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, transients: 2 } })),
       },
+      // 第 179 轮：过载单独一类。会话里记着 2 次，这是第 3 次：扣 1200 秒、写明原因，临时报错的次数清掉；记满 5 次的下一次交给站主、次数清掉
+      "pi-overload": {
+        agent: COORDINATOR,
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: '529 {"type":"error","error":{"type":"overloaded_error"}}' } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, overloads: 2, transients: 1 } })),
+      },
+      "pi-overload-spent": {
+        agent: COORDINATOR,
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "529 overloaded" } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, overloads: 5 } })),
+      },
+      // 第 179 轮：限流交给站主时次数也清掉，站主回信之后重新起算
+      "pi-throttle-spent": {
+        agent: COORDINATOR,
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "429 Too Many Requests" } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, throttles: 5 } })),
+      },
       // 第 158 轮：替补每回合开新会话（协调人的名册是 quizs，没设 QUIZS_CMD 就退回 pi）。限流（第 145 轮）与临时报错的次数要带到新会话，不然退避永远是 5 分钟、也永远到不了站主
       "fallback-throttle": {
         agent: COORDINATOR, roster: { [COORDINATOR]: ROSTER[COORDINATOR] },
@@ -192,6 +209,11 @@ describe("第 ⑤d2 片：TurnRunner 的手写场景", () => {
         agent: COORDINATOR, roster: { [COORDINATOR]: ROSTER[COORDINATOR] },
         script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "Request timed out." } })) },
         prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, transients: 2 } })),
+      },
+      "fallback-overload": {
+        agent: COORDINATOR, roster: { [COORDINATOR]: ROSTER[COORDINATOR] },
+        script: { stdout: b64(stream({ type: "message_end", message: { role: "assistant", provider: PI_COORDINATOR.provider, model: PI_COORDINATOR.model, stopReason: "error", errorMessage: "529 overloaded" } })) },
+        prepare: (repo, workspace) => writeFileSync(join(repo, ".agent", "mailbox", "agents", `${COORDINATOR}.json`), record({ T001: { id: "T001-g0", cwd: workspace, turns: 2, generation: 0, overloads: 2 } })),
       },
       "pi-blocked-missing": { agent: COORDINATOR, mode: "missing", script: { stdout: b64(stream(piDone(COORDINATOR))) } },
       "pi-blocked-fail": { agent: COORDINATOR, mode: "fail" },
@@ -208,7 +230,16 @@ describe("第 ⑤d2 片：TurnRunner 的手写场景", () => {
     expect(of("pi-transient-spent").summary).toContain("502 Bad Gateway（临时报错，内核已经连着扣信重试过 3 次）");
     expect(of("pi-transient-spent").summary).toContain('["rate_limited_until",null]');
     expect((shownCases["pi-transient-cleared"] as { agent: string }).agent).not.toContain("transients");
-    for (const name of ["fallback-throttle", "fallback-transient"]) {
+    expect(of("pi-overload").summary).toContain('["rate_limited_until","1800001200n"]');
+    expect(of("pi-overload").summary).toContain('["hold_reason","模型接口过载"]');
+    expect(of("fallback-overload").summary).toContain('["hold_reason","模型接口过载"]');
+    expect((shownCases["pi-overload"] as { agent: string }).agent).not.toContain("transients");
+    expect(of("pi-overload-spent").summary).toContain("529 overloaded（过载，内核已经连着扣信重试过 5 次）");
+    expect(of("pi-overload-spent").summary).toContain('["rate_limited_until",null]');
+    for (const [name, key] of [["pi-overload-spent", "overloads"], ["pi-throttle-spent", "throttles"], ["pi-transient-spent", "transients"]]) {
+      expect((shownCases[name as string] as { agent: string }).agent, name).not.toContain(key as string);
+    }
+    for (const name of ["fallback-throttle", "fallback-transient", "fallback-overload"]) {
       expect(of(name).summary, name).toContain('["quizs_fallback","没有设 QUIZS_CMD"]');
       expect(of(name).summary, name).toContain('["rate_limited_until","1800001200n"]');
     }
@@ -409,6 +440,8 @@ const TURN_TESTS = [
   "test_a_throttled_pi_turn_is_held_with_a_growing_backoff",
   "test_a_throttled_pi_turn_waits_for_the_reset_time_in_the_error",
   "test_transient_interface_errors_are_held_three_times_then_go_to_the_owner", // 第 158 轮：超时、5xx、Cloudflare 的 403 扣信退避，第 4 次交给站主
+  "test_overloaded_interface_errors_are_held_five_times_then_go_to_the_owner", // 第 179 轮：529 与 overloaded 单独一类，扣 5 次、最长一小时
+  "test_handing_an_interface_error_to_the_owner_starts_the_count_again", // 第 179 轮：交给站主时计数清零（限流、临时报错、过载）
   "test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block",
   "test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out",
   "test_quizs_repository_view_for_reading_posts", // 第 156 轮：合同端在 quizs 上读工作目录冻成的整棵树（三边算出的树要一样）

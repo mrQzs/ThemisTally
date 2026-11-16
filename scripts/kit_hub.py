@@ -596,12 +596,17 @@ SHARING_RETRIES, SHARING_PAUSE = 40, 0.05
 #: pi 的模型接口限流（第 38 轮）：认得出的报错、第一次扣多久、最长扣多久、连着扣几次之后交给站主
 THROTTLE_RE = re.compile(r"\b429\b|throttl|rate[ _-]?limit|too many requests|quota", re.IGNORECASE)
 THROTTLE_BACKOFF_SECONDS, THROTTLE_BACKOFF_MAX, THROTTLE_MAX_HOLDS = 300, 3600, 5
-#: 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、过载、连接断开）照限流扣信退避：从 5 分钟起加倍，连着 3 次还不好才交给
+#: 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、连接断开）照限流扣信退避：从 5 分钟起加倍，连着 3 次还不好才交给
 #: 站主，扣信时不写信给站主。2026-11-13 上午 T036 的规划端撞上 Claude 接口的 Cloudflare 403，T034 的审核端连着三个回合 MiniMax 超时
 #: （10:55–11:18Z），每次都是阶段标成 failed、写信给站主，站主只能回“照原样重发”。claude 也认；quizs 不认（它自己分错误类别、在 Quizs
 #: 里排队重试，QUIZS_PERMIT_HELD 这类说明里也带着 500）。内核自己写的说明（起回合之前挡下的配置问题、读不到交差参数）里没有这几类字样
-TRANSIENT_RE = re.compile(r"timed ?out|timeout|attention required|cloudflare|\b50[0234]\b|overloaded|econnreset|socket hang up|fetch failed", re.IGNORECASE)
+TRANSIENT_RE = re.compile(r"timed ?out|timeout|attention required|cloudflare|\b50[0234]\b|econnreset|socket hang up|fetch failed", re.IGNORECASE)
 TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON = 3, "模型接口临时报错"
+#: 第 179 轮：提供方集群过载（HTTP 529、overloaded_error，MiniMax 的报错原文写着“通常 1-5 分钟内恢复”）单独一类，扣得更久才交
+#: 给站主：5、10、20、40、60 分钟，合计两小时出头。11-16 T044 的一审 01:56–02:33 连着四次 529 就转了站主，同一时段 T046、T049
+#: 的审核回合都跑通，站主能做的只有回一句“照原样重发”。quizs 照旧不认：Quizs 把 529 当确定被拒，按限流给出解除时刻
+OVERLOAD_RE = re.compile(r"\b529\b|overloaded", re.IGNORECASE)
+OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON = 5, "模型接口过载"
 #: 限流报错里写着重置时刻（智谱的 1308：“…将在 2026-11-06 18:44:51 重置”）时扣到那之后一会儿，不再加倍试探。这个时刻不带时区，
 #: 是北京时间：T026 的门禁端 08:42Z 撞上、报 18:44:51，10:59Z 的扣信到点接着做成了；按 UTC 读要到 18:44Z 才解除。
 #: 换算出来已经过去、或在 24 小时以外的不认，照旧退避（时区读错了也只是早醒一次，下一回合照旧退避）。
@@ -685,6 +690,24 @@ def throttle_reset(error: str, now: int) -> Optional[int]:
         return None
     reset = int(moment.timestamp()) - THROTTLE_RESET_OFFSET
     return reset + THROTTLE_RESET_MARGIN if now < reset <= now + THROTTLE_RESET_HORIZON else None
+
+
+def hold_interface_error(session: Dict[str, Any], audit: Dict[str, Any], key: str, hit: bool, limit: int, reason: str,
+                         kind: str) -> None:
+    """模型接口的临时报错与过载（第 158、179 轮）照限流扣信：同一会话连着撞上同一类，从 THROTTLE_BACKOFF_SECONDS 起加倍、最
+    长 THROTTLE_BACKOFF_MAX，扣信不写信给站主；连着 limit 次还不好才按接口报错交给站主，计数随之清零，站主回信“照原样重发”
+    之后重新起算。这一类没撞上就清零。"""
+    if not hit:
+        session.pop(key, None)
+        return
+    session[key] = int(session.get(key, 0)) + 1
+    if session[key] <= limit:
+        audit["rate_limited_until"] = int(time.time()) + min(THROTTLE_BACKOFF_SECONDS * 2 ** (session[key] - 1),
+                                                             THROTTLE_BACKOFF_MAX)
+        audit["hold_reason"] = reason
+    else:
+        session.pop(key)
+        audit["api_error"] = "%s（%s，内核已经连着扣信重试过 %d 次）" % (audit["api_error"], kind, limit)
 
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -2538,8 +2561,9 @@ class TurnRunner:
                            "generation": generation}
         elif session and (fresh or session.get("cwd") != str(workspace)):
             session, generation = None, generation + 1  # 返工重开，或工作目录变了（claude 按目录找会话）
-        # 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）；第 158 轮：临时报错的次数也带上
-        carried = ({key: session[key] for key in ("throttles", "transients") if (session or {}).get(key)}
+        # 第 145 轮：开新会话也带上连着被限流的次数（退避照样加倍，太多次照样交给站主）；第 158 轮：临时报错的次数也带上；
+        # 第 179 轮：过载的次数也带上
+        carried = ({key: session[key] for key in ("throttles", "transients", "overloads") if (session or {}).get(key)}
                    if quizs or fallback is not None else {})
         if quizs or fallback is not None:
             session = None  # 第 137 轮：quizs 每回合一个新会话，不续接（Quizs 的最终回答策略只认新会话）；替补也一样
@@ -2695,19 +2719,16 @@ class TurnRunner:
                 reset = throttle_reset(str(audit["api_error"]), now)
                 audit["rate_limited_until"] = reset if reset is not None else now + min(
                     THROTTLE_BACKOFF_SECONDS * 2 ** (session["throttles"] - 1), THROTTLE_BACKOFF_MAX)
+            else:
+                session.pop("throttles")  # 第 179 轮：交给站主时清零，站主回信“照原样重发”之后重新起算
         else:
             session.pop("throttles", None)
-        transient = (not quizs and audit.get("rate_limited_until") is None
-                     and bool(TRANSIENT_RE.search(str(audit.get("api_error") or ""))))
-        if transient:
-            session["transients"] = int(session.get("transients", 0)) + 1
-            if session["transients"] <= TRANSIENT_MAX_HOLDS:
-                audit["rate_limited_until"] = int(time.time()) + THROTTLE_BACKOFF_SECONDS * 2 ** (session["transients"] - 1)
-                audit["hold_reason"] = TRANSIENT_HOLD_REASON
-            else:
-                audit["api_error"] = "%s（临时报错，内核已经连着扣信重试过 %d 次）" % (audit["api_error"], TRANSIENT_MAX_HOLDS)
-        else:
-            session.pop("transients", None)
+        error = str(audit.get("api_error") or "")
+        loose = not quizs and audit.get("rate_limited_until") is None
+        overloaded = loose and bool(OVERLOAD_RE.search(error))
+        hold_interface_error(session, audit, "overloads", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, "过载")
+        hold_interface_error(session, audit, "transients", loose and not overloaded and bool(TRANSIENT_RE.search(error)),
+                             TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON, "临时报错")
         if audit.get("api_error"):
             output_error = "模型接口报错（环境问题，不是工人的输出问题）：%s" % audit["api_error"]
         elif not audit["violations"]:
@@ -4459,7 +4480,7 @@ def sweep_window(hub: Hub, name: str, label: str):
     marks = exec_marks(hub)
     marks.mkdir(parents=True, exist_ok=True)
     path = marks / ("%s.json" % name)
-    with DirLock(hub.root / ".sweep", wait_seconds=SWEEP_WAIT_SECONDS):
+    with DirLock(hub.root / ".sweep", wait_seconds=SWEEP_WAIT_SECONDS + 2 * sweep_extra_seconds(len(gate_baselines(hub.repo)))):
         with DirLock(hub.root / ".land", wait_seconds=LAND_WAIT_SECONDS):
             write_text_atomic(path, json.dumps({"pid": os.getpid(), "task": name, "label": label, "sweep": True,
                                                 "at": utc_now()}) + "\n")
@@ -4891,6 +4912,15 @@ def commit_records(hub: Hub, ts: Dict[str, Any]) -> Tuple[Optional[str], Optiona
 SWEEP_SECONDS = 2400
 #: 后台回归排队等前一份跑完的上限（第 68 轮）：一份最长 SWEEP_SECONDS，再留出它附带的落地预演。
 SWEEP_WAIT_SECONDS = 2 * SWEEP_SECONDS
+#: 第 179 轮：SWEEP_SECONDS 按每份门禁基准 REGRESSION_SECONDS_PER_GATE 秒算够跑的份数；再多的每份加这么多秒，排队的上限加两倍
+SWEEP_GATES_COVERED = 40
+
+
+def sweep_extra_seconds(gates: int) -> int:
+    """门禁基准超过 SWEEP_GATES_COVERED 份时，跑全部门禁基准要在 SWEEP_SECONDS 之外多给的秒数（第 179 轮）：门禁基准逐片加
+    一份、每份跑整套前端测试，11-16 站主回归 45 份 1913 秒（机器空闲），照旧写死 2400 秒约到 55 份就会掐断落地预演、挡住结
+    项。多给的只看份数，不跟着 SWEEP_SECONDS 走：契约场景把时限设短时照旧按设的掐断。"""
+    return REGRESSION_SECONDS_PER_GATE * max(0, gates - SWEEP_GATES_COVERED)
 
 
 def gate_baselines(root: Path) -> List[str]:
@@ -4911,17 +4941,18 @@ def scratch_worktree(hub: Hub, label: str, commit: str):
 
 
 def sweep_gates(path: Path) -> Tuple[int, str, List[str]]:
-    """在 path 里跑全部门禁基准（白盒不算）；返回（退出码, 输出, 跑了哪几份）。"""
+    """在 path 里跑全部门禁基准（白盒不算）；返回（退出码, 输出, 跑了哪几份）。时限照份数放宽（第 179 轮）。"""
     tests = gate_baselines(path)
     if not tests:
         return 0, "没有门禁基准可跑", tests
+    limit = SWEEP_SECONDS + sweep_extra_seconds(len(tests))
     try:
         proc = subprocess.run(KERNEL_PYTEST + ["-q", "-rfE"] + tests, cwd=str(path), stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=SWEEP_SECONDS,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=limit,
                               env=kernel_pytest_env())
         return proc.returncode, proc.stdout.decode("utf-8", "replace"), tests
     except subprocess.TimeoutExpired:
-        return -1, "超过 %d 秒没有跑完" % SWEEP_SECONDS, tests
+        return -1, "超过 %d 秒没有跑完" % limit, tests
 
 
 def keep_sweep_output(path: Path, out: str) -> None:

@@ -10,7 +10,7 @@
 //   - mark_owner_moved、read_owner_sweep、rehearsal_letter、rehearse_landing 的边界与截断。
 // 不写转义序列。
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, sep } from "node:path";
 import { sleepSync } from "@themis/base/fsutil";
 import type { PyDict, PyValue } from "@themis/base/pyjson";
@@ -18,7 +18,7 @@ import { HubError } from "@themis/hub/errors";
 import { landingBlockers } from "@themis/hub/land";
 import { Hub, canonicalState } from "@themis/hub/mailbox";
 import { setKernelPython } from "@themis/hub/runpd";
-import { REAL_SWEEP_DEPS, type SweepDeps, sweepGates, tsInstallIfStale, withSweepWindow } from "@themis/hub/sweep";
+import { REAL_SWEEP_DEPS, type SweepDeps, gateBaselines, sweepExtraSeconds, sweepGates, tsInstallIfStale, withSweepWindow } from "@themis/hub/sweep";
 import { newTaskState } from "@themis/hub/taskstate";
 import { afterAll, describe, expect, it } from "vitest";
 import { depsDigest } from "../../../tools/stamp-install.mjs";
@@ -123,6 +123,47 @@ describe("第 ⑤h2 片：sweep_gates 与 gate_baselines（手写，真跑门禁
     await new Promise((resolve) => setTimeout(resolve, 12_000));
     expect(existsSync(marker), "孙进程跟着整棵树结束了，没写出标记").toBe(false);
   }, 120_000);
+
+  it("只测 TS（第 179 轮）：门禁基准超过 40 份时每多一份多给 60 秒，给 2 秒的时限 41 份也等得到睡 4 秒的那份；40 份照旧 2 秒掐断", async () => {
+    const dir = tempDir("sweep-many");
+    for (let at = 0; at < 40; at += 1) put(dir, `tests/test_gate_t${String(at).padStart(3, "0")}_baseline.py`, lines("def test_ok():", "    pass"));
+    put(dir, "tests/test_gate_t999_baseline.py", lines("import time", "", "", "def test_slow():", "    time.sleep(4)"));
+    setKernelPython(kernelPython());
+    expect([0, 40, 41, 46, 55].map(sweepExtraSeconds)).toEqual([0, 0, 60, 360, 900]);
+    const [code, out, tests] = await sweepGates(dir, 2);
+    expect([code, tests.length, out.includes("41 passed")]).toEqual([0, 41, true]);
+    rmSync(join(dir, "tests", "test_gate_t000_baseline.py"));
+    expect(await sweepGates(dir, 2)).toEqual([-1, "超过 2 秒没有跑完", gateBaselines(dir)]);
+  }, 120_000);
+
+  it("只测 TS（第 179 轮）：门禁基准超过 40 份时排队的上限每多一份多给 120 秒：前一份拿着 .sweep 3 秒，给 1 秒的上限 41 份时等得到，40 份照旧超时", async () => {
+    const repo = tempDir("sweep-wait");
+    for (let at = 0; at < 41; at += 1) put(repo, `tests/test_gate_t${String(at).padStart(3, "0")}_baseline.py`, "");
+    const hub = new Hub(repo);
+    hub.ensure();
+    const deps: SweepDeps = { ...REAL_SWEEP_DEPS, sweepWaitSeconds: 1 };
+    let held = 0;
+    const holdFor = (seconds: number): Promise<unknown> => {
+      held += 1;
+      const ready = join(repo, `held-${held}`);
+      const script = lines("import sys", "import time", "from pathlib import Path", `sys.path.insert(0, ${JSON.stringify(join(REPO, "scripts"))})`, "import kit_hub as kh",
+        `with kh.DirLock(Path(${JSON.stringify(join(repo, ".agent", "mailbox", ".sweep"))}), wait_seconds=5):`,
+        `    Path(${JSON.stringify(ready)}).write_text("ok")`, `    time.sleep(${seconds})`);
+      const child = spawn(kernelPython(), ["-c", script], { stdio: "ignore", env: { ...process.env, PYTHONUTF8: "1" } });
+      const exited = new Promise((resolve) => child.on("exit", resolve));
+      for (let waited = 0; !existsSync(ready) && waited < 600; waited += 1) sleepSync(50);
+      return exited;
+    };
+    let exited = holdFor(3);
+    const started = Date.now();
+    expect(await withSweepWindow(hub, "owner-sweep", "站主提交之后的回归", async () => "ran", deps)).toBe("ran");
+    expect(Date.now() - started, "等到前一份放掉").toBeGreaterThan(1500);
+    await exited;
+    rmSync(join(repo, "tests", "test_gate_t000_baseline.py"));
+    exited = holdFor(3);
+    await expect(withSweepWindow(hub, "owner-sweep", "站主提交之后的回归", async () => "ran", deps)).rejects.toThrow("锁被占用");
+    await exited;
+  }, 60_000);
 });
 
 describe("第 ⑤h2 片：后台回归的标记与 .sweep 锁两边互认（手写）", () => {

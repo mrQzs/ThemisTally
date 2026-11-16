@@ -14,7 +14,7 @@
   {
    "name": "S01 不过 .sweep 锁",
    "file": "ts/packages/hub/src/sweep.ts",
-   "old": "  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds).acquire();",
+   "old": "  const sweep = new DirLock(purePathStr(hub.root, \".sweep\"), deps.sweepWaitSeconds + 2 * sweepExtraSeconds(gateBaselines(hub.repo).length)).acquire();",
    "new": "  const sweep = { release: () => undefined };"
   },
   {

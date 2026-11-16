@@ -222,6 +222,9 @@ export const THROTTLE_MAX_HOLDS = 5;
 /** 第 158 轮：模型接口的临时报错照限流扣信退避（从 THROTTLE_BACKOFF_SECONDS 起加倍），连着这么多次还不好才交给站主；扣信不写信给站主。 */
 export const TRANSIENT_MAX_HOLDS = 3;
 export const TRANSIENT_HOLD_REASON = "模型接口临时报错";
+/** 第 179 轮：提供方集群过载（529、overloaded_error）单独一类，扣 5 次（5、10、20、40、60 分钟）才交给站主；同 kit_hub.py 的 OVERLOAD_*。 */
+export const OVERLOAD_MAX_HOLDS = 5;
+export const OVERLOAD_HOLD_REASON = "模型接口过载";
 /**
  * 限流报错里写着重置时刻（智谱的 1308：“…将在 2026-11-06 18:44:51 重置”）时扣到那之后一会儿，不再加倍试探。这个时刻不带时区，
  * 是北京时间：T026 的门禁端 08:42Z 撞上、报 18:44:51，10:59Z 的扣信到点接着做成了；按 UTC 读要到 18:44Z 才解除。
