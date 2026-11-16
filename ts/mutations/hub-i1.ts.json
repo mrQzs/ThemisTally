@@ -656,14 +656,14 @@
   {
    "name": "T08 重试的输入不带上一回合的问题",
    "file": "ts/packages/hub/src/engine.ts",
-   "old": "      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, error, inputs);",
-   "new": "      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, null, inputs);"
+   "old": "      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, restart ? TIMEOUT_RESTART_NOTE : error, inputs);",
+   "new": "      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, restart ? TIMEOUT_RESTART_NOTE : null, inputs);"
   },
   {
    "name": "T09 重试不记 retry_of",
    "file": "ts/packages/hub/src/engine.ts",
-   "old": "      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, pyItem(turn, \"turn_id\") as string, false, inputs, null);",
-   "new": "      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, null, false, inputs, null);"
+   "old": "      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, pyItem(turn, \"turn_id\") as string, restart, inputs, null);",
+   "new": "      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, null, restart, inputs, null);"
   },
   {
    "name": "X01 战前门禁重交前不重摆 worktree",

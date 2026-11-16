@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-engine.contract.test.ts",
+    "-t",
+    "改状态的 Engine 方法",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "Q01 只读岗位超时照旧在原会话里续",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": "pyItem(turn, \"turn_id\") as string, restart, inputs, null);",
+      "new": "pyItem(turn, \"turn_id\") as string, false, inputs, null);"
+    },
+    {
+      "name": "Q02 开新会话也照旧转述上一回合的输出问题",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": "restart ? TIMEOUT_RESTART_NOTE : error, inputs);",
+      "new": "error, inputs);"
+    },
+    {
+      "name": "Q03 写文件的岗位超时也开新会话",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": "const restart = pyTruthy(pyGet(turn, \"timed_out\")) && ((ROSTER[agent] as RosterSpec).tools ?? []).every((tool) => READ_TOOLS.includes(tool));",
+      "new": "const restart = pyTruthy(pyGet(turn, \"timed_out\"));"
+    },
+    {
+      "name": "Q04 没超时、只是格式不对也开新会话",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": "const restart = pyTruthy(pyGet(turn, \"timed_out\")) && ((ROSTER[agent] as RosterSpec).tools ?? []).every((tool) => READ_TOOLS.includes(tool));",
+      "new": "const restart = ((ROSTER[agent] as RosterSpec).tools ?? []).every((tool) => READ_TOOLS.includes(tool));"
+    },
+    {
+      "name": "Q05 有一样只读工具就算只读",
+      "file": "ts/packages/hub/src/engine.ts",
+      "old": ".tools ?? []).every((tool) => READ_TOOLS.includes(tool));",
+      "new": ".tools ?? []).some((tool) => READ_TOOLS.includes(tool));"
+    },
+    {
+      "name": "Q06 TS 的那句话与 Python 不同",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "\"没核实的写进交付信：只读要用的文件，不要从头调查，读够了就交差。\";",
+      "new": "\"没核实的写进交付信。\";"
+    }
+  ]
+}

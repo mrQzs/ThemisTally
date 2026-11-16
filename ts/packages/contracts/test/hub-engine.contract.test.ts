@@ -62,6 +62,7 @@ const TESTS = [
   "test_worker_delivery_hands_over_to_the_kernel_jev_only_when_it_passes", "test_worker_delivery_is_verified_then_forwarded",
   "test_worker_retries_stop_when_the_output_stays_invalid", "test_worker_turn_with_violation_is_not_delivered",
   "test_a_gate_delivery_skips_the_baseline_while_the_owner_wants_the_contract_redone", // 第 164 轮
+  "test_a_timed_out_read_only_turn_is_redone_in_a_new_session", // 第 180 轮
 ];
 const FLOW = [
   "Engine.escalate", "Engine.worker_job", "Engine.auto_jev", "Engine.stage_workspace", "Engine.verify_delivery", "Engine.after_delivery", "Engine.finish_kernel_stage",
@@ -184,6 +185,9 @@ describe("第 ⑤i1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
       "test_release_moves_the_base_once_every_dependency_is_done release_dependents": 3,
     });
     expect(missingOf(all.map((item) => item.test).filter((test) => test.includes("[")), [
+      "test_a_timed_out_read_only_turn_is_redone_in_a_new_session[0]",
+      "test_a_timed_out_read_only_turn_is_redone_in_a_new_session[1]",
+      "test_a_timed_out_read_only_turn_is_redone_in_a_new_session[2]",
       "test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too[0]",
       "test_a_voided_or_rate_limited_redelivery_reports_the_first_check_too[1]",
       "test_plan_delivery_must_list_its_external_facts[0]",

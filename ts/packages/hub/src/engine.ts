@@ -17,8 +17,8 @@ import { pathArg } from "@themis/dispatcher/evidence";
 import { DispatchError } from "@themis/dispatcher/repo";
 import { acceptContract, acceptGatePre } from "./accept.ts";
 import {
-  AUTO_JEV, BUSY_GUARD, COORDINATOR, EXIT_USAGE, FIELDS, INFO_TYPES, INPUT_FILE_LIMIT, KERNEL, MAX_STAGE_REWORKS, OWNER, PAUSE_TYPES, ROSTER,
-  type RosterSpec, SENDER_ALIAS, STAGE_WORKER, VERDICTS, WORKER_RETRIES_AFTER_TIMEOUT, WORKERS,
+  AUTO_JEV, BUSY_GUARD, COORDINATOR, EXIT_USAGE, FIELDS, INFO_TYPES, INPUT_FILE_LIMIT, KERNEL, MAX_STAGE_REWORKS, OWNER, PAUSE_TYPES, READ_TOOLS,
+  ROSTER, type RosterSpec, SENDER_ALIAS, STAGE_WORKER, TIMEOUT_RESTART_NOTE, VERDICTS, WORKER_RETRIES_AFTER_TIMEOUT, WORKERS,
 } from "./constants.ts";
 import { dodCoverageProblems, externalFactProblems, unverifiedFacts } from "./contract.ts";
 import { HubError } from "./errors.ts";
@@ -794,8 +794,12 @@ export class Engine implements Landing {
       // 第 32 轮：超时的回合没机会把格式写对，不占这一次。T010 的规划第一回合 40 分钟超时，续上的回合
       // 把 JSON 写错了，没有再改的机会，协调人只好返工、从头规划
       timeouts += pyTruthy(pyGet(turn, "timed_out")) ? 1 : 0;
-      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, error, inputs);
-      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, pyItem(turn, "turn_id") as string, false, inputs, null);
+      // 第 180 轮：只读的岗位（工具里没有写文件的：合同端、审核端）超时了就开新会话重做。原会话的上下文已经很长，
+      // 每一步更慢：账本里这样续的 5 次（T016 两次、T033、T041、T042）都照样跑满，接着开的新会话 4 次都交上了。
+      // 门禁端、规划端照旧在原会话里续：工作目录里留着改动，超时多半是在跑命令
+      const restart = pyTruthy(pyGet(turn, "timed_out")) && ((ROSTER[agent] as RosterSpec).tools ?? []).every((tool) => READ_TOOLS.includes(tool));
+      prompt = turnPrompt(this.hub, ts, agent, taskId, texts, workspace, restart ? TIMEOUT_RESTART_NOTE : error, inputs);
+      turn = await this.runner.run(agent, taskId, workspace, this.deps.rolePrompt(agent), prompt, pyItem(turn, "turn_id") as string, restart, inputs, null);
       error = problemText(this.outputProblem(agent, taskId, turn));
     }
     return [turn, error, timeouts];

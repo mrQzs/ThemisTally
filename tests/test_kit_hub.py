@@ -3884,6 +3884,34 @@ def test_the_blocked_letter_says_timed_out_again_only_when_it_did(engine_env, pl
     assert ("可以发“返工”让它重做" in blocked[0]) is not again
 
 
+@pytest.mark.parametrize("first, tools, restart", [
+    (TIMEOUT, None, True),  # 合同端只有 read、grep、find、ls
+    (TIMEOUT, ["read", "grep", "find", "ls", "edit"], False),  # 工具里有写文件的：照旧在原会话里续
+    (BAD_FORMAT, None, False),  # 没超时、只是格式不对：照旧在原会话里改
+])
+def test_a_timed_out_read_only_turn_is_redone_in_a_new_session(engine_env, monkeypatch, first, tools, restart):
+    # 第 180 轮：只读岗位超时之后在原会话里续，账本里 5 次都照样跑满（T016 两次、T033、T041、T042），接着开的新会话
+    # 4 次都交上；11-16 T047 的合同返工在 pi 上想到 37.5 万 token 的上下文，到点作废
+    hub = engine_env
+    if tools is not None:
+        monkeypatch.setitem(kh.ROSTER, "contract-glm", dict(kh.ROSTER["contract-glm"], tools=tools))
+    state = hub.load_state()
+    ts = state["tasks"]["T001"]
+    ts["stages"]["1-plan"]["status"] = "delivered"
+    ts["stages"]["2-contract"]["status"] = "assigned"
+    hub.save_state(state)
+    hub.deliver({"from": kh.COORDINATOR, "to": "contract-glm", "task-id": "T001-2-contract", "in-reply-to": "none",
+                 "type": "开工"}, fields())
+    runner = FakeRunner([first, TIMEOUT])
+    kh.Engine(hub, runner).step()
+    assert runner.fresh == [False, restart]
+    assert (kh.TIMEOUT_RESTART_NOTE in runner.calls[1][2]) is restart
+    assert ("没有代码块" in runner.calls[1][2]) is not restart  # 原会话里续的，照旧转述上一回合的输出问题
+    ts = hub.load_state()["tasks"]["T001"]
+    assert ts["stages"]["2-contract"]["status"] == "failed" and ts["stages"]["2-contract"]["timed_out"] is True
+    assert ("续接的回合又超时了" in coordinator_letter(hub)["需协调人决定"]) is (first == TIMEOUT)
+
+
 def pi_worker_turn(root: Path, monkeypatch, supported) -> tuple:
     root.mkdir(parents=True, exist_ok=True)
     hub = kh.Hub(root)

@@ -1,0 +1,48 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "read_only_turn_is_redone or blocked_letter_says_timed_out or worker_retries_stop or timed_out_turn_does_not_use_up or invalid_output_gets_one_retry"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 只读岗位超时照旧在原会话里续",
+      "file": "scripts/kit_hub.py",
+      "old": "                                   fresh=restart, inputs=inputs)",
+      "new": "                                   inputs=inputs)"
+    },
+    {
+      "name": "P02 开新会话也照旧转述上一回合的输出问题",
+      "file": "scripts/kit_hub.py",
+      "old": "error=TIMEOUT_RESTART_NOTE if restart else error, inputs=inputs)",
+      "new": "error=error, inputs=inputs)"
+    },
+    {
+      "name": "P03 写文件的岗位超时也开新会话",
+      "file": "scripts/kit_hub.py",
+      "old": "restart = bool(turn.get(\"timed_out\")) and set(ROSTER[agent].get(\"tools\") or ()) <= set(READ_TOOLS)",
+      "new": "restart = bool(turn.get(\"timed_out\"))"
+    },
+    {
+      "name": "P04 没超时、只是格式不对也开新会话",
+      "file": "scripts/kit_hub.py",
+      "old": "restart = bool(turn.get(\"timed_out\")) and set(ROSTER[agent].get(\"tools\") or ()) <= set(READ_TOOLS)",
+      "new": "restart = set(ROSTER[agent].get(\"tools\") or ()) <= set(READ_TOOLS)"
+    },
+    {
+      "name": "P05 只读的判断反过来（工具含全部只读工具就算）",
+      "file": "scripts/kit_hub.py",
+      "old": "set(ROSTER[agent].get(\"tools\") or ()) <= set(READ_TOOLS)",
+      "new": "set(ROSTER[agent].get(\"tools\") or ()) >= set(READ_TOOLS)"
+    }
+  ]
+}

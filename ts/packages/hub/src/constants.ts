@@ -60,6 +60,9 @@ export const AUTO_JEV: Readonly<Record<string, string>> = { "2-contract": "3j-je
 /** 执行端以外的阶段，协调人最多让它返工几次。 */
 export const MAX_STAGE_REWORKS = 3;
 export const WORKER_RETRIES_AFTER_TIMEOUT = 2;
+/** 第 180 轮：只读的岗位超时之后，内核开新会话重做那一回合收到的话。 */
+export const TIMEOUT_RESTART_NOTE = "上一回合跑满时限，什么也没交出，作废了；这一回合是内核开的新会话。先把确定的部分交出来，"
+  + "没核实的写进交付信：只读要用的文件，不要从头调查，读够了就交差。";
 /** 审核端“退回”的对象 → 阶段（键序就是报错里列出的次序）。 */
 export const RETURN_TARGETS: Readonly<Record<string, string>> = {
   合同端: "2-contract",

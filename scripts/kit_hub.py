@@ -109,6 +109,9 @@ AUTO_JEV = {"2-contract": "3j-jev", "6-gate-post": "6j-jev"}
 MAX_STAGE_REWORKS = 3
 #: 工人回合的输出不合格时最多重试几次：只重试一次，前面有超时的回合才再给一次（第 32 轮）
 WORKER_RETRIES_AFTER_TIMEOUT = 2
+#: 第 180 轮：只读的岗位超时之后，内核开新会话重做那一回合收到的话
+TIMEOUT_RESTART_NOTE = ("上一回合跑满时限，什么也没交出，作废了；这一回合是内核开的新会话。先把确定的部分交出来，"
+                        "没核实的写进交付信：只读要用的文件，不要从头调查，读够了就交差。")
 #: 第 108 轮：交付没过内核核验时，同一会话里当场重交那一回合收到的话
 REDELIVER_TEXT = ("内核核验没过（交付已收到，同一会话里当场重交一次）：\n%s\n\n照这些改，在这一回合里重新交差。"
                   "要协调人或站主定、你自己改不了的，交“阻塞”信说明原因，不要原样重交。")
@@ -6697,9 +6700,14 @@ class Engine:
             # 第 32 轮：超时的回合没机会把格式写对，不占这一次。T010 的规划第一回合 40 分钟超时，续上的回合
             # 把 JSON 写错了，没有再改的机会，协调人只好返工、从头规划
             timeouts += 1 if turn.get("timed_out") else 0
-            prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace, error=error, inputs=inputs)
+            # 第 180 轮：只读的岗位（工具里没有写文件的：合同端、审核端）超时了就开新会话重做。原会话的上下文已经很长，
+            # 每一步更慢：账本里这样续的 5 次（T016 两次、T033、T041、T042）都照样跑满，接着开的新会话 4 次都交上了。
+            # 门禁端、规划端照旧在原会话里续：工作目录里留着改动，超时多半是在跑命令
+            restart = bool(turn.get("timed_out")) and set(ROSTER[agent].get("tools") or ()) <= set(READ_TOOLS)
+            prompt = turn_prompt(self.hub, ts, agent, task_id, texts, workspace,
+                                 error=TIMEOUT_RESTART_NOTE if restart else error, inputs=inputs)
             turn = self.runner.run(agent, task_id, workspace, role_prompt(agent), prompt, retry_of=turn["turn_id"],
-                                   inputs=inputs)
+                                   fresh=restart, inputs=inputs)
             error = self.output_problem(agent, task_id, turn)
         return turn, error, timeouts
 
