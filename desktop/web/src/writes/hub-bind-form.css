@@ -1,0 +1,64 @@
+/* 改绑定表单对话框的样式（T045）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色（照 runtime-form.css 的写法）。 */
+.hb-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-4);
+}
+
+.hb-bottom {
+  border-top: 1px solid var(--tt-border);
+  padding-top: var(--tt-space-3);
+}
+
+.hb-msg {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.hb-msg--muted {
+  color: var(--tt-text-3);
+}
+
+.hb-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.hb-preview__cmd {
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+  overflow-wrap: anywhere;
+}
+
+.hb-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-1);
+}
+
+.hb-diff__line {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.hb-preview__warn {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-tone-warning-fg);
+}
+
+.hb-preview__turn {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-tone-attention-fg);
+}
+
+.hb-preview__error {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-danger-text);
+  white-space: pre-wrap;
+}

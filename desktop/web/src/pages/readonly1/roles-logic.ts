@@ -137,6 +137,19 @@ export function allowedProfiles(
     .map((p) => p.id);
 }
 
+// 替补候选（内核硬规则 scripts/kit_roles.py:331-333）：只有主选适配器是 quizs 时才谈得上替补，替补自己不能是
+// quizs，且替补也要在该岗位的允许名单里。主选不是 quizs、查不到或 adapter 非字符串、允许名单去掉 quizs 后为
+// 空时，都没有替补候选。
+export function hubFallbackCandidates(
+  profiles: readonly ProfilesData['profiles'][number][],
+  allowedAdapters: readonly string[],
+  mainProfileId: string,
+): string[] {
+  const main = profiles.map((p) => p as unknown as LooseProfile).find((p) => p.id === mainProfileId);
+  if (main == null || main.adapter !== 'quizs') return [];
+  return allowedProfiles(profiles, allowedAdapters.filter((a) => a !== 'quizs'));
+}
+
 export interface HubPostFallbackInfo {
   adapter: string | null;
   provider: string | null;

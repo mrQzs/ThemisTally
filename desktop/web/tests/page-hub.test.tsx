@@ -81,7 +81,7 @@ afterEach(() => {
 });
 
 describe('七端岗位（桩模式渲染 #/roles）', () => {
-  it('区块标题「七端岗位」、表 aria-label「七端岗位」、六列列头没有「操作」', async () => {
+  it('区块标题「七端岗位」、表 aria-label「七端岗位」、七列列头末尾是「操作」', async () => {
     await mount('#/roles');
     const sec = hubSec();
     expect(sec, '应有标题为「七端岗位」的 section').not.toBeNull();
@@ -89,7 +89,30 @@ describe('七端岗位（桩模式渲染 #/roles）', () => {
     expect(qa(sec, '.common-section__desc').length, '不加次级说明').toBe(0);
     const table = hubTable();
     expect(table, '表应带 aria-label="七端岗位"').not.toBeNull();
-    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补']);
+    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补', '操作']);
+  });
+
+  it('操作列每行两个入口：改绑定…/恢复缺省…；planner 改绑定…禁用；contract/exec 恢复缺省…可点、其余禁用', async () => {
+    await mount('#/roles');
+    const rows = hubRows();
+    expect(rows.length).toBe(6);
+    const bind = '改绑定…';
+    const unset = '恢复缺省…';
+    POSTS.forEach((post, i) => {
+      const buttons = qa(rows[i]['操作'], 'button');
+      expect(buttons.length, post + ' 行有两个入口').toBe(2);
+      expect(text(buttons[0]), post + ' 主入口恰为「改绑定…」').toBe(bind);
+      expect(text(buttons[1]), post + ' 次入口恰为「恢复缺省…」').toBe(unset);
+    });
+    expect(qa(rows[1]['操作'], 'button')[0].disabled, 'planner 改绑定…禁用').toBe(true);
+    for (const i of [0, 2, 3, 4, 5]) {
+      expect(qa(rows[i]['操作'], 'button')[0].disabled, POSTS[i] + ' 改绑定…可点').toBe(false);
+    }
+    expect(qa(rows[2]['操作'], 'button')[1].disabled, 'contract 恢复缺省…可点').toBe(false);
+    expect(qa(rows[5]['操作'], 'button')[1].disabled, 'exec 恢复缺省…可点').toBe(false);
+    for (const i of [0, 1, 3, 4]) {
+      expect(qa(rows[i]['操作'], 'button')[1].disabled, POSTS[i] + ' 恢复缺省…禁用').toBe(true);
+    }
   });
 
   it('六行的 data-post 依次是 coordinator、planner、contract、gate、audit、exec', async () => {

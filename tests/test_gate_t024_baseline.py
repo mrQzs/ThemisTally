@@ -1085,7 +1085,7 @@ describe('T024 表单对话框与两个入口', () => {
     expect(pageButtons(), '编辑入口关上后页里的按钮集合也与打开前一致').toEqual(before);
   });
 
-  it('两个入口的样式与仍在禁用的入口：页头次序照旧、[新建 profile] secondary/md 可点；4 张角色卡的 [更改…] 仍禁用；角色页禁用数 6', async () => {
+  it('两个入口的样式与仍在禁用的入口：页头次序照旧、[新建 profile] secondary/md 可点；4 张角色卡的 [更改…] 仍禁用；角色页禁用数 11', async () => {
     vi.useFakeTimers();
     await mountApp('#/roles?write=ok');
     const actions = document.querySelector('.tt-page__actions') as HTMLElement;
@@ -1103,7 +1103,7 @@ describe('T024 表单对话框与两个入口', () => {
     expect(changes.length, '角色卡应有 4 个 [更改…]').toBe(4);
     for (const c of changes) expect(c.disabled, '[更改…] 仍禁用（下一片）').toBe(true);
     const disabledCount = buttons(pageFrame()).filter((b) => b.disabled).length;
-    expect(disabledCount, '角色页禁用按钮 9→6（page-app 的口径）').toBe(6);
+    expect(disabledCount, '角色页禁用按钮 9→6→11（T045 新增 5 个禁用入口；page-app 的口径）').toBe(11);
   });
 
   it('offline 下两个入口照旧可点', async () => {
@@ -1606,7 +1606,7 @@ def test_d04_d05_d06_d08_probe_form(pipeline):
     「手填的模型没有核实」）、逐字校验提示且不合法不调 preview、300ms 防抖、底部命令（去掉 --dry-run/--json）与
     警告报错原文、[确认…] 门控与预览过期、迟到回应按序号丢弃、编辑初值与 ID 只读、只传改动字段、thinking 缺省
     未动不传、还没有改动（不写「没有变化」）、清空凭据变量的提示与禁用、runtime 读失败「先登记 runtime」、
-    对话框关着时页里不渲染任何按钮、两个入口的样式与仍在禁用的入口（角色页禁用数 6）、offline 照旧可点。"""
+    对话框关着时页里不渲染任何按钮、两个入口的样式与仍在禁用的入口（角色页禁用数 11）、offline 照旧可点。"""
     assert_probe_ok(pipeline, "form")
 
 

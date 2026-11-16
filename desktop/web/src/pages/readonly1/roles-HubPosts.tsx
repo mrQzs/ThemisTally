@@ -1,11 +1,15 @@
-// 七端岗位（合同第 6 节）：只读六行表——岗位、运行时、模型、思考档位、来源、替补，没有操作列、没有按钮。
+// 七端岗位（合同第 6 节）：只读六行表——岗位、运行时、模型、思考档位、来源、替补、操作。操作列放两个写入口
+// （改绑定… 开表单、恢复缺省… 直接走写流程），逐字句子与表单都在 src/writes/HubBindForm.tsx，入口文件只放按钮。
 // hub 信封整个收下：读失败时只这一组显示失败信封与 messages（pre），四个角色卡、profile 表、方案表照常。
 // 视图只收数据与回调：从 ../../api 只 import type。字段已在 roles-logic 归一，这里只渲染。
 import type { ReactNode } from 'react';
-import type { Envelope, HubRolesData } from '../../api';
+import type { Envelope, HubRolesData, ProfilesData } from '../../api';
 import { EffortPair, Table, Tag, type TableColumn } from '../../components';
 import { Section } from './common-Section';
-import { hubPostName, normalizeHubPost, type HubPostInfo } from './roles-logic';
+import { allowedProfiles, hubFallbackCandidates, hubPostName, normalizeHubPost, type HubPostInfo } from './roles-logic';
+import { useWriteFlow } from '../../writes/useWriteFlow';
+import { WriteFlow } from '../../writes/WriteConfirmDialog';
+import { HubBindAction, HubUnsetAction } from '../../writes/HubBindForm';
 
 const DASH = '—';
 
@@ -17,6 +21,7 @@ interface HubRow {
   思考档位: ReactNode;
   来源: ReactNode;
   替补: string;
+  操作: ReactNode;
 }
 
 const COLUMNS: readonly TableColumn<HubRow>[] = [
@@ -26,6 +31,7 @@ const COLUMNS: readonly TableColumn<HubRow>[] = [
   { key: '思考档位', header: '思考档位' },
   { key: '来源', header: '来源' },
   { key: '替补', header: '替补' },
+  { key: '操作', header: '操作' },
 ];
 
 // 运行时列：{runtime ?? —}（{adapter ?? —}）（照 RoleCard）。
@@ -54,32 +60,53 @@ function sourceCell(p: HubPostInfo): ReactNode {
 
 export interface HubPostsProps {
   hub: Envelope<HubRolesData>;
+  profiles?: ProfilesData['profiles'];
+  reload?: () => Promise<void>;
 }
 
-export function HubPosts({ hub }: HubPostsProps) {
+export function HubPosts({ hub, profiles = [], reload }: HubPostsProps) {
+  const { start, flow } = useWriteFlow(reload);
   return (
     <Section title="七端岗位">
       {hub.ok && hub.data ? (
-        <Table
-          className="rl-table rl-hub"
-          aria-label="七端岗位"
-          rowHeight={40}
-          columns={COLUMNS}
-          rows={hub.data.posts.map((raw) => {
-            const p = normalizeHubPost(raw);
-            return {
-              rowId: p.post,
-              岗位: hubPostName(p.post),
-              运行时: runtimeText(p.runtime, p.adapter),
-              模型: `${p.provider ?? DASH}/${p.model ?? DASH}`,
-              思考档位: <EffortPair requested={p.thinking} effective={null} />,
-              来源: sourceCell(p),
-              替补: fallbackText(p.fallback),
-            };
-          })}
-          rowKey={(r) => r.rowId}
-          rowAttrs={(r) => ({ 'data-post': r.rowId })}
-        />
+        <>
+          <Table
+            className="rl-table rl-hub"
+            aria-label="七端岗位"
+            rowHeight={40}
+            columns={COLUMNS}
+            rows={hub.data.posts.map((raw) => {
+              const p = normalizeHubPost(raw);
+              return {
+                rowId: p.post,
+                岗位: hubPostName(p.post),
+                运行时: runtimeText(p.runtime, p.adapter),
+                模型: `${p.provider ?? DASH}/${p.model ?? DASH}`,
+                思考档位: <EffortPair requested={p.thinking} effective={null} />,
+                来源: sourceCell(p),
+                替补: fallbackText(p.fallback),
+                操作: (
+                  <>
+                    <HubBindAction
+                      post={p.post}
+                      postLabel={hubPostName(p.post)}
+                      mainCandidates={allowedProfiles(profiles, p.allowedAdapters)}
+                      fallbackCandidatesFor={(id) => hubFallbackCandidates(profiles, p.allowedAdapters, id)}
+                      source={p.source}
+                      mainProfile={p.profile}
+                      fallbackProfile={p.fallback?.profile ?? null}
+                      reload={reload}
+                    />
+                    <HubUnsetAction post={p.post} source={p.source} onStart={start} />
+                  </>
+                ),
+              };
+            })}
+            rowKey={(r) => r.rowId}
+            rowAttrs={(r) => ({ 'data-post': r.rowId })}
+          />
+          <WriteFlow flow={flow} />
+        </>
       ) : (
         <div className="rl-hub-err">
           <p className="rl-hub-errtext">

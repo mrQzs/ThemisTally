@@ -36,7 +36,7 @@ export function RolesView({ data, onDiff, reload }: RolesViewProps) {
           <RoleCard key={r.role} role={r} activePreset={active} />
         ))}
       </div>
-      <HubPosts hub={data.hub} />
+      <HubPosts hub={data.hub} profiles={data.profiles.profiles} reload={reload} />
       <ProfilesTable profiles={data.profiles.profiles} roles={roleInfos} reload={reload} />
       {data.presets.presets.length > 0 && (
         <PresetsTable presets={data.presets.presets} active={active} totalRoles={totalRoles} onDiff={onDiff} reload={reload} />
