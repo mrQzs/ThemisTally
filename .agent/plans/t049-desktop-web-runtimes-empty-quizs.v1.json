@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "task_id": "t049-desktop-web-runtimes-empty-quizs",
+  "plan_version": 1,
+  "title": "桌面端前端第 13 片：CLI 运行时页没登记运行时也显示 Quizs 一块；初始窗口标题改成应用名",
+  "repository": "ThemisTally",
+  "base_sha": "82749c795c8c28cfff5e07150ec4b8e9449ac07b",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/index.html",
+      "desktop/web/tests/page-quizs.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/tests/page-runtimes-empty.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t049_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/writes/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/App.css",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/tests/page-runtimes.test.tsx",
+      "desktop/web/tests/writes-remove.test.tsx",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t049_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "一个 runtime 都没登记时，页面上同时有标题「还没有登记的 runtime」、说明原文「用页头的[手动登记…]登记运行时：填运行时 ID、适配器与命令（可选）」与「Quizs」一块（提供方档案表与 live 套表各 2 行）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "刚装好、还没登记 CLI 的机器要能先看到 Quizs 装没装好、批准了哪些提供方"
+    },
+    {
+      "id": "D02",
+      "text": "Quizs 区块在空态下的读取中、读失败与各情景与有运行时时一样（`?quizs=broken` 时只有区块写「Quizs 跑不起来」与 live 的「读不出」，页面级不出错块）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "读失败只坏这一块，页面其余照常"
+    },
+    {
+      "id": "D03",
+      "text": "有 runtime 时页面逐字不变（data 态、视图根内三节次序、页头两钮与 [刷新]、表内容）",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "不给已有用法添乱"
+    },
+    {
+      "id": "D04",
+      "text": "空态下 `data-page-state` 仍是 `empty`、`[data-page=\"runtimes\"]` 仍为 null；空态的 Quizs 区块直接挂在 `.tt-page` 下（不在视图根内），没有新增 CSS",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "视图根与页面状态的语义不变，空态的区块不混进视图"
+    },
+    {
+      "id": "D05",
+      "text": "页头 [手动登记…] 在空态下可点；重读（[刷新] 或登记成功后的 reload）后若有 runtime，页面按 data 态显示（视图根出现、Quizs 区块在视图根内）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "空态不是死路，登记完就回到正常样子"
+    },
+    {
+      "id": "D06",
+      "text": "`desktop/web/index.html` 的初始标题逐字是 `<title>Themis Tally</title>`（文件里不再有「组件陈列」），挂载后 `document.title` 仍按页面由 `App.tsx` 改写",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "加载那一下不再闪出「组件陈列」"
+    },
+    {
+      "id": "D07",
+      "text": "静态红线一条不破：`loadRuntimes`/`isRuntimesEmpty` 仍是命名的模块级函数；`isRuntimesEmpty` 仍是一行、只谈 `runtimes.length`、不掺 `quizs`；children 仍逐字以 `{(data, reload) =>` 开头；`reload={reload}` 仍在；`isEmpty={isRuntimesEmpty}` 照传；两段空态文字仍在 `RuntimesPage.tsx`；`RuntimesPage.tsx` 不出现 t041 的禁字表与「登记 runtime」",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "这些是 T009/T023/T041/T043 的长期门禁，写歪了会红"
+    },
+    {
+      "id": "D08",
+      "text": "新测试在 App 一级钉住「empty 态不传 `empty` 时 PageFrame 渲染 children」这条分支（此前没有任何测试钉住它），并覆盖 `?mock=empty`、`?mock=empty&quizs=broken`、注入失败、先空后有、`?mock=loading`/`?mock=error`、初始标题；新测试不用 skip/only/todo",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "这条分支是本片行为的地基，必须有测试护住"
+    },
+    {
+      "id": "D09",
+      "text": "既有测试没被删、跳过或弱化：`desktop/web/tests/page-quizs.test.tsx` 只许改那一个 `it`（标题、提示语、加一条新断言），t043 `:149-158` 的记号一个不少；`page-app.test.tsx`、`readonly2-app.test.tsx`、`page-runtimes.test.tsx`、`writes-remove.test.tsx` 一字不改；门禁测试文件一个不改（`tests/test_gate_t049_*.py` 在禁改范围里）",
+      "evidence": [
+        "scope",
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "既有断言是长期保护，不能为新功能放松"
+    },
+    {
+      "id": "D10",
+      "text": "所有修改都在允许集合内（3 个可改文件 + 1 个可新增文件），没有碰 forbidden_paths；`package.json` 与 `package-lock.json` 不变；没有新增依赖、没有新增 CSS、没有改 `PageFrame`/`readonly1`/`api.ts`/`mock`/`App.tsx`",
+      "evidence": [
+        "scope",
+        "G01",
+        "R01",
+        "V03"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
