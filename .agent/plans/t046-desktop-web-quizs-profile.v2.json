@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "task_id": "t046-desktop-web-quizs-profile",
+  "plan_version": 2,
+  "title": "桌面端前端第 12 片：profile 表单接 quizs 运行时，模型与思考档位从 Quizs 已批准的提供方档案里选（模型配置 M4 之六）",
+  "repository": "ThemisTally",
+  "base_sha": "19b45497ca7b42d4aefd0f2a937e188e5a15de79",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/src/writes/profile-form.css"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/quizsProfile.ts",
+      "desktop/web/tests/writes-profile-quizs-logic.test.ts",
+      "desktop/web/tests/writes-profile-quizs.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t046_*.py",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/profileRules.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/RuntimeForm.tsx",
+      "desktop/web/src/pages/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/live/**",
+      "desktop/web/tests/writes-profile-form.test.tsx",
+      "desktop/web/tests/live-api.test.ts",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t046_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d+ passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "非 quizs 运行时的表单行为一字不变——控件、七段档位、常显的「手填的模型没有核实」、命令与请求照旧；选 pi 时 `getQuizsProviders` 的调用次数是 0；表单里凭据输入仍恰一个。",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "这一片只加 quizs 的分支，别的一概不动"
+    },
+    {
+      "id": "D02",
+      "text": "认 quizs 靠适配器不靠 id——`isQuizsRuntime` 有「id 叫 quizs 而 adapter 是 pi」的反例；运行时列表里找不到所选 runtime 时按非 quizs 走。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "适配器才是「这个运行时是不是 quizs」的依据"
+    },
+    {
+      "id": "D03",
+      "text": "档案转选项的规则成立——模型项的 value 与 label 都是 `provider/model`；非字符串、空串、`<redacted>`、过不了 `validModel` 的行不进选项（`validModel` 是「两段都过 `MODEL_SEGMENT_RE`」，`-` 合法，`p/no-slash` 这样的行要留下）；同 value 只留第一项；档位按六值（off、low、medium、high、xhigh、max，无 minimal）过滤、保序、去重；`thinking` 不是数组时为空。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "服务只放行这些字段，越界值不能变成选项"
+    },
+    {
+      "id": "D04",
+      "text": "档位从不被自动改——当前档位不在所选档案允许的范围里时，一个段都不选、控件下写「<档位> 不在这个档案允许的档位里」、不调预览、[确认…] 不可点；用户点一个允许的档位后恢复，恢复后命令里带 `--thinking=<该档位>`（quizs 分支里点过即算改动，即使用户点的档位与初值相同；非 quizs 分支仍只传与初值不同的字段）。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "不悄悄交一个档案不认的档位"
+    },
+    {
+      "id": "D05",
+      "text": "档案外的模型照旧显示——原值作为额外第一项并选中，标「不在 Quizs 已批准的档案里」（`aria-invalid`），不调预览；从档案里选一项之后恢复。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "编辑旧 profile 时不悄悄改掉它原来的模型"
+    },
+    {
+      "id": "D06",
+      "text": "读不出档案时表单不卡死——信封失败、reject、无可选项三种情形各写明原因；模型退回手填文本框并照旧提示「手填的模型没有核实」；档位给六值（无 minimal）；预览照常可用。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "Quizs 跑不起来时这一页仍然能用"
+    },
+    {
+      "id": "D07",
+      "text": "凭据对 quizs 不适用——不显示凭据输入与 [添加]，写「凭据由 Quizs 保管」（`role=\"group\"`、`aria-label=\"凭据变量\"`）；`buildArgs` 不交 `credential_env`；非 quizs 分支一个字不动。",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "别把看不见的值悄悄交上去，也别让无障碍名称消失"
+    },
+    {
+      "id": "D08",
+      "text": "新建时自动选档案第一项；交给服务端的模型是 `provider/model` 一段（预览命令里有 `--model=stepfun/step-5-preview`）；档位按档案给。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "值与内核（`config profile add --model <provider>/<模型 ID>`）和 hub（`--provider` 短名）对得上"
+    },
+    {
+      "id": "D09",
+      "text": "真实模式下不出现桩的档案——注入 live 客户端后读的是服务回的信封，桩数据不出现。",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "真窗口里不能拿演示数据当已批准的档案"
+    },
+    {
+      "id": "D10",
+      "text": "门禁红线一条都不破——`src/writes` 里除 ProfileForm 原有的「先登记 runtime」外没有「登记 runtime」；`src` 下（含注释）没有 `fetch`、`XMLHttpRequest`、`EventSource`、`WebSocket`；`src/mock` 仍恰 14 份 JSON；新 CSS 类名只用 `--tt-*` 令牌、不写颜色函数、带 px 的行有出处注释，且打进构建产物；`desktop/web/tests/writes-profile-form.test.tsx` 一字不改。",
+      "evidence": [
+        "G01",
+        "R01",
+        "V03"
+      ],
+      "intent": "不破 T024、T041、T009 的长期门禁"
+    },
+    {
+      "id": "D11",
+      "text": "所有修改都在允许集合内（可改 2 个文件、可新增 3 个文件），没有碰 forbidden_paths；`package.json` 与锁文件不变、没有新增依赖。",
+      "evidence": [
+        "scope",
+        "G01",
+        "R01"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D12",
+      "text": "既有测试没被删、跳过或弱化；新测试不用 `skip`/`only`/`todo`；`desktop/web` 的 `npm test` 与 `npm run build` 全绿。",
+      "evidence": [
+        "V01",
+        "V03",
+        "review"
+      ],
+      "intent": "过了检查不等于目标，目标是新功能可用而旧行为没松"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
