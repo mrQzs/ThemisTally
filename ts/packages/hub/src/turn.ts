@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_FENCED_POLICY, QUIZS_FINAL_SCHEMA, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
 } from "./constants.ts";
 import { boundSpec, hubBindings } from "./bindings.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, toolSchema, workerEnv, workerFileProblem } from "./delivery.ts";
@@ -359,6 +359,10 @@ export class TurnRunner {
       const turnPlan = join(turnDir, QUIZS_TURN_PLAN);
       writeJson(turnPlan, new Map([...plan, ["plan_id", `${pyGet(plan, "plan_id") as string}.${purePathName(turnDir)}`]]));
       cmd[cmd.indexOf("--live-plan") + 1] = turnPlan;
+      if (pyGet(plan, "final_response_policy") === QUIZS_FENCED_POLICY) { // 第 175 轮：交差 schema 交给 Quizs（见 QUIZS_FINAL_SCHEMA）
+        writeJson(join(turnDir, QUIZS_FINAL_SCHEMA), toolSchema(spec.role));
+        cmd.push("--final-schema", join(turnDir, QUIZS_FINAL_SCHEMA));
+      }
     }
     return [cmd, null, quizsCmd, sessionsDir];
   }

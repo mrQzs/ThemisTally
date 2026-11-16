@@ -6778,7 +6778,7 @@ def test_quizs_repository_view_for_reading_posts(tmp_path, monkeypatch):
     (inputs / ".agent" / "letter.md").write_text("开工", encoding="utf-8")
     live = hub.root / kh.QUIZS_LIVE_ROOT / "minimax"
     live.mkdir(parents=True)
-    (live / "plan.json").write_text(json.dumps({"plan_id": "tt-minimax-1"}), encoding="utf-8")
+    (live / "plan.json").write_text(json.dumps({"plan_id": "tt-minimax-1", "final_response_policy": "fenced_json_final_once_v1"}), encoding="utf-8")
     (live / "profile.json").write_text(json.dumps({"id": "minimax-m-plan"}), encoding="utf-8")
     (live / "qualification.json").write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
     fake = tmp_path / "fake_quizs.py"
@@ -6817,9 +6817,60 @@ def test_quizs_repository_view_for_reading_posts(tmp_path, monkeypatch):
     assert cmd[cmd.index("--provider-profile") + 1] == str(live / "profile.json")
     plan = json.loads(Path(cmd[cmd.index("--live-plan") + 1]).read_text(encoding="utf-8"))
     assert plan["plan_id"].startswith("tt-minimax-1.") and turn["output"] is None
+    # 第 175 轮：代码块交差的 plan 把这个岗位给模型看的 schema（letter 是英文键）写进回合目录、用 --final-schema 交给 Quizs
+    schema = Path(turn["turn_dir"]) / kh.QUIZS_FINAL_SCHEMA
+    assert plan["final_response_policy"] == kh.QUIZS_FENCED_POLICY and cmd[cmd.index("--final-schema") + 1] == str(schema)
+    handed = json.loads(schema.read_text(encoding="utf-8"))
+    assert handed == kh.tool_schema("contract") and "summary" in handed["properties"]["letter"]["required"]
     # 协调人照旧只冻输入目录（另见 test_quizs_turn_reads_a_frozen_snapshot），也不吃读仓库岗位的预算
     assert kh.QUIZS_TURN_BUDGETS[0] == ("--max-requests", "32") and "coordinator" not in kh.QUIZS_REPO_VIEW_ROLES
 
+
+
+def test_a_quizs_turn_without_the_fenced_plan_gets_no_final_schema_and_notes_its_stream(tmp_path, monkeypatch):
+    # 第 175 轮：plan 不是代码块交差的那一种就不给 --final-schema（候选 #47）；Quizs 当场按 schema 退回的记录（final_schema_rejected）
+    # 写进回合的 warnings，带头三条错误，认不得的 action 不记；事件流以换行结尾不再报读不出，中间坏一行照报行数（候选 #48）
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="quizs", provider="deepseek",
+                                                      model="deepseek-flash", tools=["read", "grep", "find", "ls"]))
+    newline = chr(10)
+    inputs = tmp_path / "inputs"
+    (inputs / ".agent").mkdir(parents=True)
+    (inputs / ".agent" / "letter.md").write_text("开工", encoding="utf-8")
+    fake = tmp_path / "fake_quizs.py"
+    fake.write_text(newline.join(["import json", "print(json.dumps({'manifest_ref': 'a' * 64, 'files': 1, 'bytes': 6, 'skipped': []}))", ""]),
+                    encoding="utf-8")
+    delivery = {"letters": [], "state": "一"}
+    done = json.dumps({"type": "result", "exit_code": 0, "error_class": None, "actual_model": "deepseek-flash", "usage": None,
+                       "final_text": newline.join(["```json", json.dumps(delivery, ensure_ascii=False), "```", ""])}, ensure_ascii=False)
+    init = json.dumps({"type": "init", "tools": [{"name": name} for name in ("find", "grep", "ls", "read")]})
+    errors = ['/letters/0 is missing required property "摘要"', '/letters/0/type must be one of ["汇报"]', "第三条", "第四条"]
+    notes = [json.dumps({"type": "final_schema_rejected", "errors": errors[:1], "action": "repair"}, ensure_ascii=False),
+             json.dumps({"type": "final_schema_rejected", "errors": errors, "action": "deliver"}, ensure_ascii=False),
+             json.dumps({"type": "final_schema_rejected", "errors": errors, "action": "other"}, ensure_ascii=False)]
+    outputs = [newline.join([init] + notes + [done]) + newline, newline.join([init, "{没写完", done]) + newline]
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        out.write(outputs.pop(0).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake)]))
+    for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.setenv(name, str(tmp_path / (name.lower() + ".json")))
+    (tmp_path / "quizs_live_plan.json").write_text(json.dumps({"plan_id": "tt-coordinator-1", "final_response_policy": "last_request_without_tools"}),
+                                                    encoding="utf-8")
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    noted = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    assert noted["output"] == delivery and "--final-schema" not in seen[0]
+    assert not (Path(noted["turn_dir"]) / kh.QUIZS_FINAL_SCHEMA).exists()
+    record = json.loads((Path(noted["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert record["warnings"] == [kh.QUIZS_SCHEMA_NOTES["repair"] % errors[0], kh.QUIZS_SCHEMA_NOTES["deliver"] % "；".join(errors[:3])]
+    broken = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+    record = json.loads((Path(broken["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
+    assert broken["output"] == delivery and record["warnings"] == ["quizs 的事件流里有 1 行读不出"]
 
 
 def test_a_bound_quizs_post_marks_its_provider_down_and_falls_back(tmp_path, monkeypatch):

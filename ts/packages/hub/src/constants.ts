@@ -292,5 +292,15 @@ export const QUIZS_LIVE_NAMES: readonly (readonly [string, string])[] = [
 export const QUIZS_PROFILE_IDS: Readonly<Record<string, string>> = { deepseek: "deepseek-api", minimax: "minimax-m-plan", stepfun: "stepfun-cn-step-plan" };
 /** 第 156 轮：算工作目录的树时用的临时索引（回合目录里，用完就删）。 */
 export const QUIZS_VIEW_INDEX = "view.index";
+/** 第 175 轮：交差策略是代码块那一种的 plan，内核把这个岗位给模型看的 schema（toolSchema，letter 是英文键）写进回合目录、用
+ *  --final-schema 交给 Quizs：代码块的 JSON 不合 schema，Quizs 在回合里退回修一次（逐条写明哪里不合），修过仍不合或来不及修就原样交回，
+ *  内核照旧复核（候选 #47）。审核端在 Quizs 上的头一个真回合（T045 一审）交差缺了三个键，内核整回合重交又花了 706 秒 */
+export const QUIZS_FINAL_SCHEMA = "final-schema.json";
+export const QUIZS_FENCED_POLICY = "fenced_json_final_once_v1";
+/** Quizs 当场按 schema 退回的记录（final_schema_rejected 事件，action 是 repair 或 deliver）写进这一回合的 warnings，带上头三条错误。 */
+export const QUIZS_SCHEMA_NOTES: Readonly<Record<string, string>> = {
+  repair: "交差 JSON 不合 schema，quizs 在回合里退回修了一次：%s",
+  deliver: "交差 JSON 修过仍不合 schema（或来不及修），quizs 原样交回、由内核复核：%s",
+};
 /** 第 136 轮：被花费上限扣下的信，解除时刻写成一个不会自己到点的值；站主用 task cap 提高上限时改成当时。 */
 export const SPEND_CAP_UNTIL = "2100-01-01T00:00:00Z";

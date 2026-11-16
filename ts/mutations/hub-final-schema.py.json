@@ -1,0 +1,60 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "quizs_repository_view_for_reading_posts or without_the_fenced_plan_gets_no_final_schema"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "Q01 不给 --final-schema",
+      "file": "scripts/kit_hub.py",
+      "old": "cmd += [\"--final-schema\", str(turn_dir / QUIZS_FINAL_SCHEMA)]",
+      "new": "cmd += []"
+    },
+    {
+      "name": "Q02 不看交差策略也给",
+      "file": "scripts/kit_hub.py",
+      "old": "if plan.get(\"final_response_policy\") == QUIZS_FENCED_POLICY:",
+      "new": "if True:"
+    },
+    {
+      "name": "Q03 交岗位的原 schema（letter 是中文键）",
+      "file": "scripts/kit_hub.py",
+      "old": "pd.write_json(turn_dir / QUIZS_FINAL_SCHEMA, tool_schema(spec[\"role\"]))",
+      "new": "pd.write_json(turn_dir / QUIZS_FINAL_SCHEMA, role_schema(spec[\"role\"]))"
+    },
+    {
+      "name": "Q04 空行照旧算读不出",
+      "file": "scripts/kit_hub.py",
+      "old": "events, unreadable = stream_events(lines)\n    if unreadable:\n        audit[\"warnings\"]",
+      "new": "events, unreadable = stream_events(lines)\n    unreadable += sum(1 for line in lines if not line.strip())\n    if unreadable:\n        audit[\"warnings\"]"
+    },
+    {
+      "name": "Q05 不记读不出的行数",
+      "file": "scripts/kit_hub.py",
+      "old": "    if unreadable:\n        audit[\"warnings\"].append(\"quizs 的事件流里有 %d 行读不出\" % unreadable)",
+      "new": "    if False:\n        audit[\"warnings\"].append(\"quizs 的事件流里有 %d 行读不出\" % unreadable)"
+    },
+    {
+      "name": "Q06 不记 Quizs 当场的退回",
+      "file": "scripts/kit_hub.py",
+      "old": "elif kind == \"final_schema_rejected\" and isinstance(event.get(\"action\"), str) and event[\"action\"] in QUIZS_SCHEMA_NOTES:",
+      "new": "elif False:"
+    },
+    {
+      "name": "Q07 错误不止记头三条",
+      "file": "scripts/kit_hub.py",
+      "old": "for error in errors[:3]))",
+      "new": "for error in errors))"
+    }
+  ]
+}

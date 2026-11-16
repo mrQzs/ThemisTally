@@ -413,6 +413,7 @@ const TURN_TESTS = [
   "test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out",
   "test_quizs_repository_view_for_reading_posts", // 第 156 轮：合同端在 quizs 上读工作目录冻成的整棵树（三边算出的树要一样）
   "test_a_bound_quizs_post_marks_its_provider_down_and_falls_back", // 第 156 轮：配置里绑到 quizs 的岗位按提供方记标记、退回替补
+  "test_a_quizs_turn_without_the_fenced_plan_gets_no_final_schema_and_notes_its_stream", // 第 175 轮：别的 plan 不给 --final-schema，Quizs 当场退回的记录与读不出的行数进 warnings
   "test_a_turn_whose_stream_hides_a_call_behind_u2028_is_voided",
   "test_stage_inputs_copies_this_tasks_mailbox_contracts_and_evidence_read_only",
   "test_the_runner_keeps_the_listing_and_writes_long_prompts_into_the_inputs",

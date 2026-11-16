@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "-t",
+    "记下的 TurnRunner.run 与 stage_inputs 三边",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "T01 不给 --final-schema",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "cmd.push(\"--final-schema\", join(turnDir, QUIZS_FINAL_SCHEMA));",
+      "new": ""
+    },
+    {
+      "name": "T02 不看交差策略也给",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "if (pyGet(plan, \"final_response_policy\") === QUIZS_FENCED_POLICY) {",
+      "new": "if (true) {"
+    },
+    {
+      "name": "T03 交别的岗位的 schema",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "writeJson(join(turnDir, QUIZS_FINAL_SCHEMA), toolSchema(spec.role));",
+      "new": "writeJson(join(turnDir, QUIZS_FINAL_SCHEMA), toolSchema(\"coordinator\"));"
+    },
+    {
+      "name": "T04 空行照旧算读不出",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "if (unreadable) warnings.push(",
+      "new": "if (unreadable || lines.length) warnings.push("
+    },
+    {
+      "name": "T05 不记 Quizs 当场的退回",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "} else if (kind === \"final_schema_rejected\" && typeof event.get(\"action\") === \"string\"",
+      "new": "} else if (false && typeof event.get(\"action\") === \"string\""
+    },
+    {
+      "name": "T06 错误不止记头三条",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "const text = errors.slice(0, 3)",
+      "new": "const text = errors.slice(0)"
+    }
+  ]
+}

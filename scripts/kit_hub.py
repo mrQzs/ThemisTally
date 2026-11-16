@@ -661,6 +661,14 @@ QUIZS_LIVE_NAMES = (("--live-plan", "plan.json"), ("--provider-profile", "profil
 QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan"}
 #: 第 156 轮：算工作目录的树时用的临时索引（回合目录里，用完就删）
 QUIZS_VIEW_INDEX = "view.index"
+#: 第 175 轮：交差策略是代码块那一种的 plan，内核把这个岗位给模型看的 schema（tool_schema，letter 是英文键）写进回合目录、用
+#: --final-schema 交给 Quizs：代码块的 JSON 不合 schema，Quizs 在回合里退回修一次（逐条写明哪里不合），修过仍不合或来不及修就原样交回，
+#: 内核照旧复核（候选 #47）。审核端在 Quizs 上的头一个真回合（T045 一审）交差缺了三个键，内核整回合重交又花了 706 秒
+QUIZS_FINAL_SCHEMA = "final-schema.json"
+QUIZS_FENCED_POLICY = "fenced_json_final_once_v1"
+#: Quizs 当场按 schema 退回的记录（final_schema_rejected 事件，action 是 repair 或 deliver）写进这一回合的 warnings，带上头三条错误
+QUIZS_SCHEMA_NOTES = {"repair": "交差 JSON 不合 schema，quizs 在回合里退回修了一次：%s",
+                      "deliver": "交差 JSON 修过仍不合 schema（或来不及修），quizs 原样交回、由内核复核：%s"}
 
 
 def throttle_reset(error: str, now: int) -> Optional[int]:
@@ -2288,14 +2296,12 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
                              "warnings": [], "deliver_refusals": [], "deliver_last_refusal": None, "thinking_chars": None,
                              "thinking_tokens": None, "rate_limited_until": None}
     result = None
-    for line in lines:
-        try:
-            event = json.loads(line)
-        except ValueError:
-            audit["warnings"].append("quizs 的事件流里有读不出的行")
-            continue
-        if not isinstance(event, dict):
-            continue
+    # 第 175 轮：与 pi、claude 的审计一样用 stream_events：空行不算（事件流以换行结尾，原来每个 Quizs 回合都报一条读不出，候选 #48），
+    # 读不出的非空行（回合被收掉时最后一行没写完）记个数
+    events, unreadable = stream_events(lines)
+    if unreadable:
+        audit["warnings"].append("quizs 的事件流里有 %d 行读不出" % unreadable)
+    for event in events:
         kind = event.get("type")
         if kind == "init":
             for tool in event.get("tools") or []:
@@ -2307,6 +2313,9 @@ def audit_quizs_stream(lines: Sequence[str], spec: Dict[str, Any]) -> Dict[str, 
             audit["tool_calls"][name] = audit["tool_calls"].get(name, 0) + 1
             if name not in allowed:
                 audit["violations"].append("调了名册之外的工具 %s" % name)
+        elif kind == "final_schema_rejected" and isinstance(event.get("action"), str) and event["action"] in QUIZS_SCHEMA_NOTES:  # 第 175 轮
+            errors = event.get("errors") if isinstance(event.get("errors"), list) else []
+            audit["warnings"].append(QUIZS_SCHEMA_NOTES[event["action"]] % "；".join(str(error) for error in errors[:3]))
         elif kind == "result":
             result = event
     if result is None:
@@ -2588,6 +2597,9 @@ class TurnRunner:
                     raise HubError(problem, EXIT_BLOCKED)
                 pd.write_json(turn_dir / QUIZS_TURN_PLAN, dict(plan, plan_id="%s.%s" % (plan["plan_id"], turn_id)))
                 cmd[cmd.index("--live-plan") + 1] = str(turn_dir / QUIZS_TURN_PLAN)
+                if plan.get("final_response_policy") == QUIZS_FENCED_POLICY:  # 第 175 轮：交差 schema 交给 Quizs（见 QUIZS_FINAL_SCHEMA）
+                    pd.write_json(turn_dir / QUIZS_FINAL_SCHEMA, tool_schema(spec["role"]))
+                    cmd += ["--final-schema", str(turn_dir / QUIZS_FINAL_SCHEMA)]
         else:
             sessions_dir = self.hub.root / "sessions" / agent
             sessions_dir.mkdir(parents=True, exist_ok=True)

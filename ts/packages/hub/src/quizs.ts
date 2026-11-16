@@ -11,11 +11,12 @@ import { copyFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import {
   EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_PERMIT_HELD,
-  QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_STATE_DIR,
+  QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_SCHEMA_NOTES, QUIZS_STATE_DIR,
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
 import { type HubBindings, boundSpec } from "./bindings.ts";
+import { streamEvents } from "./audit.ts";
 import { HubError } from "./errors.ts";
 
 const LF = String.fromCharCode(10);
@@ -224,16 +225,11 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
     ["usage", null], ["cost_usd", null], ["delivered", null], ["delivery_error", null], ["api_error", null], ["terminal", false], ["warnings", warnings],
     ["deliver_refusals", []], ["deliver_last_refusal", null], ["thinking_chars", null], ["thinking_tokens", null], ["rate_limited_until", null]]);
   let result: PyDict | null = null;
-  for (const line of lines) {
-    let event: PyValue;
-    try {
-      event = loads(line);
-    } catch (error) {
-      if (!(error instanceof PyJsonError)) throw error;
-      warnings.push("quizs 的事件流里有读不出的行");
-      continue;
-    }
-    if (!(event instanceof Map)) continue;
+  // 第 175 轮：与 pi、claude 的审计一样用 streamEvents：空行不算（事件流以换行结尾，原来每个 Quizs 回合都报一条读不出，候选 #48），
+  // 读不出的非空行（回合被收掉时最后一行没写完）记个数
+  const [events, unreadable] = streamEvents(lines);
+  if (unreadable) warnings.push(`quizs 的事件流里有 ${unreadable} 行读不出`);
+  for (const event of events) {
     const kind = event.get("type");
     if (kind === "init") {
       const tools = pyGet(event, "tools");
@@ -245,6 +241,10 @@ export function auditQuizsStream(lines: readonly string[], spec: PyValue): PyDic
       const name = pyGet(event, "name");
       toolCalls.set(name as string, ((toolCalls.get(name as string) as bigint | undefined) ?? 0n) + 1n);
       if (!allowed.has(name as string)) violations.push(`调了名册之外的工具 ${pyStrValue(name)}`);
+    } else if (kind === "final_schema_rejected" && typeof event.get("action") === "string" && Object.hasOwn(QUIZS_SCHEMA_NOTES, event.get("action") as string)) { // 第 175 轮
+      const errors = Array.isArray(event.get("errors")) ? (event.get("errors") as PyValue[]) : [];
+      const text = errors.slice(0, 3).map((error) => pyStrValue(error)).join("；");
+      warnings.push((QUIZS_SCHEMA_NOTES[event.get("action") as string] as string).replace("%s", () => text));
     } else if (kind === "result") {
       result = event;
     }

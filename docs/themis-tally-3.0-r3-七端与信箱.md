@@ -2867,6 +2867,32 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 站主的 exclusive 照旧等执行端，`land_when_clear.py` 不改。
   - 收集恰好落在 ff 合并改写工作区的那一瞬时，指纹可能看到半截，照旧列成其他路径。概率极小，不加锁。
 
+### 第 175 轮：交差 schema 交给 Quizs，回合里当场修一次；Quizs 事件流不再误报读不出（候选 #47、#48）
+
+- **起因**：
+  - Quizs 上的岗位用最后回答里的 json 代码块交差，内核等回合结束才按岗位 schema 复核；不合就整回合重交，前面读过的全部白读。
+  - 11-16 审核端切到 Quizs 后的头一个真回合（T045 一审，08:25–08:41Z）：959 秒、119 次工具调用，letter 用的全是英文键（第 169 轮的写法见效），只漏了审核端特有的 conclusion、return_to、blockers 三个键；内核复核不过，当场重交又花了 706 秒。重放时 T044、T049 的一审首轮也各失败过一次。
+  - 另有一处误报：Quizs 回合的事件流审计逐行直接解析，事件流以换行结尾，最后切出的空串必报“quizs 的事件流里有读不出的行”。11-15、11-16 两天协调人 25 个回合、审核端 2 个回合全带这条警告；真有坏行时反而分不出来。pi、claude 两份审计早就用 stream_events 跳过空行。
+- **改法**：
+  - **Quizs（M7，分支 tt-m7-final-schema，9cc32d6 + 7b5c681，BUILD_ID f70cd819）**：worker turn 加 `--final-schema FILE`（只认代码块交差的 fenced 策略与 quizs 载体）。
+    - 最后的回答能解析、却不合这份 schema 时，用掉策略里那一次格式修正：修正请求不带工具，逐条写明哪里不合（最多 8 条，每条最多 300 字，只写路径与 schema 里的名字，不回显回答的值）。
+    - 只在还有请求名额、离截止还够 plan 的最后回答预留时才修；修过仍不合、或来不及修，就把能解析的回答原样交回，由调用方复核（内核本来就认 schema 没列的写法，例如中文键）。
+    - 每次不合都记一条 final_schema_rejected 事件（action 是 repair 或 deliver）。不给这个参数时什么都不变；解析不了的回答照旧用原来那句固定的修正。
+  - **hub（Python 与 TS 两份）**：
+    - quizs 回合的 plan 是 fenced 策略时，把这个岗位给模型看的 schema（tool_schema：letter 是英文键，协调人的 letters 照旧是中文键）写进回合目录的 final-schema.json，用 `--final-schema` 交给 Quizs。别的 plan 不给（不认这个参数的组合 Quizs 会按用法错误退出）。
+    - Quizs 当场按 schema 退回的记录写进这一回合的 warnings（带头三条错误），站主与协调人在 result.json 里看得到是修了一次还是原样交回。
+    - audit_quizs_stream 改用 stream_events：空行不算，读不出的非空行记个数（“quizs 的事件流里有 N 行读不出”），嵌套太深的行也接住。
+- **部署顺序**：Quizs 的 M7 先合进主检出（合入脚本先给协调人的 DeepSeek 证书按新构建续好，MiniMax 证书随后由续期任务续上），本轮再合入；反过来的话，Quizs 不认 `--final-schema`，协调人与审核端的回合都起不来。
+- **测试**：
+  - Quizs：final-response-core-pi 加 7 条（缺键的回答修一次并写明路径、修过仍不合原样交回且没有第三个请求、解析不了的照旧用固定修正之后再原样交回、合 schema 的不多发请求、没给 schema 的不查、预留时间不够时原样交回、不是 fenced 策略或 schema 不合法时一个请求都不发就拒绝、错误最多 8 条每条最多 300 字），cli-final-schema 一条（命令行在起回合之前就拒绝）。相关套件与未改动的 m5c 逐条对比，失败的都是两边原有的（钉住的 node 运行时不在、两条计时的偶发）。
+  - test_kit_hub：仓库视图那条（合同端）的 plan 换成 fenced，核 `--final-schema` 指向回合目录里的文件、内容是英文键的 tool_schema；新加 `test_a_quizs_turn_without_the_fenced_plan_gets_no_final_schema_and_notes_its_stream`（别的 plan 不给、两条退回记录进 warnings 且认不得的 action 不记、以换行结尾的事件流不报、中间坏一行报 1 行）。
+  - 契约：新用例进 hub-turn 的采样名单，Python、Node、Bun 三边逐字比命令行、回合目录里的文件与 result.json。
+- **变异**：新写的 hub-final-schema：py 7 个、ts 6 个全抓住，逐条看过挂在哪：py 都挂在本轮那两条用例的断言上；ts 的 T01、T03、T05、T06 挂在本轮那两个场景的三边对比上，T02（不看交差策略也给）与 T04（空行照旧算读不出）挂在第 137 轮那条 quizs 回合的场景上（它的 plan 没有交差策略，事件流以换行结尾），正是该露出来的地方。181 份规格的锚点照旧唯一（原有的三条按设计改两处）。
+- **检查**：类型检查 0 错；内核测试 410 passed；契约 T（hub-turn、hub-prompt、hub-step）33、C 5 全过。一遍过。
+- **没做**：
+  - schema 只列英文键，模型若交中文键会被 Quizs 退回修一次（内核其实认）。提示里写的是英文键，这种情况少见，不为它拼一份两种键都认的 schema。
+  - 合同端、门禁端还没上 Quizs；它们的 schema 同样经 tool_schema 交出，上的时候不用再改。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
