@@ -33,6 +33,8 @@ const CONTENT: ConfirmContent = {
   changes: [{ role: 'execution', from: 'step-high', to: 'step-low' }],
   warnings: [],
   running: [],
+  hubChanges: [],
+  runningTurns: [],
   notes: [],
 };
 

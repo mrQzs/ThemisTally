@@ -1,7 +1,9 @@
 // 写操作的演示数据（A 片）：不联网，全部由 location.hash 里的 ?write= 情景决定（独立于 ?mock=，缺省或认不出按 ok）。
 // 四个函数的信封与状态码照 ts/packages/ui 的写路由语义给出（第二节那张表逐行实现）；所有 Promise 都已兑现，
 // 不用计时器（drop-* 的连接中断靠流程自己的轮询计时器推进）。
-import type { Envelope, HttpReply, OperationView, PreviewData, WriteAction, WriteArgs } from '../api';
+import type { Envelope, HubChange, HubChangeFallback, HubChangeSide, HubPostRow, HttpReply, OperationView, PreviewData, WriteAction, WriteArgs } from '../api';
+import { HUB_ROLES_POSTS } from './hub-roles';
+import profilesJson from './profiles.json';
 
 export type WriteScenario =
   | 'ok'
@@ -26,12 +28,17 @@ export type WriteScenario =
   | 'in-use'
   | 'preview-warn'
   | 'preview-invalid'
-  | 'preview-registered';
+  | 'preview-registered'
+  | 'hub-ok'
+  | 'hub-warn'
+  | 'hub-running'
+  | 'hub-unset';
 
 const SCENARIOS: readonly WriteScenario[] = [
   'ok', 'warn', 'exit1', 'exit2', 'exit3', 'stale', 'expired', 'busy', 'closing', 'spawn', 'toolarge', 'timeout',
   'drop-done', 'drop-lost', 'drop-hang', 'preview-fail', 'preview-busy', 'reread-fail', 'reread-fail-exit1', 'in-use',
   'preview-warn', 'preview-invalid', 'preview-registered',
+  'hub-ok', 'hub-warn', 'hub-running', 'hub-unset',
 ];
 
 export function writeScenario(): WriteScenario {
@@ -121,6 +128,85 @@ function newOpId(action: string, args: WriteArgs): string {
   return id;
 }
 
+// hub-warn 的同模型警告与 hub-running 的在跑回合：照内核 _hub_warnings 与 hub_running_turns 的说法逐字。
+const HUB_SAME_MODEL_WARN = '合同端与审核端用的是同一个模型（bb/step-5-preview）：审核少一层独立性；照样生效';
+const HUB_RUNNING_TURN = '审核端（audit）：2 个回合在跑';
+
+// 七端岗位的内核缺省（hub.unset 的 after 侧）：出自 scripts/kit_roles.py 的 HUB_DEFAULTS（adapter/provider/model/thinking
+// 与替补；与 src/mock/hub-roles.ts 同一理由，桩里另放一份）。替补按服务形状给六个字段（profile 与 runtime 是 null）。
+const HUB_DEFAULTS: Record<string, { adapter: string; provider: string | null; model: string | null; thinking: string; fallback: HubChangeFallback | null }> = {
+  coordinator: {
+    adapter: 'quizs', provider: 'deepseek', model: 'deepseek-flash', thinking: 'high',
+    fallback: { profile: null, runtime: null, adapter: 'pi', provider: 'dsf', model: 'deepseek-flash', thinking: 'high' },
+  },
+  planner: { adapter: 'claude-code', provider: null, model: 'claude-opus-5-5', thinking: 'max', fallback: null },
+  contract: { adapter: 'pi', provider: 'minimax', model: 'MiniMax-M3.1-Flash', thinking: 'high', fallback: null },
+  gate: { adapter: 'pi', provider: 'cc-switch-zhipu-glm', model: 'glm-5.3', thinking: 'high', fallback: null },
+  audit: { adapter: 'pi', provider: 'minimax', model: 'MiniMax-M3.1-Flash', thinking: 'max', fallback: null },
+  exec: { adapter: 'pi', provider: 'cc-switch-step-fun', model: 'step-5-preview', thinking: 'high', fallback: null },
+};
+
+// before 侧：hub 名册里该岗位的一行（source 加六个字段与替补；缺省行的替补只有四键，取不到 profile/runtime 当 null）。
+function hubBeforeSide(row: HubPostRow): HubChangeSide {
+  return {
+    source: row.source,
+    profile: row.profile,
+    runtime: row.runtime,
+    adapter: row.adapter,
+    provider: row.provider,
+    model: row.model,
+    thinking: row.thinking,
+    fallback: row.fallback === null ? null : {
+      profile: row.fallback.profile ?? null,
+      runtime: row.fallback.runtime ?? null,
+      adapter: row.fallback.adapter,
+      provider: row.fallback.provider,
+      model: row.fallback.model,
+      thinking: row.fallback.thinking,
+    },
+  };
+}
+
+// after 侧（hub.set）：内核整条替换绑定，所以 source 恒 config、profile 恒取 args.profile（即使这个 id 不在
+// profiles.json 里也照取）；其余字段与替补都取 profiles.json 里那一行，表里没有就全为 null。
+function hubSetSide(args: WriteArgs): HubChangeSide {
+  const s = args as Record<string, string>;
+  const main = profilesJson.profiles.find((p) => p.id === s.profile) ?? null;
+  const sub = s.fallback ? profilesJson.profiles.find((p) => p.id === s.fallback) ?? null : null;
+  return {
+    source: 'config',
+    profile: s.profile ?? null,
+    runtime: main?.runtime ?? null,
+    adapter: main?.adapter ?? null,
+    provider: main?.provider ?? null,
+    model: main?.model ?? null,
+    thinking: main?.options?.thinking ?? null,
+    fallback: sub === null ? null : {
+      profile: sub.id,
+      runtime: sub.runtime,
+      adapter: sub.adapter,
+      provider: sub.provider,
+      model: sub.model,
+      thinking: sub.options?.thinking ?? null,
+    },
+  };
+}
+
+// after 侧（hub.unset）：回到内核缺省（缺省绑定不挂 profile，profile 与 runtime 恒 null）。
+function hubDefaultSide(post: string): HubChangeSide {
+  const d = HUB_DEFAULTS[post];
+  return {
+    source: 'default',
+    profile: null,
+    runtime: null,
+    adapter: d?.adapter ?? null,
+    provider: d?.provider ?? null,
+    model: d?.model ?? null,
+    thinking: d?.thinking ?? null,
+    fallback: d?.fallback ?? null,
+  };
+}
+
 function previewData(action: WriteAction, args: WriteArgs, confirmation: string): PreviewData {
   // 预览命令照 README :83–95：基础 argv 加 --dry-run --json（对话框的「将运行的命令」另去掉这两个开关）。
   const command = [...baseArgv(action, args), '--dry-run', '--json'];
@@ -134,6 +220,8 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
       needs_yes: false,
       command,
       confirmation,
+      hub_changes: [],
+      running_turns: [],
     };
   }
   if (action === 'config.rollback') {
@@ -147,6 +235,8 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
       needs_yes: false,
       command,
       confirmation,
+      hub_changes: [],
+      running_turns: [],
     };
   }
   if (action === 'profile.add' || action === 'profile.edit') {
@@ -160,6 +250,8 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
       needs_yes: false,
       command,
       confirmation,
+      hub_changes: [],
+      running_turns: [],
     };
   }
   if (action === 'runtime.add') {
@@ -173,19 +265,35 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
       needs_yes: false,
       command,
       confirmation,
+      hub_changes: [],
+      running_turns: [],
     };
   }
   if (action === 'hub.set' || action === 'hub.unset') {
-    // 七端岗位两个写动作：binding_changes 恒空（岗位绑定不在角色绑定表里）。
+    // 七端岗位两个写动作：binding_changes 恒空（岗位绑定不在角色绑定表里），前后对比按夹具算 hub_changes。
+    // hub-ok 与 hub-unset 是显式别名：与缺省 ok 情景下的岗位预览行为一致（URL 能直接点名这两种情景）。
+    const s = args as Record<string, string>;
+    const row = HUB_ROLES_POSTS.posts.find((p) => p.post === s.post);
+    const scenario = writeScenario();
+    const hub_changes: HubChange[] =
+      row === undefined
+        ? []
+        : [{
+            post: row.post,
+            before: hubBeforeSide(row),
+            after: action === 'hub.set' ? hubSetSide(args) : hubDefaultSide(row.post),
+          }];
     return {
       binding_changes: [],
       resources: ['hub'],
       notes: [],
-      warnings: [],
+      warnings: scenario === 'hub-warn' ? [HUB_SAME_MODEL_WARN] : [],
       running_attempts: [],
-      needs_yes: false,
+      running_turns: scenario === 'hub-running' ? [HUB_RUNNING_TURN] : [],
+      needs_yes: scenario === 'hub-running',
       command,
       confirmation,
+      hub_changes,
     };
   }
   // 三个删除与插件启停：binding_changes 恒空（删除靠变化区摘要说明）。
@@ -198,6 +306,8 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
     needs_yes: false,
     command,
     confirmation,
+    hub_changes: [],
+    running_turns: [],
   };
 }
 

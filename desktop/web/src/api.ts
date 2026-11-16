@@ -90,6 +90,35 @@ export interface BindingChange {
   to: string;
 }
 
+// 预览里七端岗位一侧的替补（照 scripts/kit_roles.py 的 hub_side：同六个字段，没有替补时 null）。
+export interface HubChangeFallback {
+  profile: string | null;
+  runtime: string | null;
+  adapter: string | null;
+  provider: string | null;
+  model: string | null;
+  thinking: string | null;
+}
+
+// 预览里七端岗位生效绑定的一侧（hub_side）：source 加同六个字段与替补。
+export interface HubChangeSide {
+  source: 'default' | 'config' | null;
+  profile: string | null;
+  runtime: string | null;
+  adapter: string | null;
+  provider: string | null;
+  model: string | null;
+  thinking: string | null;
+  fallback: HubChangeFallback | null;
+}
+
+// 预览里一个岗位的前后对比（hub_changes）：前后不同的岗位各一项；一侧为 null 表示内核那一侧读不出来。
+export interface HubChange {
+  post: string;
+  before: HubChangeSide | null;
+  after: HubChangeSide | null;
+}
+
 // 预览数据（POST /api/v1/preview 的 data）：command 是 README :83–95 的预览写法（带 --dry-run --json）。
 export interface PreviewData {
   binding_changes: BindingChange[];
@@ -100,6 +129,8 @@ export interface PreviewData {
   needs_yes: boolean;
   command: string[];
   confirmation: string;
+  hub_changes: HubChange[];
+  running_turns: string[];
 }
 
 // 操作记录暴露给界面的八键投影（照 ts/packages/ui/src/operations.ts 的 operationView，八键一个不能少）。
@@ -231,6 +262,10 @@ function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
 function asNumber(value: string): string | number {
   const n = Number(value);
   return Number.isFinite(n) ? n : value;
@@ -272,8 +307,47 @@ function displayValue(value: unknown): string {
   return mode === '' ? DASH : mode;
 }
 
+// 替补的六个字段：缺键或类型不对归 null（服务没登记这个键时同样按没有处理）。
+function hubFallbackOf(value: unknown): HubChangeFallback | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const row = value as Record<string, unknown>;
+  return {
+    profile: textOrNull(row.profile),
+    runtime: textOrNull(row.runtime),
+    adapter: textOrNull(row.adapter),
+    provider: textOrNull(row.provider),
+    model: textOrNull(row.model),
+    thinking: textOrNull(row.thinking),
+  };
+}
+
+// 岗位一侧：整侧不是对象 → null；source 不是 default/config → null；六个字段不是字符串 → null。
+function hubSideOf(value: unknown): HubChangeSide | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const row = value as Record<string, unknown>;
+  return {
+    source: row.source === 'default' || row.source === 'config' ? row.source : null,
+    profile: textOrNull(row.profile),
+    runtime: textOrNull(row.runtime),
+    adapter: textOrNull(row.adapter),
+    provider: textOrNull(row.provider),
+    model: textOrNull(row.model),
+    thinking: textOrNull(row.thinking),
+    fallback: hubFallbackOf(row.fallback),
+  };
+}
+
+// 岗位前后对比一项：post 不是字符串 → 整项跳过（不显示半条）；两侧按 hubSideOf 收。
+function hubChangeOf(value: unknown): HubChange | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.post !== 'string') return null;
+  return { post: row.post, before: hubSideOf(row.before), after: hubSideOf(row.after) };
+}
+
 // 服务的预览 JSON → 前端的 PreviewData：binding_changes 的 {role, before, after} 映射成 {role, from, to}；
 // resources 取每项的 resource（按服务给的次序，不去重）；unreadable 并进 notes（前端形状里没有单独的键）；
+// hub_changes 逐项映射（post 不是字符串的跳过该项，侧与字段缺键或类型不对归 null）；running_turns 只留字符串项；
 // command 取信封顶层（带 --dry-run --json），不取预览 JSON 里的东西。
 function toPreviewData(preview: Record<string, unknown>, command: string[], confirmation: string): PreviewData {
   const binding_changes: BindingChange[] = [];
@@ -293,6 +367,13 @@ function toPreviewData(preview: Record<string, unknown>, command: string[], conf
       if (resource !== '') resources.push(resource);
     }
   }
+  const hub_changes: HubChange[] = [];
+  if (Array.isArray(preview.hub_changes)) {
+    for (const item of preview.hub_changes) {
+      const change = hubChangeOf(item);
+      if (change !== null) hub_changes.push(change);
+    }
+  }
   return {
     binding_changes,
     resources,
@@ -302,6 +383,8 @@ function toPreviewData(preview: Record<string, unknown>, command: string[], conf
     needs_yes: preview.needs_yes === true,
     command,
     confirmation,
+    hub_changes,
+    running_turns: stringsOf(preview.running_turns),
   };
 }
 

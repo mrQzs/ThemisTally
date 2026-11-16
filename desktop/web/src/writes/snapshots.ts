@@ -1,6 +1,6 @@
 // 写操作的快照投影与比较（第五节）：预览阶段与重读阶段各读一次，投影只留参与比对的字段，
 // 会自己变的字段（时间、计数、运行中的 attempt、探测与核验字段、信封的 command/output/messages、整份 history）都不进来。
-import type { PluginsData, PresetsData, ProfilesData, RolesData, RuntimesData } from '../api';
+import type { HubRolesData, PluginsData, PresetsData, ProfilesData, RolesData, RuntimesData } from '../api';
 
 export interface PresetSnapshot {
   active_preset: string;
@@ -44,6 +44,15 @@ export interface RollbackSnapshot {
   profiles: Array<{ id: string; runtime: unknown; provider: unknown; model: unknown; options: unknown; credential_env: unknown }>;
   runtimes: Array<{ id: string; adapter: string }>;
   plugins: Array<{ id: string; enabled: string }>;
+}
+
+export interface HubSnapshot {
+  posts: Array<{
+    post: string;
+    source: string;
+    profile: string | null;
+    fallback_profile: string | null;
+  }>;
 }
 
 function byKey<T extends Record<string, unknown>>(key: string) {
@@ -143,6 +152,21 @@ export function rollbackSnapshot(
     plugins: (plugins.plugins ?? [])
       .map((p) => ({ id: p.id, enabled: p.enabled }))
       .sort(byKey<{ id: string }>('id')),
+  };
+}
+
+/** hub.set / hub.unset 的快照：六行名册的 post/source/profile/fallback_profile（按 post；排除 allowed_adapters 与其余字段，
+ * 替补只留 profile——内核整条替换绑定，替补换成别的 profile 才算变了）。 */
+export function hubSnapshot(hub: HubRolesData): HubSnapshot {
+  return {
+    posts: (hub.posts ?? [])
+      .map((row) => ({
+        post: row.post,
+        source: row.source,
+        profile: row.profile,
+        fallback_profile: row.fallback?.profile ?? null,
+      }))
+      .sort(byKey<{ post: string }>('post')),
   };
 }
 

@@ -517,8 +517,8 @@ describe('T022 api：四个写函数', () => {
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
     const keys = Object.keys(r.body.data).sort();
-    expect(keys).toEqual(['binding_changes', 'command', 'confirmation', 'needs_yes', 'notes',
-      'resources', 'running_attempts', 'warnings']);
+    expect(keys).toEqual(['binding_changes', 'command', 'confirmation', 'hub_changes', 'needs_yes', 'notes',
+      'resources', 'running_attempts', 'running_turns', 'warnings']);
     const cmd: string[] = r.body.data.command;
     expect(cmd.slice(0, 4)).toEqual(['config', 'preset', 'use', 'economy']);
     expect(cmd).toContain('--dry-run');

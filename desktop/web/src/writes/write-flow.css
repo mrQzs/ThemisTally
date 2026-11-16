@@ -90,3 +90,19 @@
   font: var(--tt-text-sm-medium);
   color: var(--tt-text-1);
 }
+
+.wf-hub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-1);
+}
+
+.wf-hub__post {
+  color: var(--tt-text-2);
+  font: var(--tt-text-sm);
+}
+
+.wf-hub__line {
+  font: var(--tt-mono-md);
+  color: var(--tt-text-1);
+}

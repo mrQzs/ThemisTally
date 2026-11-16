@@ -2,7 +2,8 @@
 // 报错与 WARN 一律按纯文本显示（<pre> 或文本节点，不经 SafeMarkdown），<b>x</b> 原样显示成文字。
 import type { ReactNode } from 'react';
 import { Banner, Button, CommandLine, Dialog, Skeleton, Toast } from '../components';
-import type { BindingChange } from '../api';
+import type { BindingChange, HubChange } from '../api';
+import { hubChangeLines, hubPostLabel } from './hubChangeLines';
 // 样式表接线：放在组件 import 之后（照仓库里组件带自己的样式表的写法）。
 import './write-flow.css';
 
@@ -13,6 +14,8 @@ export interface ConfirmContent {
   summary?: string;
   warnings: string[];
   running: string[];
+  hubChanges: HubChange[];
+  runningTurns: string[];
   notes: string[];
 }
 
@@ -75,8 +78,8 @@ export function WriteFlow({ flow }: { flow: FlowRender }) {
   );
 }
 
-function Changes({ changes, summary }: { changes: BindingChange[]; summary?: string }) {
-  if (changes.length === 0) return <p className="wf-changes__empty">{summary ?? '预览没有列出变化'}</p>;
+function Changes({ changes, summary, hubChanges }: { changes: BindingChange[]; summary?: string; hubChanges: HubChange[] }) {
+  if (changes.length === 0 && hubChanges.length === 0) return <p className="wf-changes__empty">{summary ?? '预览没有列出变化'}</p>;
   return (
     <div className="wf-changes">
       {changes.map((c) => (
@@ -87,18 +90,29 @@ function Changes({ changes, summary }: { changes: BindingChange[]; summary?: str
           <span className="wf-change__to">{c.to}</span>
         </div>
       ))}
+      {hubChanges.map((h) => (
+        <div key={h.post} className="wf-hub">
+          <span className="wf-hub__post">{hubPostLabel(h.post)}</span>
+          {hubChangeLines(h).map((line, i) => (
+            <span key={i} className="wf-hub__line">{line}</span>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
 
 function Risks({ content }: { content: ConfirmContent }) {
-  const hasRisk = content.warnings.length > 0 || content.running.length > 0 || content.notes.length > 0;
+  const hasRisk = content.warnings.length > 0 || content.running.length > 0 || content.runningTurns.length > 0 || content.notes.length > 0;
   if (!hasRisk) return null;
   return (
     <div className="wf-section">
       <span className="wf-label">影响与风险</span>
       {content.running.map((r) => (
         <p key={r} className="wf-risk">有 attempt 正在运行：{r}。它不受影响，但这次改动需要你确认。</p>
+      ))}
+      {content.runningTurns.map((t) => (
+        <p key={t} className="wf-risk">{t}。在跑的回合照旧用原来的绑定，下一个回合起用新的；这次改动需要你确认。</p>
       ))}
       {content.warnings.map((w, i) => (
         <p key={`w${i}`} className="wf-risk">{w}</p>
@@ -119,7 +133,7 @@ function Content({ content }: { content: ConfirmContent }) {
       </div>
       <div className="wf-section">
         <span className="wf-label">变化</span>
-        <Changes changes={content.changes} summary={content.summary} />
+        <Changes changes={content.changes} summary={content.summary} hubChanges={content.hubChanges} />
       </div>
       <Risks content={content} />
     </div>

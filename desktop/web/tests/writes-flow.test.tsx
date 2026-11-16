@@ -130,6 +130,8 @@ describe('预览', () => {
           needs_yes: false,
           command: ['config', 'preset', 'use', 'economy'],
           confirmation: 'conf-1',
+          hub_changes: [],
+          running_turns: [],
         },
         output: [],
         messages: [],

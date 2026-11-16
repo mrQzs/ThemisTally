@@ -5,6 +5,7 @@ import {
   addProfile,
   addRuntime,
   editProfile,
+  getHubRoles,
   getOperation,
   getPlugins,
   getPresets,
@@ -16,7 +17,9 @@ import {
   removeProfile,
   removeRuntime,
   rollback,
+  setHubRole,
   setPluginEnabled,
+  unsetHubRole,
   usePreset,
   type Envelope,
   type OperationView,
@@ -27,6 +30,7 @@ import { dispatchCommand } from '../components';
 import { liveClient } from '../live/mode';
 import { writeScenario } from '../mock/writes';
 import {
+  hubSnapshot,
   pluginSnapshot,
   presetRemoveSnapshot,
   presetSnapshot,
@@ -58,6 +62,7 @@ export interface WriteSpec {
 type AddProfileArgs = { profile: string; runtime: string; model: string; thinking?: string; credential_env?: string[] };
 type EditProfileArgs = { profile: string; runtime?: string; model?: string; thinking?: string; credential_env?: string[] };
 type AddRuntimeArgs = { runtime: string; adapter: string; command?: string[] };
+type HubSetArgs = { post: string; profile: string; fallback?: string };
 
 // 轮询上限：写路由时限 90 秒再加宽限（D12：119 秒不下结论，120 秒进「结果未知」）。
 const POLL_LIMIT_MS = 120000;
@@ -85,6 +90,8 @@ function titleOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'profile.add') return `新建 profile ${args.profile}？`;
   if (action === 'profile.edit') return `修改 profile ${args.profile}？`;
   if (action === 'runtime.add') return `登记运行时 ${args.runtime}？`;
+  if (action === 'hub.set') return `改绑定 ${args.post}？`;
+  if (action === 'hub.unset') return `恢复缺省 ${args.post}？`;
   return `确认操作 ${action}？`;
 }
 
@@ -99,11 +106,19 @@ function successTextOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'profile.add') return `已新建 profile ${args.profile}`;
   if (action === 'profile.edit') return `已修改 profile ${args.profile}`;
   if (action === 'runtime.add') return `已登记运行时 ${args.runtime}`;
+  if (action === 'hub.set') return `已改绑定 ${args.post}`;
+  if (action === 'hub.unset') return `已恢复缺省 ${args.post}`;
   return `已回滚到 #${args.number} 之后`;
 }
 
 /** 变化区摘要：预览没有 binding_changes 时显示；没有摘要的动作（回滚与 A 片）返回 null，回落到「预览没有列出变化」。 */
 function changeSummaryOf(action: WriteAction, args: WriteArgs): string | null {
+  if (action === 'hub.set') {
+    // 有替补时说替补 id，没有（没传或空串）时说没有替补：与内核 _hub_set 整条替换的语义一致。
+    const fallback = typeof args.fallback === 'string' ? args.fallback : '';
+    return `岗位 ${args.post} 的主绑定改成 ${args.profile}${fallback === '' ? '，没有替补' : `，替补 ${fallback}`}`;
+  }
+  if (action === 'hub.unset') return `岗位 ${args.post} 回到内核缺省`;
   if (action === 'preset.remove') return `方案表里去掉 ${args.name}，角色绑定不变`;
   if (action === 'profile.remove') return `profile 表里去掉 ${args.profile}`;
   if (action === 'runtime.remove') return `已登记表里去掉 ${args.runtime}；本机文件里登记的命令一并删去`;
@@ -163,6 +178,12 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
       const runtimes = await getRuntimes();
       if (!runtimes.ok || !runtimes.data) return { ok: false };
       return { ok: true, snapshot: runtimeRemoveSnapshot(runtimes.data) };
+    }
+    if (action === 'hub.set' || action === 'hub.unset') {
+      // 岗位绑定只由 hub 名册说明：预览与重读各读一次，比对 post/source/profile/fallback_profile。
+      const hub = await getHubRoles();
+      if (!hub.ok || !hub.data) return { ok: false };
+      return { ok: true, snapshot: hubSnapshot(hub.data) };
     }
     if (action === 'config.rollback') {
       const [roles, presets, profiles, runtimes, plugins] = await Promise.all([
@@ -247,7 +268,7 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
   }, [stopPolling]);
 
   const contentOf = useCallback((): ConfirmContent => {
-    return contentRef.current ?? { command: '', changes: [], warnings: [], running: [], notes: [] };
+    return contentRef.current ?? { command: '', changes: [], warnings: [], running: [], notes: [], hubChanges: [], runningTurns: [] };
   }, []);
 
   const applyFinal = useCallback(
@@ -433,11 +454,10 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
       const data = r.body.data;
       snapRef.current = snapRes.s.snapshot;
       confirmRef.current = data.confirmation;
-      // needs_yes 为真且没有正在运行的 attempt：内核的意思是「状态读不出来，不能当作没有在运行的」，
+      // needs_yes 为真且没有正在运行的 attempt、也没有在跑的回合：内核的意思是「状态读不出来，不能当作没有在运行的」，
       // 但预览正文里只有一串原样的路径，用户看不出这次为什么要他确认；这句加在 notes 最前面（wf-note）。
-      const notes = data.needs_yes === true && data.running_attempts.length === 0
-        ? ['有状态读不出来，不能确定没有正在运行的 attempt；这次改动需要你确认。', ...data.notes]
-        : data.notes;
+      // 有 attempt 或有回合在跑时不出这句（那两种情形由确认框的「影响与风险」逐行说明，T044）。
+      const notes = data.needs_yes === true && data.running_attempts.length === 0 && data.running_turns.length === 0 ? ['有状态读不出来，不能确定没有正在运行的 attempt；这次改动需要你确认。', ...data.notes] : data.notes;
       const content = {
         // 预览命令带 --dry-run --json（第二节）；「将运行的命令」要的是真正会跑的写命令，去掉这两个开关。
         command: dispatchCommand(data.command.filter((a) => a !== '--dry-run' && a !== '--json')),
@@ -445,6 +465,8 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
         summary: changeSummaryOf(spec.action, spec.args) ?? undefined,
         warnings: data.warnings,
         running: data.running_attempts,
+        hubChanges: data.hub_changes,
+        runningTurns: data.running_turns,
         notes,
       };
       contentRef.current = content;
@@ -494,7 +516,11 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
                     ? editProfile(spec.args as unknown as EditProfileArgs, confirmRef.current)
                     : spec.action === 'runtime.add'
                       ? addRuntime(spec.args as unknown as AddRuntimeArgs, confirmRef.current)
-                      : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
+                      : spec.action === 'hub.set'
+                        ? setHubRole(spec.args as unknown as HubSetArgs, confirmRef.current)
+                        : spec.action === 'hub.unset'
+                          ? unsetHubRole(sargs.post, confirmRef.current)
+                          : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
     call.then(
       (reply) => {
         if (isCurrent(my)) proceed(classifyWrite(reply.status, reply.body), reply.body, my);

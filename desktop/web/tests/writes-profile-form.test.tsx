@@ -382,7 +382,7 @@ function pvEnv(command: string[]): unknown {
   return {
     ok: true,
     exit_code: 0,
-    data: { binding_changes: [], resources: [], notes: [], warnings: [], running_attempts: [], needs_yes: false, command, confirmation: 'c' },
+    data: { binding_changes: [], resources: [], notes: [], warnings: [], running_attempts: [], needs_yes: false, command, confirmation: 'c', hub_changes: [], running_turns: [] },
     output: [],
     messages: [],
     command,
