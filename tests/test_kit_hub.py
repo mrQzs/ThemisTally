@@ -8743,6 +8743,28 @@ def test_routine_briefs_quote_each_path_on_its_own(engine_env):
     assert "- 基准测试：`tests/test_a.py`、`tests/test_b.py`" in brief
 
 
+def test_the_audit_redo_after_a_gate_hotfix_reviews_only_the_test_diff(engine_env):
+    """第 176 轮（候选 #50）：门禁热修补之后，内核代办的一审重做任务书材料先列测试差异，末尾写明只审它；没有热修补的一审、
+    一审返工与别的阶段照旧。"""
+    hub = engine_env
+    ts = hub.load_state()["tasks"]["T001"]
+    ts["oracle"]["files"] = ["tests/test_gate_t001_baseline.py"]
+    ts["jev"]["3j-jev"] = {"verdict": "no_opinion"}  # 首审的材料里有合同概述的 JEV 判断，重做的没有
+    start = {"type": "开工", "suffix": "4-audit-pre", "fields": {}, "from_task": "x"}
+    plain = kh.render_routine_brief(hub, ts, start)
+    assert "- 合同概述的 JEV 判断：" in plain
+    ts["oracle"]["hotfix_diff"] = ".agent/mailbox/tasks/T001-3-gate-pre/evidence/hotfix-20261116T102742453340Z.diff"
+    lines = kh.render_routine_brief(hub, ts, start).split("\n")
+    assert "热修补" not in plain and "## 这是门禁热修补之后的重做" in lines and lines[-2] == kh.HOTFIX_REVIEW[-1]
+    first = lines.index("## 材料") + 2
+    assert lines[first] == "- 测试差异（门禁热修补唯一的改动）：`%s`" % ts["oracle"]["hotfix_diff"]
+    kept = [line for line in plain.split("\n") if line.startswith(("- 合同：", "- 基准测试：", "- 战前门禁的报告："))]
+    assert kept and lines[first + 1:first + 1 + len(kept)] == kept and "合同概述的 JEV 判断" not in "\n".join(lines)
+    for move in ({"type": "返工", "suffix": "4-audit-pre", "fields": {"阻塞项": "改 X"}, "from_task": "T001-7-audit-post"},
+                 {"type": "开工", "suffix": "6-gate-post", "fields": {}, "from_task": "x"}):
+        assert "热修补" not in kh.render_routine_brief(hub, ts, move)
+
+
 def test_a_clean_slice_runs_from_task_to_pass_without_a_coordinator_turn(engine_env, kernel_routing, monkeypatch):
     """第 112 轮的验收（r3 §11）：替身 runner 从站主的任务一路跑到结项信，交付都干净时协调人一个回合也不起。"""
     hub = engine_env
@@ -8888,6 +8910,22 @@ def test_a_changed_delivery_file_stops_the_turn(tmp_path, monkeypatch):
     monkeypatch.setitem(kh.DELIVERY_SHA256, "coordinator.json", "0" * 64)
     turn, seen = coordinator_turn(tmp_path, deliver_events(({"letters": [], "state": "x"}, False)))
     assert seen == [] and "交差工具的文件被改过" in turn["api_error"] and turn["output"] is None
+
+
+def test_the_audit_example_carries_its_three_extra_keys_inside_the_letter(tmp_path, monkeypatch):
+    # 第 176 轮（候选 #51）：审核端交差示例的 letter 里就带 conclusion、return_to、blockers。原来示例里没有、另起一句
+    # “letter 里另加三项”，Quizs 上的一审一回漏写，一回写到 letter 的右花括号外面（JSON 提前收口），两回都没交上
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    example, worker = json.loads(kh.OUTPUT_SPECS["audit"]), json.loads(kh.OUTPUT_SPECS["worker"])
+    assert list(example["letter"]) == list(worker["letter"]) + ["conclusion", "return_to", "blockers"]
+    assert dict(example, letter=None) == dict(worker, letter=None)
+    for adapter in ("quizs", "pi"):
+        monkeypatch.setitem(kh.ROSTER, "audit-sonnet", dict(kh.ROSTER["audit-sonnet"], adapter=adapter, provider="minimax"))
+        prompt = kh.turn_prompt(hub, make_ts(), "audit-sonnet", "T001-4-audit-pre", [], tmp_path)
+        assert kh.OUTPUT_SPECS["audit"] in prompt and "在 letter 的花括号里面，不和 report 平级" in prompt
+    contract = kh.turn_prompt(hub, make_ts(), "contract-glm", "T001-2-contract", [], tmp_path)
+    assert kh.OUTPUT_SPECS["worker"] in contract and '"conclusion"' not in contract
 
 
 def test_a_quizs_prompt_says_to_hand_in_without_calling_any_tool(tmp_path, monkeypatch):

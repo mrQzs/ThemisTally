@@ -1,0 +1,44 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-state.compare.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "C01 不认热修补",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "const hotfixDiff = suffix === \"4-audit-pre\" && kind === \"开工\" ? pyGet(pyItem(ts, \"oracle\"), \"hotfix_diff\") : null;",
+      "new": "const hotfixDiff = null;"
+    },
+    {
+      "name": "C02 一审返工也当热修补重做",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "const hotfixDiff = suffix === \"4-audit-pre\" && kind === \"开工\" ?",
+      "new": "const hotfixDiff = suffix === \"4-audit-pre\" ?"
+    },
+    {
+      "name": "C03 材料不列差异",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "  if (hotfix !== null) lines.push(`- 测试差异（门禁热修补唯一的改动）：${BT}${hotfix}${BT}`);\n",
+      "new": ""
+    },
+    {
+      "name": "C04 材料照首审列 JEV",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "for (const name of hotfix !== null ? [\"合同\", \"基准测试\", \"战前门禁的报告\"] : wanted[suffix] ?? []) {",
+      "new": "for (const name of wanted[suffix] ?? []) {"
+    },
+    {
+      "name": "C05 不写只审差异的一节",
+      "file": "ts/packages/hub/src/taskstate.ts",
+      "old": "  if (hotfix !== null) lines.push(\"\", \"## 这是门禁热修补之后的重做\", \"\", ...HOTFIX_REVIEW);\n",
+      "new": ""
+    }
+  ]
+}

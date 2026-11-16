@@ -332,6 +332,17 @@ export function routineMoves(texts: readonly string[]): [PyDict[], string | null
   return [moves, null];
 }
 
+/** 第 176 轮（候选 #50）：门禁热修补之后，内核代办的一审重做只审 accept_gate_pre 存下的测试差异（T045 的重做照首审的任务书读了 122 次、
+ *  40 分钟没交上）。任务书的材料先列差异，再列合同、基准测试与门禁报告作对照，末尾是这一节。 */
+export const HOTFIX_REVIEW: readonly string[] = [
+  "执行之后门禁端改了基准测试（热修补），合同据此升了版，别的都没变；你在上一版判过的结论照旧作数。这一回合只审上面那份测试差异：",
+  "1. 改动范围：差异是不是只落在要修的那几处，同一文件里别的断言、用例与说明有没有被顺手改动；",
+  "2. 自洽与强度：改后的期望与同一夹具里别的断言一致，不能靠删断言、放宽匹配凑过；",
+  "3. 基线仍红：改动不能让基准测试在还没实现的基线上变绿；",
+  "4. 是否牵动上一版 DoD 到测试的对应：只是修错配，结论照旧；动了哪条 DoD 的判定口径，写清是哪一条。",
+  "合同与产品代码不必从头读一遍（读得越多，回合越慢），要对照时只读差异涉及的那几行。",
+];
+
 /** 内核代办时写的任务书：上游产物在只读输入目录里的路径；返工的原因照原话附上。 */
 export function renderRoutineBrief(repo: string, ts: PyDict, move: PyDict): string {
   const task = str(pyItem(ts, "task"));
@@ -364,12 +375,15 @@ export function renderRoutineBrief(repo: string, ts: PyDict, move: PyDict): stri
     "6-gate-post": ["合同", "候选补丁", "执行概述与执行报告", "基准测试"],
     "7-audit-post": ["合同", "候选补丁", "执行概述与执行报告", "战后门禁的报告", "执行概述的 JEV 判断"],
   };
+  const hotfixDiff = suffix === "4-audit-pre" && kind === "开工" ? pyGet(pyItem(ts, "oracle"), "hotfix_diff") : null; // 见 HOTFIX_REVIEW
+  const hotfix = pyTruthy(hotfixDiff) ? str(hotfixDiff) : null;
   const lines = [
     `# ${task}-${suffix}（${kind}，内核按例行流转写的任务书）`, "",
     "上一阶段交付通过、下一步按例行流转就是这里，所以这份任务书由内核写（七端改造第 3 条）。要做什么见你的岗位说明；下面的路径都在只读输入目录里照原样能找到。",
     "", "## 材料", "",
   ];
-  for (const name of wanted[suffix] ?? []) {
+  if (hotfix !== null) lines.push(`- 测试差异（门禁热修补唯一的改动）：${BT}${hotfix}${BT}`);
+  for (const name of hotfix !== null ? ["合同", "基准测试", "战前门禁的报告"] : wanted[suffix] ?? []) {
     const paths = sources[name] as string[];
     if (paths.length) lines.push(`- ${name}：${paths.map((item) => BT + item + BT).join("、")}`);
   }
@@ -392,6 +406,7 @@ export function renderRoutineBrief(repo: string, ts: PyDict, move: PyDict): stri
     const blockers = pyGet(last, "blockers");
     lines.push("", "## 最近一次审核也退回了这一阶段（阻塞项原文）", "", textItem(pyTruthy(blockers) ? blockers : "（空）"));
   }
+  if (hotfix !== null) lines.push("", "## 这是门禁热修补之后的重做", "", ...HOTFIX_REVIEW);
   return lines.join(LF) + LF;
 }
 

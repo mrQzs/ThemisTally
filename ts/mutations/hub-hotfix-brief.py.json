@@ -1,0 +1,48 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "audit_redo_after_a_gate_hotfix or routine_briefs_quote_each_path"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "B01 不认热修补",
+      "file": "scripts/kit_hub.py",
+      "old": "hotfix = ts[\"oracle\"].get(\"hotfix_diff\") if (suffix, kind) == (\"4-audit-pre\", \"开工\") else None",
+      "new": "hotfix = None"
+    },
+    {
+      "name": "B02 一审返工也当热修补重做",
+      "file": "scripts/kit_hub.py",
+      "old": "if (suffix, kind) == (\"4-audit-pre\", \"开工\") else None",
+      "new": "if suffix == \"4-audit-pre\" else None"
+    },
+    {
+      "name": "B03 材料不列差异",
+      "file": "scripts/kit_hub.py",
+      "old": "        lines.append(\"- 测试差异（门禁热修补唯一的改动）：`%s`\" % hotfix)",
+      "new": "        lines.append(\"\")"
+    },
+    {
+      "name": "B04 材料照首审列 JEV",
+      "file": "scripts/kit_hub.py",
+      "old": "    if hotfix:\n        wanted = [\"合同\", \"基准测试\", \"战前门禁的报告\"]",
+      "new": "    if hotfix:\n        wanted = wanted"
+    },
+    {
+      "name": "B05 不写只审差异的一节",
+      "file": "scripts/kit_hub.py",
+      "old": "        lines += [\"\", \"## 这是门禁热修补之后的重做\", \"\"] + list(HOTFIX_REVIEW)",
+      "new": "        lines += []"
+    }
+  ]
+}

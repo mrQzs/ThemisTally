@@ -336,26 +336,31 @@ export function turnPrompt(
       "- 这一回合做完，最后的回答里只写一个 " + BT.repeat(3) + "json 代码块，内容是一个 JSON 对象，格式是内核给的 JSON Schema，大致如下。写完这一回合就结束。",
       "- 内核核验不过时会退回并写明哪里不对：照着改了再交。",
       "- 只写这一个 json 代码块。交差不调用任何工具（没有 deliver，也没有名叫 json 的工具）：把代码块直接写在最后的回答文本里；这一回合能调用的工具只有角色说明里列的只读工具。", "",
-      BT.repeat(3), OUTPUT_SPECS[role === "coordinator" ? "coordinator" : "worker"] as string, BT.repeat(3));
+      BT.repeat(3), outputSpec(role), BT.repeat(3));
   } else if (spec.adapter !== "claude") {
     // 第 90 轮：用 deliver 工具交差，格式由工具的 schema 卡住
     parts.push("", "## 交差（用 deliver 工具）", "",
       "- 这一回合做完，调用一次 " + BT + "deliver" + BT + " 工具交差；参数的格式在工具的说明里（内核给的 schema），大致如下。调用成功，这一回合就结束。",
       "- 参数不合格式时，工具当场退回并写明哪里不对：照着改了再调一次。",
       "- 不要再在消息里写 " + BT.repeat(3) + "json 代码块：内核不读它。", "",
-      BT.repeat(3), OUTPUT_SPECS[role === "coordinator" ? "coordinator" : "worker"] as string, BT.repeat(3));
+      BT.repeat(3), outputSpec(role), BT.repeat(3));
   } else {
     // 第 101 轮：claude 用 --json-schema 交差，CLI 给的工具叫 StructuredOutput
     parts.push("", "## 交差（交结构化结果）", "",
       "- 这一回合做完，用 " + BT + "StructuredOutput" + BT + " 工具交出结构化结果；格式是内核给的 JSON Schema，大致如下。交上了，这一回合就结束。",
       "- 不合格式时会退回并写明哪里不对：照着改了再交。",
       "- 不要再在消息里写 " + BT.repeat(3) + "json 代码块：内核不读它。", "",
-      BT.repeat(3), OUTPUT_SPECS["worker"] as string, BT.repeat(3));
+      BT.repeat(3), OUTPUT_SPECS[role === "audit" ? "audit" : "worker"] as string, BT.repeat(3));
   }
   // 第 169 轮：给模型看的键是英文，内核投信时换成中文栏目
   if (role !== "coordinator") parts.push("letter 的键照上面逐字写英文（尖括号里是投信时的中文栏目），内核投信时换过去。");
   if (Object.hasOwn(ROLE_EXTRA_OUTPUT, role)) parts.push(ROLE_EXTRA_OUTPUT[role] as string);
   return `${pyJoinStrings(LF, parts)}${LF}`;
+}
+
+/** 交差示例：协调人一份；第 176 轮起审核端也一份（letter 里带结论、退回、阻塞项）；别的岗位用 worker。 */
+function outputSpec(role: string): string {
+  return OUTPUT_SPECS[role === "coordinator" ? "coordinator" : role === "audit" ? "audit" : "worker"] as string;
 }
 
 /** 第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。

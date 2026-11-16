@@ -454,6 +454,11 @@ describe("第 ⑤d1 片：按种子生成的回合输入", () => {
       expect(prompt).toContain("## 叠在仓库上的输入（内核）");
       expect(prompt).toContain("## 交差（最后的回答写一个 json 代码块）");
     }
+    // 第 176 轮（候选 #51）：审核端的示例 letter 末尾就是结论、退回、阻塞项，说明写明在 letter 里面；合同端照旧是 worker 示例
+    // （test_the_audit_example_carries_its_three_extra_keys_inside_the_letter 改了名册，不进上面的采样名单）
+    expect(prompts[1]).toContain('"evidence": "<证据>", "conclusion": "<结论>", "return_to": "<退回>", "blockers": "<阻塞项>"}, "report"');
+    expect(prompts[1]).toContain("在 letter 的花括号里面，不和 report 平级");
+    expect(prompts[0]).not.toContain('"conclusion"');
     // live 文件：信箱的 quizs-live/<提供方>/ 三份齐了才用；不全退回环境给的那一套，那一套认得出是别家的就不用
     const box = join(ROOT, "live156");
     const own = join(box, "quizs-live", "minimax");

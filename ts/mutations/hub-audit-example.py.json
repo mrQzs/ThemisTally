@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "audit_example_carries_its_three_extra_keys"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "E01 审核端照用 worker 的示例",
+      "file": "scripts/kit_hub.py",
+      "old": "return OUTPUT_SPECS[\"coordinator\" if role == \"coordinator\" else \"audit\" if role == \"audit\" else \"worker\"]",
+      "new": "return OUTPUT_SPECS[\"coordinator\" if role == \"coordinator\" else \"worker\"]"
+    },
+    {
+      "name": "E02 示例里的阻塞项键名写错",
+      "file": "scripts/kit_hub.py",
+      "old": "\"blockers\": \"<阻塞项>\"}, ",
+      "new": "\"blocker\": \"<阻塞项>\"}, "
+    },
+    {
+      "name": "E03 说明照旧写“另加三项”",
+      "file": "scripts/kit_hub.py",
+      "old": "'letter 里最后这三项都要写（在 letter 的花括号里面，不和 report 平级）：'",
+      "new": "'letter 里另加三项，都要写：'"
+    }
+  ]
+}

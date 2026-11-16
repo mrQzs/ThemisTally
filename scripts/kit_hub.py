@@ -1445,6 +1445,18 @@ def routine_moves(texts: Sequence[str]) -> Tuple[List[Dict[str, Any]], Optional[
     return moves, None
 
 
+#: 第 176 轮（候选 #50）：门禁热修补之后，内核代办的一审重做只审 accept_gate_pre 存下的测试差异（T045 的重做照首审的任务书读了 122 次、
+#: 40 分钟没交上）。任务书的材料先列差异，再列合同、基准测试与门禁报告作对照，末尾是这一节
+HOTFIX_REVIEW = (
+    "执行之后门禁端改了基准测试（热修补），合同据此升了版，别的都没变；你在上一版判过的结论照旧作数。这一回合只审上面那份测试差异：",
+    "1. 改动范围：差异是不是只落在要修的那几处，同一文件里别的断言、用例与说明有没有被顺手改动；",
+    "2. 自洽与强度：改后的期望与同一夹具里别的断言一致，不能靠删断言、放宽匹配凑过；",
+    "3. 基线仍红：改动不能让基准测试在还没实现的基线上变绿；",
+    "4. 是否牵动上一版 DoD 到测试的对应：只是修错配，结论照旧；动了哪条 DoD 的判定口径，写清是哪一条。",
+    "合同与产品代码不必从头读一遍（读得越多，回合越慢），要对照时只读差异涉及的那几行。",
+)
+
+
 def render_routine_brief(hub: Hub, ts: Dict[str, Any], move: Dict[str, Any]) -> str:
     """第 112 轮：内核代办时写的任务书。这一阶段要用的上游产物在信箱与仓库里的路径（工人在只读输入目录里照原样
     找到），返工的原因照原话附上；上游的下游须知由 turn_prompt 统一附，这里不重复。"""
@@ -1470,9 +1482,14 @@ def render_routine_brief(hub: Hub, ts: Dict[str, Any], move: Dict[str, Any]) -> 
               "6-gate-post": ["合同", "候选补丁", "执行概述与执行报告", "基准测试"],
               "7-audit-post": ["合同", "候选补丁", "执行概述与执行报告", "战后门禁的报告", "执行概述的 JEV 判断"],
               }.get(suffix, [])
+    hotfix = ts["oracle"].get("hotfix_diff") if (suffix, kind) == ("4-audit-pre", "开工") else None  # 见 HOTFIX_REVIEW
+    if hotfix:
+        wanted = ["合同", "基准测试", "战前门禁的报告"]
     lines = ["# %s-%s（%s，内核按例行流转写的任务书）" % (task, suffix, kind), "",
              "上一阶段交付通过、下一步按例行流转就是这里，所以这份任务书由内核写（七端改造第 3 条）。"
              "要做什么见你的岗位说明；下面的路径都在只读输入目录里照原样能找到。", "", "## 材料", ""]
+    if hotfix:
+        lines.append("- 测试差异（门禁热修补唯一的改动）：`%s`" % hotfix)
     lines += ["- %s：%s" % (name, "、".join("`%s`" % path for path in sources[name])) for name in wanted if sources[name]]
     stage = ts["stages"][suffix]
     if kind == "返工" and stage.get("problems"):
@@ -1487,6 +1504,8 @@ def render_routine_brief(hub: Hub, ts: Dict[str, Any], move: Dict[str, Any]) -> 
     if kind == "开工" and last.get("verdict") == "返工" and suffix in return_stages(last.get("target")):
         # 退回几处时，上游重新交付之后下游重新开工：带上最近一次审核对它列的阻塞项
         lines += ["", "## 最近一次审核也退回了这一阶段（阻塞项原文）", "", last.get("blockers") or "（空）"]
+    if hotfix:
+        lines += ["", "## 这是门禁热修补之后的重做", ""] + list(HOTFIX_REVIEW)
     return "\n".join(lines) + "\n"
 
 
@@ -5229,7 +5248,20 @@ OUTPUT_SPECS = {
               '"commits": "<提交>", "verification": "<验证>", "deviations": "<偏离>", '
               '"needs_coordinator_decision": "<需协调人决定>", "downstream_notes": "<下游须知>", "evidence": "<证据>"}, '
               '"report": "<report.md 全文>", "state": "<state.md 全文>"}',
+    # 第 176 轮（候选 #51）：审核端的 letter 里就带结论、退回、阻塞项（原来示例里没有、另起一句，Quizs 上的一审一回漏写、一回写到 letter 外面）
+    "audit": '{"letter": {"type": "交付|返工完成|提问|阻塞|交接|进度", "in_reply_to": "<msg-id>", "summary": "<摘要>", '
+             '"commits": "<提交>", "verification": "<验证>", "deviations": "<偏离>", '
+             '"needs_coordinator_decision": "<需协调人决定>", "downstream_notes": "<下游须知>", "evidence": "<证据>", '
+             '"conclusion": "<结论>", "return_to": "<退回>", "blockers": "<阻塞项>"}, '
+             '"report": "<report.md 全文>", "state": "<state.md 全文>"}',
 }
+
+
+def output_spec(role: str) -> str:
+    """交差示例：协调人一份；第 176 轮起审核端也一份（letter 里带结论、退回、阻塞项）；别的岗位用 worker。"""
+    return OUTPUT_SPECS["coordinator" if role == "coordinator" else "audit" if role == "audit" else "worker"]
+
+
 ROLE_EXTRA_OUTPUT = {
     "planner": '另加 "external_facts": [{"fact": "<计划依赖的仓库外事实>", "source": "<出处>", '
                '"verified": "<核实的命令与结果；没核实就写“未核实”>"}]，没有仓库外事实就写 []',
@@ -5246,7 +5278,7 @@ ROLE_EXTRA_OUTPUT = {
             '其余每条都必须被抓住；执行端改动的每个非测试文件至少一条变异，确实没法变异的（例如二进制文件）'
             '另加 "unmutated": [{"file": "<相对路径>", "reason": "<为什么>"}]（终审会复核）；候选不满足合同写明的行为时另加 "candidate_defects": [{"test": "<红的用例 node id 或函数名>", '
             '"contract": "<合同原文>", "where": "<候选文件:行>"}]（这时可以不给 mutation_spec_file）',
-    "audit": 'letter 里另加三项，都要写：'
+    "audit": 'letter 里最后这三项都要写（在 letter 的花括号里面，不和 report 平级）：'
              '"conclusion"（结论）: "通过|返工"（交付以外的信写“无”）；'
              '"return_to"（退回）: "合同端|门禁端|战后门禁|执行端|规划端"（一审只能退回规划端、合同端、门禁端；几个对象都要改时用“、”'
              '隔开，例如 "合同端、门禁端"；不是返工写“无”）；'
@@ -5635,7 +5667,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "大致如下。写完这一回合就结束。",
                   "- 内核核验不过时会退回并写明哪里不对：照着改了再交。",
                   "- 只写这一个 json 代码块。交差不调用任何工具（没有 deliver，也没有名叫 json 的工具）：把代码块直接写在最后的回答文本里；这一回合能调用的工具只有角色说明里列的只读工具。", "",
-                  "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
+                  "```", output_spec(role), "```"]
     elif spec["adapter"] != "claude":
         # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差，格式由工具的 schema 卡住
         parts += ["", "## 交差（用 deliver 工具）", "",
@@ -5643,7 +5675,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "调用成功，这一回合就结束。",
                   "- 参数不合格式时，工具当场退回并写明哪里不对：照着改了再调一次。",
                   "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
-                  "```", OUTPUT_SPECS["coordinator" if role == "coordinator" else "worker"], "```"]
+                  "```", output_spec(role), "```"]
     else:
         # 第 101 轮：claude 用 --json-schema 交差，CLI 给的工具叫 StructuredOutput
         parts += ["", "## 交差（交结构化结果）", "",
@@ -5651,7 +5683,7 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
                   "交上了，这一回合就结束。",
                   "- 不合格式时会退回并写明哪里不对：照着改了再交。",
                   "- 不要再在消息里写 ```json 代码块：内核不读它。", "",
-                  "```", OUTPUT_SPECS["worker"], "```"]
+                  "```", OUTPUT_SPECS["audit" if role == "audit" else "worker"], "```"]
     if role != "coordinator":
         # 第 169 轮：给模型看的键是英文，内核投信时换成中文栏目
         parts.append("letter 的键照上面逐字写英文（尖括号里是投信时的中文栏目），内核投信时换过去。")

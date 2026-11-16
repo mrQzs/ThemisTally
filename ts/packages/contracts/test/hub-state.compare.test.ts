@@ -326,6 +326,14 @@ function guardScenarios(base: string): ProbeRequest[] {
   part(ts, "exec").set("run_dir", `${REPO}/.agent/runs/t001-doc/attempt-001`);
   part(ts, "oracle").set("files", ["tests/test_a.py", "tests/test_b.py"]);
   items.push(call("render_routine_brief", [ts, dict(["type", "开工"], ["suffix", "6-gate-post"], ["fields", dict()], ["from_task", "x"])]));
+  // 第 176 轮：test_the_audit_redo_after_a_gate_hotfix_reviews_only_the_test_diff（热修补之后的一审重做，与一审返工、别的阶段、通过）
+  ts = makeTs();
+  part(ts, "oracle").set("files", ["tests/test_gate_t001_baseline.py"]);
+  part(ts, "oracle").set("hotfix_diff", ".agent/mailbox/tasks/T001-3-gate-pre/evidence/hotfix-20261116T102742453340Z.diff");
+  part(ts, "jev").set("3j-jev", dict(["verdict", "no_opinion"])); // 首审的材料里有 JEV 的判断，重做的没有
+  for (const [kind, suffix] of [["开工", "4-audit-pre"], ["返工", "4-audit-pre"], ["开工", "6-gate-post"], ["通过", "4-audit-pre"]] as const) {
+    items.push(call("render_routine_brief", [ts, dict(["type", kind], ["suffix", suffix], ["fields", dict(["阻塞项", "改 X"])], ["from_task", "T001-7-audit-post"])]));
+  }
   return items;
 }
 

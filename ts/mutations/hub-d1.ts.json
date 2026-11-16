@@ -217,8 +217,8 @@
     {
       "name": "D35 协调人也拿工人的交差格式",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "内核不读它。\", \"\",\n      BT.repeat(3), OUTPUT_SPECS[role === \"coordinator\" ? \"coordinator\" : \"worker\"]",
-      "new": "内核不读它。\", \"\",\n      BT.repeat(3), OUTPUT_SPECS[\"worker\"]"
+      "old": "内核不读它。\", \"\",\n      BT.repeat(3), outputSpec(role)",
+      "new": "内核不读它。\", \"\",\n      BT.repeat(3), (OUTPUT_SPECS[\"worker\"] as string)"
     },
     {
       "name": "D36 不附上次留下的 state.md",
