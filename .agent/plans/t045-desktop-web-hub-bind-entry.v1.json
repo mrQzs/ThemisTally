@@ -1,0 +1,341 @@
+{
+  "schema_version": 1,
+  "task_id": "t045-desktop-web-hub-bind-entry",
+  "plan_version": 1,
+  "title": "桌面端前端第 11 片：“七端岗位”一组的“改绑定…”“恢复缺省…”入口与表单（模型配置 M4 之五，T044 拆出的 B 片）",
+  "repository": "ThemisTally",
+  "base_sha": "5407feb89b64abcb9d56f9c3417be0c8e96566b7",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/readonly1/roles-logic.ts",
+      "desktop/web/src/pages/readonly1/roles-HubPosts.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/tests/page-hub.test.tsx",
+      "desktop/web/tests/page-app.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/HubBindForm.tsx",
+      "desktop/web/src/writes/hub-bind-form.css",
+      "desktop/web/tests/roles-hub-candidates.test.ts",
+      "desktop/web/tests/writes-hub-bind.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t045_*.py",
+      "tests/test_gate_t*_baseline.py",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/hubChangeLines.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/writeOutcome.ts",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/pages/readonly1/roles-styles.css",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/tests/roles-hub-logic.test.ts",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/writes-dialog.test.tsx",
+      "desktop/web/tests/writes-flow.test.tsx",
+      "desktop/web/tests/writes-live-flow.test.tsx",
+      "desktop/web/tests/writes-live-preview.test.tsx",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t045_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`hubFallbackCandidates` 是纯函数：主选适配器是 quizs 时返回允许名单去掉 quizs 的候选，否则返回空数组；`allowedProfiles`、`hubPostName`、`normalizeHubPost` 三个既有导出与行为不变；`roles-logic.ts` 仍只 `import type`",
+      "evidence": [
+        "V01",
+        "V02",
+        "R01",
+        "scope"
+      ],
+      "intent": "替补的资格是内核的硬规则（`scripts/kit_roles.py:331-333`），界面上先挡住比让内核拒绝好"
+    },
+    {
+      "id": "D02",
+      "text": "`useLivePreview` 只多两个字段（`hubChanges`、`runningTurns`），预览带这两个字段时原样出现在结果里；开头两行注释、`DEBOUNCE_MS = 300`、防抖与序号丢弃逻辑一字未改；T040 的预览探针照旧通过",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "表单底部要显示前后对比与在跑的回合，但不能碰既有预览的时序"
+    },
+    {
+      "id": "D03",
+      "text": "表单按 Behavior contract 筛候选与预填（配置行预填现有主选与替补；现有主绑定不在候选里时落第一个候选；主选改成非 quizs 时替补清空并禁用）；写参数是 `{ post, profile }`，替补非空才带 `fallback`",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "`hub set` 整条替换绑定，不预填就会把用户原来的替补悄悄清掉"
+    },
+    {
+      "id": "D04",
+      "text": "表单底部显示命令、这个岗位的前后对比（**复用 A 片的 `hubChangeLines`**）、warnings、running_turns、错误原文；`[确认…]` 的门控是「主选非空 + 预览对应当前取值 + 预览 ok」，点它先关表单再 `start({action:'hub.set', args})`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "用户要在确认之前看见这次绑定改成了什么、会不会撞上同一个模型"
+    },
+    {
+      "id": "D05",
+      "text": "「七端岗位」一组加第七列「操作」，每行两个入口：textContent 恰是「改绑定…」与「恢复缺省…」；没有候选时「改绑定…」禁用并有原因句；缺省行的「恢复缺省…」禁用并有原因句，配置行可点；按钮里没有岗位名；读失败分支整组照旧零按钮",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "这是本页唯一的写入口，白名单按 textContent 匹配，多一个字就撞 T009 D11"
+    },
+    {
+      "id": "D06",
+      "text": "确认与执行走既有写流程：`hub.set` 发 `POST /api/v1/hub/roles/<post>`（正文带 `profile`，选了替补才带 `fallback`）、`hub.unset` 发 `POST /api/v1/hub/roles/<post>/unset`；确认框显示岗位前后对比与标题/摘要/轻提示（A 片既有文案）；成功之后页面 reload（hub 与 profiles 一起刷新）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "这一片只是入口与表单，写流程的语义一个字都不许另造"
+    },
+    {
+      "id": "D07",
+      "text": "两处包内测试照新行为改（`page-hub.test.tsx` 的列头变七列、`page-app.test.tsx` 的角色页禁用数变 11），两处 `it()` 标题跟着改，两个 `describe` 标题（`七端岗位（桩模式渲染 #/roles）` 与 `写入口个数（过渡）`）**一个字都不动**；既有断言没被删、跳过或弱化",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "T037 S06 要认那个 describe 标题"
+    },
+    {
+      "id": "D08",
+      "text": "新增两个测试文件（纯函数一个、组件一个），覆盖 D01–D06 点名的每一项；不用 `skip`/`only`/`todo`；测试测真实实现（不把业务逻辑抄一份进测试）",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D09",
+      "text": "所有修改都在允许集合内（可改 6 个文件、可新增 4 个文件），没有碰 forbidden_paths（全部 `tests/test_gate_*.py`、`api.ts`、`useWriteFlow.ts`、`WriteConfirmDialog.tsx`、`hubChangeLines.ts`、`mock/**`、`roles-styles.css`、`roles-hub-logic.test.ts`、`ts/packages/ui/**`、`scripts/**`）；`package.json` 与锁文件不变",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D10",
+      "text": "新代码守既有源码规矩：`HubBindForm.tsx` 只 `import type` 引 `../api`、不碰 DOM 与时钟、不出现网络词与危险 HTML 写入类词；`hub-bind-form.css` 只用 `--tt-*` 令牌、不写死颜色、不声明令牌；`roles-*` 三个文件不出现网络词、T007 禁用词、`role=\"status\"`、内联 style；`desktop/web/src` 下不渲染 `role=status`",
+      "evidence": [
+        "V01",
+        "V03",
+        "R01",
+        "review"
+      ],
+      "intent": "不破 T006/T009/T013/T038 的长期门禁"
+    },
+    {
+      "id": "D11",
+      "text": "T038 S10/S11/S07 的静态形状保住（`title=\"七端岗位\"`、`aria-label=\"七端岗位\"`、`rowHeight={40}`、`rl-hub`、`hubPostName`、不出现 `data-role`；前六个列头不变；`roles-logic.ts` 三个导出不动、只许 `import type`）；站主已合入的三处放宽在新基线上照旧有效（T038 的 trans 探针已退役、S05 只要求 `<HubPosts hub={data.hub}` 开头、T009 D11 白名单含两个按钮）",
+      "evidence": [
+        "R01",
+        "G01"
+      ],
+      "intent": "这一片是在 T038 的形状上加一列，不是重画这一组"
+    },
+    {
+      "id": "D12",
+      "text": "T024 的门禁文件（`tests/test_gate_t024_baseline.py`）**一个字都没改**；R01 里 T024 要过的前提是门禁端/站主把 `:1105-1106` 的期望值从 6 放宽到 11（与站主已合入的三处同一做法，随 T045 的门禁准备合入）；执行端不许改门禁断言，也不许为了凑 6 改产品行为；这一格若仍红，执行报告要写明「外部前置未满足，不是候选的缺陷」",
+      "evidence": [
+        "R01",
+        "scope",
+        "review"
+      ],
+      "intent": "本片必然把角色页禁用数从 6 变成 11，这条门禁断言必须跟着更新，否则任何合规实现都过不了 R01"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
