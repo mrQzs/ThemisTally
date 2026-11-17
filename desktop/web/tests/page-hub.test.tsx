@@ -1,8 +1,5 @@
 // 七端岗位页面测试（合同第 10 节）：桩模式下渲染 #/roles，核对七端岗位区块、表结构、六行字段格式、
 // 位置（角色卡之后、profile 表之前）、hub 读失败只影响本组、?mock=empty 仍是六行、四个读并行发出。
-// T048 只把列头断言改成十一列（「证书」插在「最近一回合」与「操作」之间）：
-// describe('七端岗位（桩模式渲染 #/roles）')、describe('hub 读失败只影响本组')、describe('四个读并行发出')
-// 三个区块的用例与断言一个字不动。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import App from '../src/App';
