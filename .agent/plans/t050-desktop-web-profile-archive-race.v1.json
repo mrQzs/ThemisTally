@@ -1,0 +1,311 @@
+{
+  "schema_version": 1,
+  "task_id": "t050-desktop-web-profile-archive-race",
+  "plan_version": 1,
+  "title": "新建 profile 第二次打开时 Quizs 档案一直停在读取中（T046 的 effect 竞态）",
+  "repository": "ThemisTally",
+  "base_sha": "5884c3d1fcfef75e150df9192b7390ecd1c125d1",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/tests/writes-profile-quizs.test.tsx"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t050_*.py",
+      "tests/test_gate_*.py",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/pages/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/writes/quizsProfile.ts",
+      "desktop/web/src/writes/profileRules.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/tests/writes-profile-form.test.tsx",
+      "desktop/web/tests/writes-profile-quizs-logic.test.ts",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t050_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2880,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "用例 A 走完站主登记的顺序（第二次打开、在 `getRuntimes()` 回来之前选 quizs 运行时）之后，档案仍读到：模型是档案 Select（两项 `stepfun/step-5-preview`、`deepseek/deepseek-chat`）、新建自动选第一项、档位 `low/medium/high`、界面不再写「正在读 Quizs 的提供方档案…」、`advance(350)` 后命令带 `--runtime=quizs-cli --model=stepfun/step-5-preview`、[确认…] 可点",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "站主登记的「第二次打开一直停在正在读…」不再发生，[确认…] 不再灰着"
+    },
+    {
+      "id": "D02",
+      "text": "用例 A 在**未修的实现**上是红的（基线上停在「正在读 Quizs 的提供方档案…」、模型仍是手填框），修好后是绿的",
+      "evidence": [
+        "G01",
+        "V01"
+      ],
+      "intent": "竞态真被测住，不是一个恒绿的用例"
+    },
+    {
+      "id": "D03",
+      "text": "用例 B：档案读完之后 effect 再重跑（运行时列表换新数组）**不再读第二次**（`getQuizsProviders` 次数仍为 1），档案照旧显示；读完之后把 runtime 切到 `pi` 再切回 `quizs-cli`，档案仍显示且不重复读",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "修复不许变成「每次重跑都重读」"
+    },
+    {
+      "id": "D04",
+      "text": "迟到的结果照旧丢弃：用例 A 里被作废的那次读的结果回来后，界面仍是档案 Select、选项不变",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "旧结果不许盖掉新读到的档案"
+    },
+    {
+      "id": "D05",
+      "text": "既有断言一条不改、照旧通过：`writes-profile-quizs.test.tsx:145`=1、`:153`=2、`:222`=1、`:323`=0、`:303-312` 挂起的读照旧；t046 门禁 form 探针的 1 次 / 2 次 / 0 次 / 挂起的读照旧",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01",
+        "review"
+      ],
+      "intent": "既有保护不许为新功能放松"
+    },
+    {
+      "id": "D06",
+      "text": "非 quizs 照旧一次都不调；重新打开照旧重读；逐字文案一个不改（t046 的六条新文案、七条旧文案、七段 THINKING_OPTIONS）",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "这一片只修竞态，不动别的行为"
+    },
+    {
+      "id": "D07",
+      "text": "读档案途中（结果还在路上）切到非 quizs 再切回 quizs 时重新读到档案；读完之后切走再切回仍显示已读到的档案（不重复读）",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "同根的第三条路径（切换运行时）也不卡"
+    },
+    {
+      "id": "D08",
+      "text": "所有修改都在允许集合内（可改 2 个文件、无新增文件、无删除文件），没有碰 forbidden_paths；`desktop/web/package.json` 与 `package-lock.json` 没变；没有新增依赖",
+      "evidence": [
+        "scope",
+        "R01",
+        "V02",
+        "V03"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D09",
+      "text": "没有删除、跳过或弱化既有测试；`writes-profile-quizs.test.tsx` 的基线全文仍是新文件的前缀；新用例不出现 `skip`/`only`/`todo`",
+      "evidence": [
+        "review",
+        "V01",
+        "R01"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D10",
+      "text": "`desktop/web` 的 `npm test`、`npm run typecheck`、`npm run build` 全过",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 10800,
+    "cost_budget": null
+  }
+}
