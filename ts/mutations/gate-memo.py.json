@@ -1,0 +1,82 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_gate_memo.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "G01 整套 npm test 从不照上一遍",
+      "file": "tests/conftest.py",
+      "old": "reuse = bool(hit and hit[\"result\"][3] <= timeout)",
+      "new": "reuse = False"
+    },
+    {
+      "name": "G02 不看这一份的时限",
+      "file": "tests/conftest.py",
+      "old": "reuse = bool(hit and hit[\"result\"][3] <= timeout)",
+      "new": "reuse = bool(hit)"
+    },
+    {
+      "name": "G03 npm ci 不看安装戳",
+      "file": "tests/conftest.py",
+      "old": "reuse = bool(hit and hit[\"stamp\"] and hit[\"stamp\"] == _install_stamp(cwd))",
+      "new": "reuse = bool(hit)"
+    },
+    {
+      "name": "G04 失败的 npm ci 也记",
+      "file": "tests/conftest.py",
+      "old": "if result[0] == 0 and not result[1]:",
+      "new": "if not result[1]:"
+    },
+    {
+      "name": "G05 超时的 npm test 也记",
+      "file": "tests/conftest.py",
+      "old": "        if not result[1]:",
+      "new": "        if True:"
+    },
+    {
+      "name": "G06 带参数的探针也当整套",
+      "file": "tests/conftest.py",
+      "old": "words not in ([\"ci\"], [\"test\"])",
+      "new": "words[:1] not in ([\"ci\"], [\"test\"])"
+    },
+    {
+      "name": "G07 dist 也算进树",
+      "file": "tests/conftest.py",
+      "old": "_MEMO_SKIP_DIRS = {\"node_modules\", \"dist\", \".vite\", \"coverage\"}",
+      "new": "_MEMO_SKIP_DIRS = {\"node_modules\", \".vite\", \"coverage\"}"
+    },
+    {
+      "name": "G08 三个参数的 run_capture 也包",
+      "file": "tests/conftest.py",
+      "old": "if list(inspect.signature(function).parameters) != [\"argv\", \"cwd\", \"timeout\", \"env\"]:",
+      "new": "if False:"
+    },
+    {
+      "name": "G09 不是门禁的模块也包",
+      "file": "tests/conftest.py",
+      "old": "_GATE_FILE.search(source.replace(\"\\\\\", \"/\"))",
+      "new": "True"
+    },
+    {
+      "name": "G10 环境不进键",
+      "file": "tests/conftest.py",
+      "old": "repr(sorted(environment.items()))",
+      "new": "repr(None)"
+    },
+    {
+      "name": "G11 PYTEST_CURRENT_TEST 也进键",
+      "file": "tests/conftest.py",
+      "old": "if name != \"PYTEST_CURRENT_TEST\"}",
+      "new": "if True}"
+    }
+  ]
+}
