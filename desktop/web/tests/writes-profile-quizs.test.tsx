@@ -352,3 +352,123 @@ describe('T046 quizs：非 quizs 分支与真实模式（D01、D09）', () => {
     expect(segTexts(thinkingGroup(d)), '档位按服务回的档案给').toEqual(['high']);
   });
 });
+
+// T050 竞态：读提供方档案的 effect 重跑（合同 t050 行为口径，不钉实现写法）。
+// 复现竞态的关键：getRuntimes 与 getQuizsProviders 都换成手动兑现的 promise——两个已兑现 promise 的
+// .then 会在同一次 act 里跑完，不手动控制就复现不出「运行时列表换数组作废在途读」。
+// 手动兑现：promise 的兑现时机由测试掌握。
+function deferred<T = unknown>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+// 档案 ok 信封（照 src/mock/quizs.ts 的 PROVIDER_ROWS 两行；信封形状照 quizsProvidersEnvelope()）。
+const PROVIDERS_OK_ENV = {
+  ok: true, exit_code: 0,
+  data: {
+    providers: [
+      { provider: 'stepfun', model: 'step-5-preview', thinking: ['low', 'medium', 'high'], billing: 'step_plan_credits' },
+      { provider: 'deepseek', model: 'deepseek-chat', thinking: ['low', 'high'], billing: 'deepseek_prepaid_balance' },
+    ],
+  },
+  output: [], messages: [], command: ['config', 'quizs', 'providers', '--json'], elapsed_ms: 0,
+};
+// 迟到的失败信封：回晚了必须被丢掉，不许盖掉已经读到的档案。
+const PROVIDERS_LATE_BROKEN_ENV = {
+  ok: false, exit_code: 1, data: null,
+  output: [], messages: ['ERROR: 迟到的失败信封'], command: [], elapsed_ms: 0,
+};
+
+// 站主登记的顺序：先打开一次让运行时列表就位（beforeEach 的已兑现桩），取消；再换成手动兑现的两个读
+// 函数，在同一个已挂载的组件上再打开一次（不重新 render），回到「getRuntimes 还没兑现、运行时列表还是
+// 上一次的旧数组」的第二次打开；填 ID、选 quizs 运行时，发出第 1 次档案读（还在路上）。
+async function secondOpenWithDeferredReads(id: string) {
+  window.location.hash = '#/roles?write=ok&quizs=ok';
+  const first = await openNew();
+  expect((controlByLabel(first, 'runtime') as HTMLSelectElement).value, '夹具自证：第一次打开后 runtime 落在 pi').toBe('pi');
+  fireEvent.click(buttonByText(first, '取消') as HTMLButtonElement);
+  await settle();
+  const rt = deferred<unknown>();
+  const reads = [deferred<unknown>(), deferred<unknown>(), deferred<unknown>()];
+  let n = 0;
+  set('getRuntimes', () => rt.promise);
+  set('getQuizsProviders', () => reads[n++]?.promise ?? new Promise(() => {}));
+  fireEvent.click(buttonByText(document.body, '新建 profile') as HTMLButtonElement);
+  await settle();
+  const d = needFormDialog();
+  fireEvent.change(controlByLabel(d, 'ID'), { target: { value: id } });
+  fireEvent.change(controlByLabel(d, 'runtime'), { target: { value: 'quizs-cli' } });
+  await settle();
+  return { d, rt, reads };
+}
+
+describe('T050 竞态：第二次打开与读档案途中 effect 重跑', () => {
+  it('第二次打开、getRuntimes 回来之前选 quizs：列表换数组作废在途读，重跑照样再读，档案读到', async () => {
+    const { d, rt, reads } = await secondOpenWithDeferredReads('t050-a');
+    expect(spyCalls('getQuizsProviders'), '选了 quizs 运行时发出第 1 次读（还在路上）').toBe(1);
+    expect(text(d), '夹具自证：界面停在正在读').toContain('正在读 Quizs 的提供方档案…');
+    expect(controlByLabel(d, '模型').tagName, '夹具自证：读取中模型是手填').toBe('INPUT');
+    rt.resolve(await runtimesEnv());
+    await settle();
+    expect(spyCalls('getQuizsProviders'), '列表换新数组作废在途读后重跑照样再读（作废一次 + 重读一次）').toBe(2);
+    reads[1].resolve(PROVIDERS_OK_ENV);
+    await settle();
+    const model = controlByLabel(d, '模型') as HTMLSelectElement;
+    expect(model.tagName, '档案读到后模型是档案 Select').toBe('SELECT');
+    expect(modelOptions(d), '档案两项逐字是 provider/model').toEqual(['stepfun/step-5-preview', 'deepseek/deepseek-chat']);
+    expect(model.value, '新建自动选档案第一项').toBe('stepfun/step-5-preview');
+    expect(segTexts(thinkingGroup(d)), '档位按档案给').toEqual(['low', 'medium', 'high']);
+    expect(text(d), '不再停在「正在读」').not.toContain('正在读 Quizs 的提供方档案…');
+    await advance(350);
+    expect(text(d), '命令带 --runtime=quizs-cli --model=provider/model').toContain('--runtime=quizs-cli --model=stepfun/step-5-preview');
+    expect(formConfirm(d).disabled, '档案读到、预览回话之后 [确认…] 可点').toBe(false);
+    reads[0].resolve(PROVIDERS_LATE_BROKEN_ENV);
+    await settle();
+    expect((controlByLabel(d, '模型') as HTMLSelectElement).tagName, '迟到的第 1 次读回来不改界面').toBe('SELECT');
+    expect(modelOptions(d), '迟到的结果不许盖掉读到的档案').toEqual(['stepfun/step-5-preview', 'deepseek/deepseek-chat']);
+    expect(spyCalls('getQuizsProviders')).toBe(2);
+  });
+
+  it('档案读完之后列表换数组或切走再切回：不再读第二次，已读到的档案仍显示', async () => {
+    const { d, rt, reads } = await secondOpenWithDeferredReads('t050-b');
+    expect(spyCalls('getQuizsProviders'), '选了 quizs 运行时发出第 1 次读（还在路上）').toBe(1);
+    reads[0].resolve(PROVIDERS_OK_ENV);
+    await settle();
+    expect((controlByLabel(d, '模型') as HTMLSelectElement).tagName, '夹具自证：档案读到了').toBe('SELECT');
+    rt.resolve(await runtimesEnv());
+    await settle();
+    expect(spyCalls('getQuizsProviders'), '读完之后 effect 再重跑不再读第二次').toBe(1);
+    expect((controlByLabel(d, '模型') as HTMLSelectElement).tagName, '已读到的档案仍在').toBe('SELECT');
+    expect(modelOptions(d), '已读到的档案选项不变').toEqual(['stepfun/step-5-preview', 'deepseek/deepseek-chat']);
+    fireEvent.change(controlByLabel(d, 'runtime'), { target: { value: 'pi' } });
+    await settle();
+    fireEvent.change(controlByLabel(d, 'runtime'), { target: { value: 'quizs-cli' } });
+    await settle();
+    expect(spyCalls('getQuizsProviders'), '读完之后切到非 quizs 再切回不重复读').toBe(1);
+    expect((controlByLabel(d, '模型') as HTMLSelectElement).tagName, '切回后已读到的档案仍显示').toBe('SELECT');
+    expect(modelOptions(d), '切回后档案选项不变').toEqual(['stepfun/step-5-preview', 'deepseek/deepseek-chat']);
+  });
+
+  it('读档案途中切到 pi 再切回 quizs：切回时重新读，档案照样读到', async () => {
+    const { d, reads } = await secondOpenWithDeferredReads('t050-c');
+    expect(spyCalls('getQuizsProviders'), '选了 quizs 运行时发出第 1 次读（还在路上）').toBe(1);
+    fireEvent.change(controlByLabel(d, 'runtime'), { target: { value: 'pi' } });
+    await settle();
+    fireEvent.change(controlByLabel(d, 'runtime'), { target: { value: 'quizs-cli' } });
+    await settle();
+    expect(spyCalls('getQuizsProviders'), '结果还在路上时切走作废这次读，切回时重读').toBe(2);
+    reads[1].resolve(PROVIDERS_OK_ENV);
+    await settle();
+    const model = controlByLabel(d, '模型') as HTMLSelectElement;
+    expect(model.tagName, '切回后档案照样读到').toBe('SELECT');
+    expect(modelOptions(d), '切回后档案两项逐字是 provider/model').toEqual(['stepfun/step-5-preview', 'deepseek/deepseek-chat']);
+    expect(model.value, '新建自动选档案第一项').toBe('stepfun/step-5-preview');
+    expect(text(d), '不再停在「正在读」').not.toContain('正在读 Quizs 的提供方档案…');
+    reads[0].resolve(PROVIDERS_LATE_BROKEN_ENV);
+    await settle();
+    expect((controlByLabel(d, '模型') as HTMLSelectElement).tagName, '迟到的第 1 次读回来不改界面').toBe('SELECT');
+    expect(modelOptions(d), '迟到的结果不许盖掉读到的档案').toEqual(['stepfun/step-5-preview', 'deepseek/deepseek-chat']);
+    expect(spyCalls('getQuizsProviders')).toBe(2);
+  });
+});

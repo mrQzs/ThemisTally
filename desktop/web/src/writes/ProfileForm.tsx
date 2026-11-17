@@ -139,6 +139,9 @@ function ProfileFormDialog({
 
   // quizs 运行时的提供方档案：对话框打开、且所选运行时的适配器是 quizs 时读一次（每次打开只读一次，
   // 几个 quizs 运行时共用同一份；非 quizs 一次都不调）。迟到的结果按 alive 丢弃，重新打开会重读。
+  // 反直觉处：结果还在路上时 effect 重跑（运行时列表换了数组、换了运行时）会把这次读作废，这时要把
+  // 「本次打开已经读过档案」的标记复位，重跑照样再读一次；结果已经回来（读到或读不出都算）就不复位，
+  // 不多读。
   const archiveRead = useRef(false);
   useEffect(() => {
     if (!open) {
@@ -150,9 +153,12 @@ function ProfileFormDialog({
     if (!isQuizsRuntime(runtime, runtimes) || archiveRead.current) return;
     archiveRead.current = true;
     let alive = true;
+    // settled：这次读的结果回来没有（成功或失败都算回来）。
+    let settled = false;
     setArchive({ kind: 'loading' });
     getQuizsProviders().then(
       (env) => {
+        settled = true; // 必须在 if (!alive) return; 之前：作废的读也算结果回来，不许让标记复位
         if (!alive) return;
         if (!env.ok || env.data == null) {
           const first = env.messages.length > 0 ? env.messages[0] : null;
@@ -163,11 +169,14 @@ function ProfileFormDialog({
         setArchive(options.length > 0 ? { kind: 'ready', options } : { kind: 'failed', reason: QUIZS_NO_PROVIDERS });
       },
       () => {
+        settled = true;
         if (alive) setArchive({ kind: 'failed', reason: QUIZS_READ_FAILED });
       },
     );
     return () => {
       alive = false;
+      // 结果还在路上就被重跑：复位「已读过」，重跑时照样读；结果已经回来的不复位（否则每次重跑都重读）。
+      if (!settled) archiveRead.current = false;
     };
   }, [open, runtime, runtimes]);
 
