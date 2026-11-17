@@ -256,6 +256,28 @@ class InstructionForms(unittest.TestCase):
         self.assertIn("实测最长 181 秒", pd.render_instruction(META, _contract(), EXECUTOR, 600, (), (), measured))
         self.assertNotIn("实测最长 ", pd.render_instruction(META, _contract(), EXECUTOR, 600))
 
+    def test_a_long_measured_check_is_left_to_the_acceptance_side(self):
+        # 第 183 轮：实测 600 秒以上的检查（全量回归一类）不给自检照抄，写明验收端跑全量、执行器只跑相关部分；599 秒照旧；
+        # 没实测过的不看合同的时限（V02 的时限 6000 秒照旧给写法）；执行器不能自检时两样都不写
+        contract = _contract()
+        contract["checks"][1]["timeout_seconds"] = 6000
+        lines = pd.machine_summary(contract, (), ["bash"], {"V01": 600}).splitlines()
+        at = next(n for n, line in enumerate(lines) if line.startswith("  - V01"))
+        self.assertIn("超时 60s，实测最长 600 秒）", lines[at])
+        self.assertEqual(lines[at + 1], "    这条实测要跑 600 秒，验收端一定会在固定候选上跑全量：你不跑全量，只挑其中和你的改动相关的部分跑"
+                                        "（例如引用了你改动文件的那几份测试文件），报告里写明跑了哪些")
+        self.assertTrue(lines[at + 2].startswith("  - V02："))
+        self.assertEqual(lines[at + 3], "    自检照抄：`set -o pipefail; python probe.py 2>&1 | tail -n 40`")
+        short = pd.machine_summary(contract, (), ["bash"], {"V01": 599}).splitlines()
+        self.assertEqual(short[at + 1], "    自检照抄：`set -o pipefail; python run.py 2>&1 | tail -n 40`")
+        self.assertNotIn("这条实测要跑", pd.machine_summary(contract, (), [], {"V01": 600}))
+        text = pd.render_instruction(META, contract, EXECUTOR, 600, (), (), {"V01": 1650})
+        self.assertIn("与改动相关的检查（V01（只跑相关部分）, V02），", text)
+        self.assertIn("这条实测要跑 1650 秒", text)
+        self.assertIn("与改动相关的检查（V01, V02），", pd.render_instruction(META, contract, EXECUTOR, 600, (), (), {"V01": 599}))
+        no_test = dict(contract, authorization={"executor": ["local_edit"], "integration": []})
+        self.assertNotIn("只跑相关部分", pd.render_instruction(META, no_test, EXECUTOR, 600, (), (), {"V01": 1650}))
+
     def test_a_truncated_attempt_without_changes_leaves_a_note_for_the_next(self):
         # 第 182 轮：上一次 attempt 写到输出上限被截断、一个文件也没改（11-16 T047 的 attempt-001），这一次的执行说明加一段；
         # 改了文件、停在别的原因、没有上一次、目录名不是 attempt-N 的都不加，执行说明一字不变

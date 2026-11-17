@@ -1,0 +1,48 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_v2100.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "InstructionForms"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 门槛放到 601 秒",
+      "file": "scripts/pi_dispatch.py",
+      "old": "LONG_SELF_CHECK_SECONDS = 600",
+      "new": "LONG_SELF_CHECK_SECONDS = 601"
+    },
+    {
+      "name": "P02 没实测过的按合同时限算",
+      "file": "scripts/pi_dispatch.py",
+      "old": "return isinstance(cid, str) and (measured or {}).get(cid, 0) >= LONG_SELF_CHECK_SECONDS",
+      "new": "return isinstance(cid, str) and (measured or {}).get(cid, check[\"timeout_seconds\"]) >= LONG_SELF_CHECK_SECONDS"
+    },
+    {
+      "name": "P03 长检查照旧给自检照抄",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if form and long_check(check, measured):",
+      "new": "if form and False:"
+    },
+    {
+      "name": "P04 第 7 条的编号不标只跑相关部分",
+      "file": "scripts/pi_dispatch.py",
+      "old": "c[\"id\"] + \"（只跑相关部分）\" if long_check(c, measured) else c[\"id\"]",
+      "new": "c[\"id\"]"
+    },
+    {
+      "name": "P05 执行器不能自检时也写",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if form and long_check(check, measured):",
+      "new": "if long_check(check, measured):"
+    }
+  ]
+}

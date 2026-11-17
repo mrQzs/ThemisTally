@@ -113,6 +113,25 @@ describe("执行说明", () => {
     expect(python.map((result) => result.error)).toEqual(["TypeError", "KeyError", "KeyError", "TypeError"]);
   });
 
+  it("第 183 轮：实测 600 秒以上的检查只跑相关部分（摘要的那一行与第 7 条的编号），599 秒与没有自检时照旧", () => {
+    const python = agree([
+      call("machine_summary", { contract: tag(contractOf(["local_edit", "local_test"], [V01, { ...V01, id: "V06" }, { ...V01, id: "V07" }], [])), tools: ["bash"], measured: tag({ V01: 600, V06: 599 }) }),
+      call("machine_summary", { contract: tag(contractOf(["local_edit"], [V01], [])), tools: [], measured: tag({ V01: 1650 }) }),
+      renderRequest(TOOLS[0], ACTIONS[0], [V01, V02], DODS[2], [], { V01: 1650, V02: 599 }),
+      renderRequest(TOOLS[1], ACTIONS[0], [V01], DODS[2], [], { V01: 1650 }),
+      renderRequest(TOOLS[2], ACTIONS[0], [V01, V02], DODS[2], [], { V02: 905 }),
+    ]);
+    expect(python.every((result) => result.ok)).toBe(true);
+    const [summary, noTools, render, noShell, powershell] = python.map((result) => String(result["value"]));
+    expect(summary).toContain(`${LF}    这条实测要跑 600 秒，验收端一定会在固定候选上跑全量：你不跑全量，只挑其中和你的改动相关的部分跑`);
+    expect(summary?.match(/自检照抄：/gu)?.length).toBe(2);
+    expect(noTools).not.toContain("这条实测要跑");
+    expect(render).toContain("与改动相关的检查（V01（只跑相关部分）, V02），");
+    expect(render).toContain("这条实测要跑 1650 秒");
+    expect(noShell).not.toContain("只跑相关部分");
+    expect(powershell).toContain("与改动相关的检查（V01, V02（只跑相关部分）），");
+  });
+
   it("machine_summary：期望退出码、必要与否、基线说明、cwd、超时与实测用时的写法", () => {
     const checks = [
       { ...V01, expected_exit_code: 0.0 },

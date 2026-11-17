@@ -19,6 +19,12 @@ const code = (text: string): string => BT + text + BT;
 
 /** 自检照抄的写法保留的输出行数（2.10.0）。 */
 export const SELF_CHECK_TAIL_LINES = 40;
+/** 第 183 轮：实测最长用时到这么多秒的检查（全量回归一类），执行器不跑全量（见 longCheck）。 */
+export const LONG_SELF_CHECK_SECONDS = 600n;
+/** 第 183 轮：长检查在机器合同摘要里替代自检照抄的一行。 */
+export const LONG_CHECK_NOTE =
+  "    这条实测要跑 {seconds} 秒，验收端一定会在固定候选上跑全量：你不跑全量，只挑其中和你的改动相关的部分跑" +
+  "（例如引用了你改动文件的那几份测试文件），报告里写明跑了哪些";
 
 const TEMPLATE = [
   "# 执行说明（调度器生成）",
@@ -120,7 +126,8 @@ export function renderInstruction(
   const selfCheck = hasShell && actions.includes("local_test");
   let selfCheckRule = NO_SELF_CHECK_RULE;
   if (selfCheck) {
-    const ids = pyJoinStrings(", ", pyIter(pyItem(contract, "checks")).map((check) => pyItem(check, "id"))) || "（合同未列出）";
+    const tagged = pyIter(pyItem(contract, "checks")).map((check) => (longCheck(check, measured) ? `${pyItem(check, "id") as string}（只跑相关部分）` : pyItem(check, "id")));
+    const ids = pyJoinStrings(", ", tagged) || "（合同未列出）";
     selfCheckRule = SELF_CHECK_RULE.replace("{ids}", () => ids);
   }
   const dodIds = pyJoinStrings(", ", pyIter(pyItem(contract, "definition_of_done")).map((item) => pyGet(item, "id", "?")));
@@ -220,7 +227,7 @@ export function machineSummary(contract: PyValue, extraProtected: readonly strin
   for (const check of pyIter(pyItem(contract, "checks"))) {
     const expected = pyGet(check, "expected_exit_code", 0n);
     const id = pyItem(check, "id");
-    const seconds = typeof id === "string" ? measured?.get(id) : undefined;
+    const seconds = measuredSeconds(check, measured);
     const required = pyTruthy(pyGet(check, "required", true)) ? "（必要）" : "";
     const facts = [
       seconds === undefined ? "" : `，实测最长 ${seconds} 秒`,
@@ -230,9 +237,25 @@ export function machineSummary(contract: PyValue, extraProtected: readonly strin
     lines.push(`  - ${pyStrValue(id)}${required}：${code(commandLine(argvOf(pyItem(check, "argv"))))}（cwd ${pyStrValue(pyGet(check, "cwd", "."))}，超时 ${pyStrValue(pyItem(check, "timeout_seconds"))}s${facts}）`);
     const form = selfCheckCommand(check, tools);
     // 2.10.0：执行器照抄合同的检查命令再接管道，退出码就成了 tail 的；给出现成的截短写法
-    if (form) lines.push(`    自检照抄：${code(form)}`);
+    if (form && longCheck(check, measured)) lines.push(LONG_CHECK_NOTE.replace("{seconds}", () => String(seconds)));
+    else if (form) lines.push(`    自检照抄：${code(form)}`);
   }
   return lines.join(LF);
+}
+
+/**
+ * long_check（第 183 轮）：这条检查实测要跑 LONG_SELF_CHECK_SECONDS 秒以上，执行说明叫执行器只跑和改动相关的部分，全量留给
+ * 验收端（缘由见 Python 的同名函数）。没实测过的不算。
+ */
+function longCheck(check: PyValue, measured: ReadonlyMap<string, bigint> | null): boolean {
+  const seconds = measuredSeconds(check, measured);
+  return seconds !== undefined && seconds >= LONG_SELF_CHECK_SECONDS;
+}
+
+/** 这条检查的实测最长用时（measuredCheckSeconds 的结果里按 id 取），没实测过是 undefined。 */
+function measuredSeconds(check: PyValue, measured: ReadonlyMap<string, bigint> | null): bigint | undefined {
+  const id = pyItem(check, "id");
+  return typeof id === "string" ? measured?.get(id) : undefined;
 }
 
 /**

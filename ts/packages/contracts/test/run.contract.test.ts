@@ -298,6 +298,12 @@ const CASES: Case[] = [
       put(join(runDir, ".."), "baseline/b1/checks.json", json({ results: [{ id: "V01", argv, cwd: ".", timed_out: false, exit_code: 1, expected_exit_code: 1, wall_seconds: 41.5 }] }));
     },
     shows: { "instruction.md": "实测最长 42 秒" } },
+  { label: "baseline 实测 1650 秒：只跑相关部分、不给自检照抄（第 183 轮）", status: 0,
+    before: ({ runDir, head }) => {
+      const argv = (jsonOf("t1", head)["checks"] as { argv: string[] }[])[0]?.argv;
+      put(join(runDir, ".."), "baseline/b1/checks.json", json({ results: [{ id: "V01", argv, cwd: ".", timed_out: false, exit_code: 1, expected_exit_code: 1, wall_seconds: 1650.2 }] }));
+    },
+    shows: { "instruction.md": ["V01（只跑相关部分）", "这条实测要跑 1650 秒，验收端一定会在固定候选上跑全量"] } },
   { label: "上一次 attempt 写到上限被截断、一个文件没改：执行说明加一段（第 182 轮）", status: 0,
     before: ({ runDir }) => {
       put(join(runDir, ".."), "attempt-000/events-summary.json", json({ final_stop_reason: "length" }));

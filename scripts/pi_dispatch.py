@@ -4331,7 +4331,8 @@ def render_instruction(meta: Dict[str, Any], contract: Dict[str, Any], executor:
     commit_rule = ("可以在 worktree 中创建本地提交，但不得推送、合并或部署。" if "local_commit" in actions
                    else "不提交、推送、合并或部署；保持 HEAD 为基线提交。")
     if has_shell and "local_test" in actions:
-        ids = ", ".join(c["id"] for c in contract["checks"]) or "（合同未列出）"
+        ids = ", ".join(c["id"] + "（只跑相关部分）" if long_check(c, measured) else c["id"]
+                        for c in contract["checks"]) or "（合同未列出）"
         self_check_rule = ("7. 完成后运行合同 Validation commands 中与改动相关的检查（%s），如实记录结果；"
                            "不需要每改一行都跑全量测试。必要检查通过且没有新增修改或未解决问题后，转入执行报告；"
                            "不要自行扩大到无关全仓测试。变异检查（故意改坏实现来检验测试）默认由验收端执行；"
@@ -4367,6 +4368,20 @@ def measured_check_seconds(runs: Path, checks: Sequence[Dict[str, Any]]) -> Dict
 
 #: 自检照抄的写法保留的输出行数（2.10.0）。
 SELF_CHECK_TAIL_LINES = 40
+#: 第 183 轮：实测最长用时到这么多秒的检查（全量回归一类），执行器不跑全量（见 long_check）。
+LONG_SELF_CHECK_SECONDS = 600
+#: 第 183 轮：长检查在机器合同摘要里替代自检照抄的一行。
+LONG_CHECK_NOTE = ("    这条实测要跑 %d 秒，验收端一定会在固定候选上跑全量：你不跑全量，只挑其中和你的改动相关的部分跑"
+                   "（例如引用了你改动文件的那几份测试文件），报告里写明跑了哪些")
+
+
+def long_check(check: Dict[str, Any], measured: Optional[Dict[str, int]]) -> bool:
+    """第 183 轮：这条检查实测要跑 LONG_SELF_CHECK_SECONDS 秒以上，执行说明叫执行器只跑和改动相关的部分。验收端反正会在
+    固定候选上跑全量；执行器照“必要”二字自己跑全量回归，ThemisTally 的 T043 起 9 次 attempt 每次花掉 1634–3403 秒、
+    占用时 33%–92%，T048 合同里 R01 的时限（2820 秒）比整次 attempt（2700 秒）还长，第二批被它自设的时限掐断。
+    没实测过的不算：合同的时限常常放得很宽（npm test 写 1800 秒，实测 20 秒）。"""
+    cid = check["id"]
+    return isinstance(cid, str) and (measured or {}).get(cid, 0) >= LONG_SELF_CHECK_SECONDS
 
 
 def self_check_command(check: Dict[str, Any], tools: Sequence[str]) -> Optional[str]:
@@ -4426,7 +4441,9 @@ def machine_summary(contract: Dict[str, Any], extra_protected: Sequence[str] = (
             check.get("cwd", "."), check["timeout_seconds"], "，实测最长 %s 秒" % seconds if seconds is not None else "",
             "，期望退出码 %s" % expected if expected != 0 else "", base_notes.get(check.get("expect_on_base", "any"), "")))
         form = self_check_command(check, tools)
-        if form:
+        if form and long_check(check, measured):
+            lines.append(LONG_CHECK_NOTE % seconds)
+        elif form:
             # 2.10.0：执行器照抄合同的检查命令再接管道，退出码就成了 tail 的；给出现成的截短写法。
             lines.append("    自检照抄：`%s`" % form)
     return "\n".join(lines)
