@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "task_id": "t048-desktop-web-hub-live",
+  "plan_version": 1,
+  "title": "“七端岗位”加证书一列：绑在 quizs 上的岗位显示 live 证书状态（模型配置 §6 第二条的界面一半之二；T047 拆出来的片二）",
+  "repository": "ThemisTally",
+  "base_sha": "1793373e2b714a0fb8291f0f73d036a2ebb662f7",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/src/pages/readonly1/roles-HubPosts.tsx",
+      "desktop/web/src/pages/readonly1/roles-logic.ts",
+      "desktop/web/src/pages/readonly1/roles-hub-turns.css",
+      "desktop/web/tests/page-hub.test.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/tests/roles-hub-cert.test.ts",
+      "desktop/web/tests/page-hub-cert.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t048_*.py",
+      "tests/test_gate_t001_baseline.py",
+      "tests/test_gate_t002_baseline.py",
+      "tests/test_gate_t003_baseline.py",
+      "tests/test_gate_t004_baseline.py",
+      "tests/test_gate_t005_baseline.py",
+      "tests/test_gate_t006_baseline.py",
+      "tests/test_gate_t007_baseline.py",
+      "tests/test_gate_t008_baseline.py",
+      "tests/test_gate_t009_baseline.py",
+      "tests/test_gate_t010_baseline.py",
+      "tests/test_gate_t011_baseline.py",
+      "tests/test_gate_t012_baseline.py",
+      "tests/test_gate_t013_baseline.py",
+      "tests/test_gate_t014_baseline.py",
+      "tests/test_gate_t015_baseline.py",
+      "tests/test_gate_t016_baseline.py",
+      "tests/test_gate_t017_baseline.py",
+      "tests/test_gate_t018_baseline.py",
+      "tests/test_gate_t019_baseline.py",
+      "tests/test_gate_t020_baseline.py",
+      "tests/test_gate_t021_baseline.py",
+      "tests/test_gate_t022_baseline.py",
+      "tests/test_gate_t023_baseline.py",
+      "tests/test_gate_t024_baseline.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t027_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "tests/test_gate_t031_baseline.py",
+      "tests/test_gate_t032_baseline.py",
+      "tests/test_gate_t033_baseline.py",
+      "tests/test_gate_t034_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t036_baseline.py",
+      "tests/test_gate_t037_baseline.py",
+      "tests/test_gate_t038_baseline.py",
+      "tests/test_gate_t039_baseline.py",
+      "tests/test_gate_t040_baseline.py",
+      "tests/test_gate_t041_baseline.py",
+      "tests/test_gate_t042_baseline.py",
+      "tests/test_gate_t043_baseline.py",
+      "tests/test_gate_t044_baseline.py",
+      "tests/test_gate_t045_baseline.py",
+      "tests/test_gate_t046_baseline.py",
+      "tests/test_gate_t047_baseline.py",
+      "tests/test_gate_t049_baseline.py",
+      "scripts/**",
+      "ts/packages/ui/**",
+      "ts/packages/base/**",
+      "ts/package.json",
+      "ts/bun.lock",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/writes/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-styles.css",
+      "desktop/web/src/pages/readonly1/roles-RoleCard.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetBar.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetDiff.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetsTable.tsx",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-QuizsBlock.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-quizs-logic.ts",
+      "desktop/web/tests/roles-hub-logic.test.ts",
+      "desktop/web/tests/roles-hub-turns.test.ts",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/page-static.test.ts",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t048_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2820,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "「七端岗位」表是十一列，次序逐字是 `岗位、运行时、模型、思考档位、来源、替补、时限与工具、预算、最近一回合、证书、操作`；前六列与「操作」列一个字都没改",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "列的次序与既有列的稳定性是站主要求的可见形状，T047 S07 逐字比对的就是这个元组"
+    },
+    {
+      "id": "D02",
+      "text": "live 只在 `RolesPage` 挂载时读一次（不进 `Promise.all` 四读、不改 `load={loadRoles}`、不改前三个读的失败判定），经 `RolesView` 透传到 `HubPosts`",
+      "evidence": [
+        "G01",
+        "R01",
+        "V01",
+        "scope"
+      ],
+      "intent": "既有门禁钉死了并行四读与 load 的形态，撞了就是全红"
+    },
+    {
+      "id": "D03",
+      "text": "两个 quizs 岗位的证书格按第 5 节的表逐条对上：桩 ok → coordinator Tag「就绪」、contract「没有 live 文件」；`?quizs=expired` → 「已过期」；`?quizs=missing` → 「缺文件」且 title 是「缺 qualification.json」；`?quizs=broken` → coordinator Tag「读不出」、contract「没有 live 文件」；失败信封 → 两格纯文字「读不出」；挂起 → 两格「读取中」；非 quizs 四行 → 「—」",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "证书状态要真读出来，读不出也要写明，不许用占位糊过去"
+    },
+    {
+      "id": "D04",
+      "text": "Tag 的文字与色调一律取 `liveStateLabel(status?.state ?? null)`（就绪/已过期/构建不一致/无效/缺文件；null 是读不出；认不出是未知），不另起一套中文名",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "两页说同一句话，是站主 2026-11-17 的决定"
+    },
+    {
+      "id": "D05",
+      "text": "title 的取值顺序是 `row.problem` → 「缺 a、b」→ `status.problem`，与 `scripts/kit_roles.py:1495–1497` 的 note 口径一致",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "界面与 `config quizs live` 说的是同一件事"
+    },
+    {
+      "id": "D06",
+      "text": "纯逻辑（`matchLiveRow`、`hubCertInfo`）的用例覆盖第 4、5 节的每一行（provider 精确对上、信箱优先、`env` 且 provider 为 null 才兜底、五个 state、未知 state、status 为 null、信封失败、data 为 null、live 为 null、非 quizs、没有 live 文件、title 取值顺序），期望值写成字面量",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "判断逻辑要能脱离 DOM 单测，界面上算出来的每一格都要有一个能断言的纯函数"
+    },
+    {
+      "id": "D07",
+      "text": "hub 读失败时照旧是失败块，没有「证书」列头也没有证书格；证书格里没有 button、没有 `role=\"status\"`、没有内联 style、没有可聚焦元素；四个文件里没有网络词、T007 禁用词与 RolesPage 的四个禁词",
+      "evidence": [
+        "V01",
+        "R01",
+        "G01"
+      ],
+      "intent": "证书读不出不挡整张表，也不破既有源码规矩"
+    },
+    {
+      "id": "D08",
+      "text": "`desktop/web/tests/page-hub.test.tsx` 只改了列头那一条的期望数组（十一列），其余用例与断言一条没删、没跳过、没弱化；两个新测试文件在位且不出现 `skip`/`only`/`todo`",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D09",
+      "text": "`desktop/web` 的 `npm test`、`npm run typecheck`、`npm run build`、`npm run check:contract` 全过",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "V04"
+      ]
+    },
+    {
+      "id": "D10",
+      "text": "所有修改都在允许集合内（可改 6 个文件、可新增 2 个文件），没有碰 forbidden_paths（`tests/test_gate_*.py`、`scripts/**`、`ts/packages/**`、`api.ts`、`src/mock/**`、`components/**`、`roles-styles.css`、被冻结的包内测试等）；依赖与锁文件没变",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D11",
+      "text": "没有删除、跳过或弱化既有测试",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 2700,
+    "max_wall_seconds_total": 6000,
+    "cost_budget": null
+  }
+}
