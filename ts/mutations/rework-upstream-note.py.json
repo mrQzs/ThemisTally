@@ -1,0 +1,30 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "U01 Python 热修补之后不叫执行端撤绕路",
+      "file": "scripts/kit_hub.py",
+      "old": "        lines.append(\"- 上一轮如果为了对上旧测试写过绕路",
+      "new": "        (lambda *_: None)(\"- 上一轮如果为了对上旧测试写过绕路"
+    },
+    {
+      "name": "U02 Python 撤绕路的话只写半句",
+      "file": "scripts/kit_hub.py",
+      "old": "                     \"这一轮撤掉：留着会让门禁的检查变空心。\")",
+      "new": "                     \"\")"
+    }
+  ]
+}

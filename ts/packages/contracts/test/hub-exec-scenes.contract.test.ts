@@ -234,6 +234,9 @@ describe("第 ⑤g1 片：返工节与重派节的文字（手写，三边逐字
     requests.push(call("rework_section", [notRun, "abc", "b", "2"]));
     const shown = agree(requests).map(valueOf);
     expect(String(shown[3])).toContain("内核随后在这个候选上重跑了合同的全部检查，都过了"); // timeout、跑满时限、检查都过了
+    // 第 184 轮：热修补之后（upstream）才叫执行端撤掉为对上旧测试写的绕路
+    expect(String(shown[8])).toContain(`以新的基准测试为准。${LF}- 上一轮如果为了对上旧测试写过绕路（凑记号的注释、迁就旧测试里错误断言的代码），热修补之后就用不着了，这一轮撤掉：留着会让门禁的检查变空心。${LF}`);
+    expect(shown.slice(0, 8).concat(shown.slice(10, 12)).some((text) => String(text).includes("写过绕路"))).toBe(false);
     expect(String(shown.at(-3))).toBe("AttributeError: 'list' object has no attribute 'strip'");
     expect(String(shown.at(-2)).startsWith("TypeError: sequence item ")).toBe(true);
     expect(shown.at(-1)).toBe("TypeError: %d format: a real number is required, not str");

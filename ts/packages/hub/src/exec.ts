@@ -396,6 +396,8 @@ export function reworkSection(previous: string, sha: PyValue, blockers: PyValue,
   }
   if (why === "upstream") {
     lines.push("- 门禁端在上一轮之后改过基准测试（热修补）：工作目录里的基准测试是新的。上一轮对着旧测试的检查结果不作数，先把合同的检查跑一遍，以新的基准测试为准。");
+    // 第 184 轮（候选 #66）：缘由见 Python 的 rework_section
+    lines.push("- 上一轮如果为了对上旧测试写过绕路（凑记号的注释、迁就旧测试里错误断言的代码），热修补之后就用不着了，这一轮撤掉：留着会让门禁的检查变空心。");
   }
   lines.push("- 逐条改完下面列的阻塞项。Scope、Behavior contract 与 DoD 不变，阻塞项以外的地方不动。唯一的例外：前几轮新增、已经在基线里的文件，"
     + "在这个基线上再改就是修改，内核把它们加进了 allowed_modified_files。",

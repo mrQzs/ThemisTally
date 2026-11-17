@@ -6294,6 +6294,8 @@ def test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline(tmp_path, monke
     assert ts["rework_chain_superseded"][0]["commit"] == earlier  # 旧链的改动已经含在新提交里，落地不再挑它
     v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
     assert "- base_sha: %s" % sha in v2 and "内核把它搬到当前基准测试上" in v2 and "门禁端在上一轮之后改过基准测试" in v2
+    # 第 184 轮：为对上旧测试写的绕路，热修补之后要撤（T048 的 attempt-002 没人叫它撤）
+    assert "\n- 上一轮如果为了对上旧测试写过绕路（凑记号的注释、迁就旧测试里错误断言的代码），热修补之后就用不着了，这一轮撤掉" in v2
     assert "B1 page.css 没 import" in v2 and "上一轮跑满了时限" not in v2
     # 第 120 轮：接上的候选交过报告，报告里没做完的一并带过去，另起一节、标成数据
     assert v2.index("B1 page.css 没 import") < v2.index("### 上一轮执行报告里没做完的（executor_status partial；")
