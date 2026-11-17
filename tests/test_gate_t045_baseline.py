@@ -509,11 +509,12 @@ def test_s06_rolesview_props():
     text = read_rel(ROLESVIEW_REL)
     code = strip_ts_comments(text)
     problems = []
+    # 站主门禁准备（2026-11-17）：T048 在 reload 之后追加 live={live}，只钉开头这三个 prop，后面容许追加
     if not re.search(
-        r"<HubPosts\s+hub=\{data\.hub\}\s+profiles=\{data\.profiles\.profiles\}\s+reload=\{reload\}\s*/>",
+        r"<HubPosts\s+hub=\{data\.hub\}\s+profiles=\{data\.profiles\.profiles\}\s+reload=\{reload\}(?:\s+\w+=\{[^{}]*\})*\s*/>",
         code,
     ):
-        problems.append("RolesView 应写 <HubPosts hub={data.hub} profiles={data.profiles.profiles} reload={reload} />（写法钉死第 5 条）")
+        problems.append("RolesView 应写 <HubPosts hub={data.hub} profiles={data.profiles.profiles} reload={reload} … />（写法钉死第 5 条，之后可以追加 prop）")
     grid_pos = code.find('className="rl-grid tt-grid-2"')
     hub_pos = code.find("<HubPosts ")
     prof_pos = code.find("<ProfilesTable ")
@@ -532,8 +533,12 @@ def test_s07_package_tests_updated():
     读失败分支零按钮的既有断言照旧；都不许 skip/only/todo。"""
     problems = []
     hub_text = read_rel(need_file(PAGE_HUB_TEST_REL))
-    if "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作']" not in hub_text:
-        problems.append("page-hub.test.tsx 的列头断言应改成十列（T047 三列插在「替补」与「操作」之间，末尾仍是「操作」）")
+    # 站主门禁准备（2026-11-17）：T048 在「最近一回合」与「操作」之间加「证书」，十列、十一列都认
+    if not any(line in hub_text for line in (
+            "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作']",
+            "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '证书', '操作']")):
+        problems.append("page-hub.test.tsx 的列头断言应改成十列（T047 三列插在「替补」与「操作」之间，末尾仍是「操作」；"
+                        "T048 起十一列，「证书」在「最近一回合」与「操作」之间）")
     if "describe('七端岗位（桩模式渲染 #/roles）'" not in hub_text:
         problems.append("page-hub.test.tsx 的 describe 标题「七端岗位（桩模式渲染 #/roles）」一字不动")
     for token in (BUTTON_BIND, BUTTON_UNSET, "planner"):

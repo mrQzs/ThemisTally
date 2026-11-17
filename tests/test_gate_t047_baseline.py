@@ -80,15 +80,15 @@ BASELINE_MOCK_JSON_COUNT = 14
 BASELINE_PAGE_COUNT = 9
 
 # 禁改文件的基线冻结（行尾归一 LF 后的字节数与 sha256；全部在合同 forbidden_paths 里：两份依赖与锁文件、
-# roles-styles.css（T038 S08 的基线前缀 sha256）、RolesView/RolesPage、两份包内测试、ui 的两条路由文件）
+# roles-styles.css（T038 S08 的基线前缀 sha256）、两份包内测试、ui 的两条路由文件）
+# 站主门禁准备（2026-11-17）：T048 要在 RolesPage 单独读一次 getQuizsLive、经 RolesView 传给 HubPosts，这两份不再字节冻结；
+# RolesPage 的并行四读与 load={loadRoles} 由 S10 钉住，RolesView 里 HubPosts 的写法由 T038、T045 的门禁钉住
 BASELINE_DIGESTS = {
     f"{WEB_REL}/package.json": (820, "094d3622e54097e0f50f0ab2a71a5caa22491dba9d3ac6ef83047426f8c57f5a"),
     f"{WEB_REL}/package-lock.json": (108793, "1bc4e1fbfeb02a17280d0de1d98a5f3b2721fa91229c271c66d590d059d82d28"),
     "ts/package.json": (492, "40543111aa14209fdfb993cffb9173ae9cd5917b2189eb97cc2ff7da02f2601a"),
     "ts/bun.lock": (25475, "a845dc902d2d410846d46610d6f4186b4f958bb06776662459abf76aa1b94f90"),
     f"{PAGES_RO}/roles-styles.css": (4282, "a81ce331e93a3ef9b06f44c76ee3c72d75c0a52f965169437bf9e9f8bd338d06"),
-    f"{PAGES_RO}/roles-RolesView.tsx": (2058, "0d662ae27d95a84c488f52fdaab1206b7dae7ed6ef208697c37164ec639c171f"),
-    f"{SRC_REL}/pages/RolesPage.tsx": (2193, "eb1be8fd5f53bf34cab1d3f42a2942ac593a1683915aa3de8070aac2eeb3000d"),
     f"{TESTS_REL}/roles-hub-logic.test.ts": (3724, "039a63b960171c919681cd66ac6b59583326afda6e7d861e74aee40c6dd4bf26"),
     f"{TESTS_REL}/page-app.test.tsx": (4005, "a8986dee7f02a1f43579ae8249a9f51ab0158c873e5b7525fda31edd458698e9"),
     "ts/packages/ui/src/readroutes.ts": (33189, "da67f8568f339d1988684cba1e056958a48361132a6bfc180fb5b91c49f42007"),
@@ -174,6 +174,8 @@ OLD_LOGIC_EXPORTS = ("hubPostName", "allowedProfiles", "normalizeHubPost")
 
 # 七端岗位的十列（前六列与「操作」一字不改；三个新列插在「替补」与「操作」之间）
 HUB_HEADERS = ("岗位", "运行时", "模型", "思考档位", "来源", "替补", "时限与工具", "预算", "最近一回合", "操作")
+# 站主门禁准备（2026-11-17）：T048 在「最近一回合」与「操作」之间加「证书」一列；十列、十一列都认
+HUB_HEADERS_T048 = HUB_HEADERS[:-1] + ("证书", "操作")
 
 # api.ts HubPostRow 既有字段的原样声明（基线 29e98575 的原文：接口成员缩进两空格）。D04 要求既有字段
 # 与类型一字不改：按基线原文逐字钉住（含缩进、类型与联合），不用行首无缩进锚定——基线成员本来
@@ -309,6 +311,7 @@ PAGE_HUB_KEEP_TOKENS = (
     "改绑定…", "恢复缺省…",
 )
 PAGE_HUB_HEADERS_LINE = "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作']"
+PAGE_HUB_HEADERS_LINE_T048 = "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '证书', '操作']"
 
 # 新源码的禁词（page-static 的口径 + T006/T009 的 matchMedia 一类；roles-* 系列不查「（UTC 」——时刻原样显示
 # 内核给的秒级 UTC 原文，不带「（UTC 」字样，但文件里可能出现 UTC 相关注释，只对 HubPosts 与 css 查旧口径）
@@ -686,8 +689,8 @@ def test_s07_hub_posts_columns():
     problems = []
     cols = _block(code, "const COLUMNS", "\n];")
     headers = re.findall(r"header: '([^']+)'", cols)
-    if tuple(headers) != HUB_HEADERS:
-        problems.append(f"列头应恰为十列 {list(HUB_HEADERS)}，实际 {headers}")
+    if tuple(headers) not in (HUB_HEADERS, HUB_HEADERS_T048):
+        problems.append(f"列头应恰为十列 {list(HUB_HEADERS)}（T048 起十一列 {list(HUB_HEADERS_T048)}），实际 {headers}")
     for token in ('Section title="七端岗位"', 'aria-label="七端岗位"', "rowHeight={40}",
                   "rl-table rl-hub", "hubPostName", "rowAttrs", "'data-post'"):
         if token not in code:
@@ -784,7 +787,7 @@ def test_s09_package_tests():
     都不许 skip/only/todo。"""
     problems = []
     hub_text = read_rel(need_file(PAGE_HUB_TEST_REL))
-    if _squish(PAGE_HUB_HEADERS_LINE) not in _squish(hub_text):
+    if not any(_squish(line) in _squish(hub_text) for line in (PAGE_HUB_HEADERS_LINE, PAGE_HUB_HEADERS_LINE_T048)):
         problems.append("page-hub.test.tsx 的列头断言应改成十列（含三个新列）")
     for token in PAGE_HUB_KEEP_TOKENS:
         if token not in hub_text:
@@ -813,8 +816,8 @@ def test_s09_package_tests():
 
 def test_s10_shared_surfaces():
     """S10 / D12、D13、兼容性：共享面——src/mock 仍恰 14 份 JSON、src/pages 顶层仍恰 9 个 *Page.tsx；
-    禁改文件字节冻结（依赖与锁文件、roles-styles.css、RolesView、RolesPage、两份包内测试、
-    ui 的 readroutes/writeroutes）；RolesPage 的并行四读一字不改。"""
+    禁改文件字节冻结（依赖与锁文件、roles-styles.css、两份包内测试、ui 的 readroutes/writeroutes）；
+    RolesPage 的并行四读与 load={loadRoles} 一字不改（T048 起 RolesPage 可以另用 useState/useEffect 读一次 getQuizsLive）。"""
     problems = []
     mock_jsons = sorted(p.name for p in (REPO_ROOT / SRC_REL / "mock").glob("*.json"))
     if len(mock_jsons) != BASELINE_MOCK_JSON_COUNT:
@@ -829,8 +832,8 @@ def test_s10_shared_surfaces():
     roles_page = read_rel(need_file(f"{SRC_REL}/pages/RolesPage.tsx"))
     if "Promise.all([getRoles(),getProfiles(),getPresets(),getHubRoles()])" not in _squish(roles_page):
         problems.append("RolesPage 的并行四读一字不改（getQuizsLive 不许加进 Promise.all）")
-    if "getQuizsLive" in roles_page:
-        problems.append("本片不读 live（getQuizsLive 不出现在 RolesPage）")
+    if "load={loadRoles}" not in _squish(roles_page):
+        problems.append("RolesPage 仍把 loadRoles 交给 PageFrame（load={loadRoles} 一字不改）")
     fail_if(problems, "共享面与禁改面（S10）")
 
 
@@ -1334,6 +1337,8 @@ import { setConnectionState } from '../src/live/connection';
 import type { Envelope } from '../src/api';
 
 const HEADERS = ['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作'];
+// 站主门禁准备（2026-11-17）：T048 在「最近一回合」与「操作」之间加「证书」；前九列的下标不变，cell() 照旧
+const HEADERS_T048 = [...HEADERS.slice(0, 9), '证书', '操作'];
 const POSTS = ['coordinator', 'planner', 'contract', 'gate', 'audit', 'exec'];
 const NEW_COLS = ['时限与工具', '预算', '最近一回合'];
 const CELLS: Record<string, Record<string, string>> = {
@@ -1421,10 +1426,10 @@ afterEach(() => {
 });
 
 describe('桩模式：十列与三个新列的逐格文字（D07、D08）', () => {
-  it('列头恰是十列（三个新列在「替补」与「操作」之间）；六行×三列的逐格文字照合同', async () => {
+  it('列头恰是十列（三个新列在「替补」与「操作」之间；T048 起「证书」插在「操作」之前）；六行×三列的逐格文字照合同', async () => {
     await mountApp('#/roles');
     const table = hubSec().querySelector('table[aria-label="七端岗位"]');
-    expect(qa(table, 'thead th').map(text)).toEqual(HEADERS);
+    expect([HEADERS.join('|'), HEADERS_T048.join('|')], '列头是十列（T048 起十一列）').toContain(qa(table, 'thead th').map(text).join('|'));
     for (const post of POSTS) {
       const row = hubRow(post);
       for (const col of NEW_COLS) {
