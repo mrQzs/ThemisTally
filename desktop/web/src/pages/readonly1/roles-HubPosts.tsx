@@ -3,12 +3,13 @@
 // hub 信封整个收下：读失败时只这一组显示失败信封与 messages（pre），四个角色卡、profile 表、方案表照常。
 // 视图只收数据与回调：从 ../../api 只 import type。字段已在 roles-logic 归一，这里只渲染。
 import type { ReactNode } from 'react';
-import type { Envelope, HubRolesData, ProfilesData } from '../../api';
+import type { Envelope, HubRolesData, ProfilesData, QuizsLiveData } from '../../api';
 import { EffortPair, Table, Tag, type TableColumn } from '../../components';
 import { Section } from './common-Section';
 import {
   allowedProfiles,
   hubBudgetText,
+  hubCertInfo,
   hubEffortDiffers,
   hubEffortState,
   hubEffortTriple,
@@ -24,6 +25,7 @@ import {
   type HubPostLastTurnInfo,
   type HubPostTurnInfo,
 } from './roles-logic';
+import { liveStateLabel } from './runtimes-quizs-logic';
 import { useWriteFlow } from '../../writes/useWriteFlow';
 import { WriteFlow } from '../../writes/WriteConfirmDialog';
 import { HubBindAction, HubUnsetAction } from '../../writes/HubBindForm';
@@ -42,6 +44,7 @@ interface HubRow {
   时限与工具: string;
   预算: ReactNode;
   最近一回合: ReactNode;
+  证书: ReactNode;
   操作: ReactNode;
 }
 
@@ -55,6 +58,7 @@ const COLUMNS: readonly TableColumn<HubRow>[] = [
   { key: '时限与工具', header: '时限与工具' },
   { key: '预算', header: '预算' },
   { key: '最近一回合', header: '最近一回合' },
+  { key: '证书', header: '证书' },
   { key: '操作', header: '操作' },
 ];
 
@@ -156,13 +160,26 @@ function lastTurnCell(p: HubPostInfo): ReactNode {
   );
 }
 
+// 证书格：绑在 quizs 上的岗位显示它对上的那一套 live 的状态，Tag 的文字与色调一律取 liveStateLabel（与
+// 「CLI 运行时」页同一口径）；读取中、信封读不出、没有 live 文件与非 quizs 岗位都是纯文字，不带 .tt-tag。
+function certCell(p: HubPostInfo, live: Envelope<QuizsLiveData> | null): ReactNode {
+  const info = hubCertInfo(p, live);
+  if (!info.tagged) return <span title={info.title ?? undefined}>{info.text}</span>;
+  return (
+    <Tag tone={liveStateLabel(info.state).tone} title={info.title ?? undefined}>
+      {liveStateLabel(info.state).label}
+    </Tag>
+  );
+}
+
 export interface HubPostsProps {
   hub: Envelope<HubRolesData>;
   profiles?: ProfilesData['profiles'];
   reload?: () => Promise<void>;
+  live?: Envelope<QuizsLiveData> | null;
 }
 
-export function HubPosts({ hub, profiles = [], reload }: HubPostsProps) {
+export function HubPosts({ hub, profiles = [], reload, live = null }: HubPostsProps) {
   const { start, flow } = useWriteFlow(reload);
   return (
     <Section title="七端岗位">
@@ -186,6 +203,7 @@ export function HubPosts({ hub, profiles = [], reload }: HubPostsProps) {
                 时限与工具: hubTimeoutText(p.turn),
                 预算: budgetCell(p.turn),
                 最近一回合: lastTurnCell(p),
+                证书: certCell(p, live),
                 操作: (
                   <>
                     <HubBindAction

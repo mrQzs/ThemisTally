@@ -1,5 +1,6 @@
 // 角色与模型页（合同第 2、5 条）：并行读 getRoles/getProfiles/getPresets，任一失败按 roles→profiles→presets 顺序返回第一个失败信封；
 // 不传 isEmpty（?mock=empty 时仍 data）；差异读取经 onDiff 回调（页面持 diffPresets，视图不调 api）。
+import { useEffect, useState } from 'react';
 import { PageFrame } from '../shell/PageFrame';
 import { DisabledAction } from '../shell/DisabledAction';
 import {
@@ -8,11 +9,13 @@ import {
   getProfiles,
   getRoles,
   getHubRoles,
+  getQuizsLive,
   type Envelope,
   type HubRolesData,
   type PresetDiffData,
   type PresetsData,
   type ProfilesData,
+  type QuizsLiveData,
   type RolesData,
 } from '../api';
 import { RolesView, type RolesViewData } from './readonly1/roles-RolesView';
@@ -41,6 +44,18 @@ const loadRoles = (): Promise<Envelope<RolesViewData>> =>
   });
 
 export default function RolesPage() {
+  // live 单独读一次（合同第 2 节）：null 表示还没回来，证书格写「读取中」；卸载之后不写状态。
+  // 读不读得出都不参与整页失败判定，也不等 loadRoles 的四个读。
+  const [live, setLive] = useState<Envelope<QuizsLiveData> | null>(null);
+  useEffect(() => {
+    let on = true;
+    getQuizsLive().then((env) => {
+      if (on) setLive(env);
+    });
+    return () => {
+      on = false;
+    };
+  }, []);
   return (
     <PageFrame<RolesViewData>
       title="角色与模型"
@@ -53,7 +68,7 @@ export default function RolesPage() {
         </>
       )}
     >
-      {(data, reload) => <RolesView data={data} onDiff={diffPresets} reload={reload} />}
+      {(data, reload) => <RolesView data={data} onDiff={diffPresets} reload={reload} live={live} />}
     </PageFrame>
   );
 }

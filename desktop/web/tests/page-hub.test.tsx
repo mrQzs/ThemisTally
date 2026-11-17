@@ -1,5 +1,8 @@
 // 七端岗位页面测试（合同第 10 节）：桩模式下渲染 #/roles，核对七端岗位区块、表结构、六行字段格式、
 // 位置（角色卡之后、profile 表之前）、hub 读失败只影响本组、?mock=empty 仍是六行、四个读并行发出。
+// T048 只把列头断言改成十一列（「证书」插在「最近一回合」与「操作」之间）：
+// describe('七端岗位（桩模式渲染 #/roles）')、describe('hub 读失败只影响本组')、describe('四个读并行发出')
+// 三个区块的用例与断言一个字不动。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import App from '../src/App';
@@ -81,7 +84,7 @@ afterEach(() => {
 });
 
 describe('七端岗位（桩模式渲染 #/roles）', () => {
-  it('区块标题「七端岗位」、表 aria-label「七端岗位」、十列列头末尾是「操作」', async () => {
+  it('区块标题「七端岗位」、表 aria-label「七端岗位」、十一列列头末尾是「操作」', async () => {
     await mount('#/roles');
     const sec = hubSec();
     expect(sec, '应有标题为「七端岗位」的 section').not.toBeNull();
@@ -89,7 +92,7 @@ describe('七端岗位（桩模式渲染 #/roles）', () => {
     expect(qa(sec, '.common-section__desc').length, '不加次级说明').toBe(0);
     const table = hubTable();
     expect(table, '表应带 aria-label="七端岗位"').not.toBeNull();
-    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作']);
+    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '证书', '操作']);
   });
 
   it('操作列每行两个入口：改绑定…/恢复缺省…；planner 改绑定…禁用；contract/exec 恢复缺省…可点、其余禁用', async () => {

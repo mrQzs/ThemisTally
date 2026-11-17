@@ -1,6 +1,6 @@
 // 角色与模型纯函数（合同第 5、8 节）：角色名/模式名、角色卡字段归一、profile 被引用、方案角色名标题、差异绑定文字；
 // 七端岗位的中文名、可录用 profile 筛选与岗位行归一。
-import type { HubPostRow, ProfilesData, RolesData } from '../../api';
+import type { Envelope, HubPostRow, ProfilesData, QuizsLiveData, QuizsLiveRow, RolesData } from '../../api';
 
 const ROLE_NAMES: Record<string, string> = {
   planning_review: '规划审核端',
@@ -394,4 +394,46 @@ export function hubFallbackExcerpt(text: string | null): { shown: string; full: 
   if (text == null) return { shown: '', full: '' };
   if (text.length <= 20) return { shown: text, full: text };
   return { shown: `${text.slice(0, 20)}…`, full: text };
+}
+
+// 证书列（合同第 4、5 节）：岗位绑在 quizs 上时，找出它对上的那一套 live。行序即服务端给的顺序（信箱在前、
+// env 在后），所以 provider 同名时信箱那一套优先；对不上时退回 env 那一套（provider 认不出是谁家的，hub 自己
+// 也会退回去用它）。都没有就返回 null（界面上写「没有 live 文件」）。
+export function matchLiveRow(rows: readonly QuizsLiveRow[], provider: string | null): QuizsLiveRow | null {
+  if (provider !== null) {
+    const hit = rows.find((row) => row.provider === provider);
+    if (hit) return hit;
+  }
+  return rows.find((row) => row.source === 'env' && row.provider === null) ?? null;
+}
+
+// 证书格的三种形态：纯文字（tagged 为假，state 为 null）、Tag（tagged 为真，state 是该套的 state 原样，
+// 可能仍是 null）、以及 Tag/纯文字都可能带的 title（说明文字，没有就是 null）。
+export interface HubCertInfo {
+  text: string;
+  state: string | null;
+  tagged: boolean;
+  title: string | null;
+}
+
+function nonEmpty(text: string | null): string | null {
+  return typeof text === 'string' && text !== '' ? text : null;
+}
+
+// 证书格（合同第 5 节的表逐条）：只有 adapter 是 quizs 的岗位才谈得上 live 证书，其余写「—」；live 还没
+// 回来写「读取中」；信封层读不出（ok 为假、data 为 null 或 data.live 不是数组）写「读不出」，title 是
+// messages；对不上任何一套写「没有 live 文件」；只有对上的那一套用 Tag，state 原样透传给界面。
+export function hubCertInfo(post: HubPostInfo, live: Envelope<QuizsLiveData> | null): HubCertInfo {
+  if (post.adapter !== 'quizs') return { text: '—', state: null, tagged: false, title: null };
+  if (live == null) return { text: '读取中', state: null, tagged: false, title: null };
+  const envelopeProblem = live.messages.length === 0 ? null : live.messages.join('\n');
+  if (!live.ok || live.data == null) return { text: '读不出', state: null, tagged: false, title: envelopeProblem };
+  if (!Array.isArray(live.data.live)) return { text: '读不出', state: null, tagged: false, title: envelopeProblem };
+  const row = matchLiveRow(live.data.live, post.provider);
+  if (row == null) return { text: '没有 live 文件', state: null, tagged: false, title: null };
+  const status = row.status;
+  const missing = status == null ? [] : status.missing;
+  const missingTitle = missing.length > 0 ? '缺 ' + missing.join('、') : null;
+  const title = nonEmpty(row.problem) ?? missingTitle ?? nonEmpty(status?.problem ?? null);
+  return { text: '', state: status?.state ?? null, tagged: true, title };
 }

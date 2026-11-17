@@ -1,6 +1,6 @@
 // 角色与模型视图（合同第 5 节）：当前方案条、角色卡两列网格、七端岗位、profile 表、方案表与差异面板。
 // 只收数据与回调（onDiff 由页面提供，视图不调 api）。
-import type { Envelope, HubRolesData, PresetDiffData, PresetsData, ProfilesData, RolesData } from '../../api';
+import type { Envelope, HubRolesData, PresetDiffData, PresetsData, ProfilesData, QuizsLiveData, RolesData } from '../../api';
 import { RoleCard } from './roles-RoleCard';
 import { PresetBar } from './roles-PresetBar';
 import { HubPosts } from './roles-HubPosts';
@@ -21,9 +21,10 @@ export interface RolesViewProps {
   data: RolesViewData;
   onDiff: (a: string, b: string) => Promise<Envelope<PresetDiffData>>;
   reload?: () => Promise<void>;
+  live: Envelope<QuizsLiveData> | null;
 }
 
-export function RolesView({ data, onDiff, reload }: RolesViewProps) {
+export function RolesView({ data, onDiff, reload, live }: RolesViewProps) {
   const active = data.presets.active_preset;
   const roleInfos = data.roles.roles.map(normalizeRole);
   const activePreset = data.presets.presets.find((p) => p.name === active);
@@ -36,7 +37,7 @@ export function RolesView({ data, onDiff, reload }: RolesViewProps) {
           <RoleCard key={r.role} role={r} activePreset={active} />
         ))}
       </div>
-      <HubPosts hub={data.hub} profiles={data.profiles.profiles} reload={reload} />
+      <HubPosts hub={data.hub} profiles={data.profiles.profiles} reload={reload} live={live} />
       <ProfilesTable profiles={data.profiles.profiles} roles={roleInfos} reload={reload} />
       {data.presets.presets.length > 0 && (
         <PresetsTable presets={data.presets.presets} active={active} totalRoles={totalRoles} onDiff={onDiff} reload={reload} />
