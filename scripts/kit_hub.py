@@ -607,7 +607,7 @@ TRANSIENT_RE = re.compile(r"timed ?out|timeout|attention required|cloudflare|\b5
 TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON = 3, "模型接口临时报错"
 #: 第 179 轮：提供方集群过载（HTTP 529、overloaded_error，MiniMax 的报错原文写着“通常 1-5 分钟内恢复”）单独一类，扣得更久才交
 #: 给站主：5、10、20、40、60 分钟，合计两小时出头。11-16 T044 的一审 01:56–02:33 连着四次 529 就转了站主，同一时段 T046、T049
-#: 的审核回合都跑通，站主能做的只有回一句“照原样重发”。quizs 照旧不认：Quizs 把 529 当确定被拒，按限流给出解除时刻
+#: 的审核回合都跑通，站主能做的只有回一句“照原样重发”。quizs 看 Quizs 回报的 provider_code（第 181 轮，QUIZS_OVERLOADED）
 OVERLOAD_RE = re.compile(r"\b529\b|overloaded", re.IGNORECASE)
 OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON = 5, "模型接口过载"
 #: 限流报错里写着重置时刻（智谱的 1308：“…将在 2026-11-06 18:44:51 重置”）时扣到那之后一会儿，不再加倍试探。这个时刻不带时区，
@@ -641,6 +641,9 @@ QUIZS_BEHAVIOR_ERRORS = {
 }
 #: 第 152 轮：Quizs 把“写到单次输出上限被截断”报成 UPSTREAM，error_details 的 provider_code 是这个字面量
 QUIZS_OUTPUT_CUT = "OUTPUT_TOKEN_LIMIT"
+#: 第 181 轮：Quizs 回合撞上提供方集群过载（MiniMax 的 HTTP 529），error_details 的 provider_code 是这个字面量。Quizs 按限流交回
+#: （退出码 3，没有解除时刻），原来走限流退避、写信给站主说“撞上模型接口的额度限制”（11-16 22:09 T047 的一审）；现在归过载一类
+QUIZS_OVERLOADED = "overloaded_error"
 #: 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）
 QUIZS_PERMIT_HELD = (
     "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
@@ -2320,13 +2323,14 @@ def quizs_snapshot(quizs_cmd: Sequence[str], sessions_dir: Path, inputs: Path, e
 
 
 def quizs_error_reason(result: Dict[str, Any]) -> str:
-    """第 152 轮：Quizs 在 result 的 error_details 里写的具体原因，都是 Quizs 自己的固定字面量：provider_code 的 OUTPUT_TOKEN_LIMIT、
-    format_reason（回应完整之后哪一项检查没过，可带出问题的工具名）、decoder_reason（流解码出的毛病）。没有就是空串。"""
+    """第 152 轮：Quizs 在 result 的 error_details 里写的具体原因，都是 Quizs 自己的固定字面量：provider_code 的 OUTPUT_TOKEN_LIMIT
+    与 overloaded_error（第 181 轮）、format_reason（回应完整之后哪一项检查没过，可带出问题的工具名）、decoder_reason（流解码出的
+    毛病）。没有就是空串。"""
     details = result.get("error_details")
     if not isinstance(details, dict):
         return ""
-    if details.get("provider_code") == QUIZS_OUTPUT_CUT:
-        return QUIZS_OUTPUT_CUT
+    if details.get("provider_code") in (QUIZS_OUTPUT_CUT, QUIZS_OVERLOADED):
+        return details["provider_code"]
     reason = details.get("format_reason") or details.get("decoder_reason")
     if not isinstance(reason, str):
         return ""
@@ -2709,9 +2713,12 @@ class TurnRunner:
             audit["effort_requested"] = spec["thinking"]
             audit["effort_effective"] = ",".join(audit.get("effective_levels") or []) or None
         output, output_error = None, None
+        error = str(audit.get("api_error") or "")
+        # 第 181 轮：Quizs 回报的提供方过载归第 179 轮的过载一类（同样从 5 分钟起加倍，扣信不写信给站主），不按限流扣
+        quizs_overloaded = quizs and audit.get("rate_limited_until") is None and QUIZS_OVERLOADED in error
         # quizs 退出码 3 带了 retry_at 的，审计已经给出解除时刻（第 137 轮），不再走限流正则
-        throttled = (spec["adapter"] != "claude" and audit.get("rate_limited_until") is None
-                     and bool(THROTTLE_RE.search(str(audit.get("api_error") or ""))))
+        throttled = (not quizs_overloaded and spec["adapter"] != "claude" and audit.get("rate_limited_until") is None
+                     and bool(THROTTLE_RE.search(error)))
         if throttled:
             # 第 38 轮：pi 的模型接口限流（T012 的协调人：qwen 回 429 throttling），回报里没有解除时刻：
             # 同一会话连着被限流就加倍退避，扣信到点再办（第 33 轮的扣信）；成功一回就清零。
@@ -2726,9 +2733,8 @@ class TurnRunner:
                 session.pop("throttles")  # 第 179 轮：交给站主时清零，站主回信“照原样重发”之后重新起算
         else:
             session.pop("throttles", None)
-        error = str(audit.get("api_error") or "")
         loose = not quizs and audit.get("rate_limited_until") is None
-        overloaded = loose and bool(OVERLOAD_RE.search(error))
+        overloaded = quizs_overloaded or (loose and bool(OVERLOAD_RE.search(error)))
         hold_interface_error(session, audit, "overloads", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, "过载")
         hold_interface_error(session, audit, "transients", loose and not overloaded and bool(TRANSIENT_RE.search(error)),
                              TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON, "临时报错")

@@ -1,0 +1,46 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "-t",
+    "pi：交差成功|记下的 TurnRunner.run",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "Q01 Quizs 的过载照旧走限流",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "const quizsOverloaded = quizs && pyGet(audit, \"rate_limited_until\") === null && error.includes(QUIZS_OVERLOADED);",
+      "new": "const quizsOverloaded = false;"
+    },
+    {
+      "name": "Q02 原因里不带过载的 provider_code",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "if (code === QUIZS_OUTPUT_CUT || code === QUIZS_OVERLOADED) return code;",
+      "new": "if (code === QUIZS_OUTPUT_CUT) return code;"
+    },
+    {
+      "name": "Q03 过载也照样累计限流次数",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "const throttled = !quizsOverloaded && !claude && ",
+      "new": "const throttled = !claude && "
+    },
+    {
+      "name": "Q04 pi 的过载不再认",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "const overloaded = quizsOverloaded || (loose && OVERLOAD.search(error) !== null);",
+      "new": "const overloaded = quizsOverloaded;"
+    },
+    {
+      "name": "Q05 TS 的字面量与 Python 不同",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "export const QUIZS_OVERLOADED = \"overloaded_error\";",
+      "new": "export const QUIZS_OVERLOADED = \"overloaded\";"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "quizs_overload or overloaded_interface or quizs_turn_reads or throttled_pi_turn"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 Quizs 的过载照旧走限流",
+      "file": "scripts/kit_hub.py",
+      "old": "quizs_overloaded = quizs and audit.get(\"rate_limited_until\") is None and QUIZS_OVERLOADED in error",
+      "new": "quizs_overloaded = False"
+    },
+    {
+      "name": "P02 原因里不带过载的 provider_code",
+      "file": "scripts/kit_hub.py",
+      "old": "if details.get(\"provider_code\") in (QUIZS_OUTPUT_CUT, QUIZS_OVERLOADED):",
+      "new": "if details.get(\"provider_code\") == QUIZS_OUTPUT_CUT:"
+    },
+    {
+      "name": "P03 过载也照样累计限流次数",
+      "file": "scripts/kit_hub.py",
+      "old": "throttled = (not quizs_overloaded and spec[\"adapter\"] != \"claude\"",
+      "new": "throttled = (spec[\"adapter\"] != \"claude\""
+    },
+    {
+      "name": "P04 pi 的过载不再认",
+      "file": "scripts/kit_hub.py",
+      "old": "overloaded = quizs_overloaded or (loose and bool(OVERLOAD_RE.search(error)))",
+      "new": "overloaded = quizs_overloaded"
+    }
+  ]
+}

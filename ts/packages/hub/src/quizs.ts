@@ -10,7 +10,7 @@ import { runCapture } from "@themis/dispatcher/pi-cli";
 import { copyFileSync, readFileSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import {
-  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_PERMIT_HELD,
+  EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_OVERLOADED, QUIZS_PERMIT_HELD,
   QUIZS_FORMAT_NOTE, QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_SCHEMA_NOTES, QUIZS_STATE_DIR,
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
@@ -199,12 +199,14 @@ export async function quizsSnapshot(quizsCmd: readonly string[], sessionsDir: st
   return [last.get("manifest_ref") as string, null];
 }
 
-/** 第 152 轮：Quizs 在 result 的 error_details 里写的具体原因，都是 Quizs 自己的固定字面量：provider_code 的 OUTPUT_TOKEN_LIMIT、
- *  format_reason（回应完整之后哪一项检查没过，可带出问题的工具名）、decoder_reason（流解码出的毛病）。没有就是空串。 */
+/** 第 152 轮：Quizs 在 result 的 error_details 里写的具体原因，都是 Quizs 自己的固定字面量：provider_code 的 OUTPUT_TOKEN_LIMIT
+ *  与 overloaded_error（第 181 轮）、format_reason（回应完整之后哪一项检查没过，可带出问题的工具名）、decoder_reason（流解码出的
+ *  毛病）。没有就是空串。 */
 function quizsErrorReason(result: PyValue): string {
   const details = pyGet(result, "error_details");
   if (!(details instanceof Map)) return "";
-  if (pyGet(details, "provider_code") === QUIZS_OUTPUT_CUT) return QUIZS_OUTPUT_CUT;
+  const code = pyGet(details, "provider_code");
+  if (code === QUIZS_OUTPUT_CUT || code === QUIZS_OVERLOADED) return code;
   const reason = pyTruthy(pyGet(details, "format_reason")) ? pyGet(details, "format_reason") : pyGet(details, "decoder_reason");
   if (typeof reason !== "string") return "";
   const tool = pyGet(details, "tool_name");

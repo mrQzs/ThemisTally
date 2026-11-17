@@ -266,6 +266,8 @@ export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
 };
 /** 第 152 轮：Quizs 把“写到单次输出上限被截断”报成 UPSTREAM，error_details 的 provider_code 是这个字面量。 */
 export const QUIZS_OUTPUT_CUT = "OUTPUT_TOKEN_LIMIT";
+/** 第 181 轮：Quizs 回合撞上提供方集群过载（MiniMax 的 HTTP 529），error_details 的 provider_code 是这个字面量；归过载一类。 */
+export const QUIZS_OVERLOADED = "overloaded_error";
 /** 第 142 轮：quizs 排队超时＝提供方的并发名额被占（Quizs 对一个提供方账户只开 1 个名额；结果不明的请求一直占着，要站主核实后释放）。 */
 export const QUIZS_PERMIT_HELD = "quizs 退出码 5（QUEUE_TIMEOUT）：提供方的并发名额被占着。要么另一个 quizs 回合正在用（等它结束即可）；"
   + "要么之前有一次请求结果不明（例如 DeepSeek 回了 500 或连接中途断开），Quizs 不判定它已结束，名额一直占着，之后的回合都会排队超时。"

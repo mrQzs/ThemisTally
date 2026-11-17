@@ -27,7 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
-  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_FENCED_POLICY, QUIZS_FINAL_SCHEMA, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, OVERLOAD_HOLD_REASON, OVERLOAD_MAX_HOLDS, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
+  EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_FENCED_POLICY, QUIZS_FINAL_SCHEMA, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, OVERLOAD_HOLD_REASON, OVERLOAD_MAX_HOLDS, QUIZS_OVERLOADED, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
 } from "./constants.ts";
 import { boundSpec, hubBindings } from "./bindings.ts";
 import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, toolSchema, workerEnv, workerFileProblem } from "./delivery.ts";
@@ -42,7 +42,7 @@ const LF = String.fromCharCode(10);
 const THROTTLE = compilePy(`${BS}b429${BS}b|throttl|rate[ _-]?limit|too many requests|quota`, FLAG_IGNORECASE);
 /** 第 158 轮：模型接口的临时报错（请求超时、Cloudflare 的拦截页、5xx、连接断开）；quizs 不认。 */
 const TRANSIENT = compilePy(`timed ?out|timeout|attention required|cloudflare|${BS}b50[0234]${BS}b|econnreset|socket hang up|fetch failed`, FLAG_IGNORECASE);
-/** 第 179 轮：提供方集群过载（529、overloaded_error）单独一类，见 OVERLOAD_MAX_HOLDS；quizs 不认。 */
+/** 第 179 轮：提供方集群过载（529、overloaded_error）单独一类，见 OVERLOAD_MAX_HOLDS；quizs 看 Quizs 回报的 provider_code（第 181 轮）。 */
 const OVERLOAD = compilePy(`${BS}b529${BS}b|overloaded`, FLAG_IGNORECASE);
 const THROTTLE_RESET = /([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})/u;
 
@@ -245,8 +245,11 @@ export class TurnRunner {
     let output: PyValue = null;
     let outputError: string | null = null;
     const apiError = pyGet(audit, "api_error");
+    const error = pyTruthy(apiError) ? pyStrValue(apiError) : "";
+    // 第 181 轮：Quizs 回报的提供方过载归第 179 轮的过载一类（同样从 5 分钟起加倍，扣信不写信给站主），不按限流扣
+    const quizsOverloaded = quizs && pyGet(audit, "rate_limited_until") === null && error.includes(QUIZS_OVERLOADED);
     // quizs 退出码 3 带了 retry_at 的，审计已经给出解除时刻（第 137 轮），不再走限流正则
-    const throttled = !claude && pyGet(audit, "rate_limited_until") === null && THROTTLE.search(pyTruthy(apiError) ? pyStrValue(apiError) : "") !== null;
+    const throttled = !quizsOverloaded && !claude && pyGet(audit, "rate_limited_until") === null && THROTTLE.search(error) !== null;
     if (throttled) {
       // 第 38 轮：同一会话连着被限流就加倍退避，扣信到点再办；连着限流太多次照旧按接口报错交给站主。报错写了重置时刻就扣到那时
       const throttles = pyIntOf(pyGet(current, "throttles", 0n)) + 1n;
@@ -261,9 +264,8 @@ export class TurnRunner {
     } else {
       current.delete("throttles");
     }
-    const error = pyTruthy(apiError) ? pyStrValue(apiError) : "";
     const loose = !quizs && pyGet(audit, "rate_limited_until") === null;
-    const overloaded = loose && OVERLOAD.search(error) !== null;
+    const overloaded = quizsOverloaded || (loose && OVERLOAD.search(error) !== null);
     const seconds = (): number => this.sources.seconds();
     holdInterfaceError(current, audit, "overloads", overloaded, OVERLOAD_MAX_HOLDS, OVERLOAD_HOLD_REASON, "过载", seconds);
     holdInterfaceError(current, audit, "transients", loose && !overloaded && TRANSIENT.search(error) !== null, TRANSIENT_MAX_HOLDS, TRANSIENT_HOLD_REASON, "临时报错", seconds);

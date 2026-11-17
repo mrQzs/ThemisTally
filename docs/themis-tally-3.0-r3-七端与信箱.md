@@ -2985,6 +2985,22 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - MiniMax 回合“越想越多”本身没治。Quizs 与 pi 上都有：T047 的合同返工在 pi 上，T045 一审重做在 Quizs 上。现象是上下文过了十来万 token 之后，有的回合每一步的思考从几百 token 涨到上万；同一时段别的回合不这样。
   - Quizs 的 MiniMax 档位与 pi 并不等价，要用户定换算（候选 #57）：Quizs 发的是 `reasoning_effort` high 或 max；pi 走 Anthropic 兼容接口，发 `budget_tokens: 16384`、不带 effort，审核端写的 max 在 pi 里也压成这一档。
 
+### 第 181 轮：Quizs 回报的提供方过载归过载一类，不按限流扣、不写“额度限制”的信（候选 #59）
+
+- **起因**：
+  - 11-16 22:09 T047 的一审（Quizs，MiniMax-M3.1-Flash，max）做到第 30 个请求、280 秒时撞上 HTTP 529 overloaded_error。Quizs 把 529 当确定被拒、按限流交回（退出码 3、没有解除时刻），内核走第 38 轮的限流退避扣到 22:14，还给站主写了一封“audit-sonnet 撞上模型接口的额度限制”的核验信。22:14 重做，4 分钟交上。
+  - 第 179 轮把 pi 的 529、overloaded 单独归成过载一类（扣信不写信，扣 5 次才交给站主），当时写的是“quizs 照旧不认：Quizs 按限流给出解除时刻”。MiniMax 的 529 不带 Retry-After，Quizs 给不出解除时刻，于是落进了限流那一支。
+- **改法**（Python 与 TS 同改）：
+  - quizs_error_reason / quizsErrorReason：provider_code 是 overloaded_error（QUIZS_OVERLOADED）时也接在错误类别后面，报错写成“quizs 退出码 3（RATE_LIMIT，overloaded_error）”。
+  - 回合结束时：quizs 回合还没有解除时刻、报错里有 overloaded_error 的，归第 179 轮的过载一类（OVERLOAD_MAX_HOLDS，扣信理由“模型接口过载”），不进限流退避，扣信时不写信给站主；不是过载的限流（429 之类）照旧。
+  - Quizs 那边同一天做 M9：529 先在回合里等 10、30、60 秒各重发一次，三次都不行才交回内核，内核这一轮接着按过载扣。
+- **测试**：
+  - test_kit_hub 新加 `test_a_quizs_overload_is_held_as_an_overload_not_a_rate_limit`：两回合过载各扣 5、10 分钟，理由写过载；接着一回合普通限流照旧从 5 分钟起扣、不带理由；过载与限流的次数各算各的。
+  - 加进 hub-turn 契约的 TurnRunner 名单，三边重放。
+- **变异**：新写 hub-quizs-overload（py 4、ts 5）9 条全抓住；旧的 203 份变异的锚点一条没坏。
+- **检查**：类型检查 0 错；内核测试 423 passed；契约 T（hub-turn）10、C（mutation-specs、source-hygiene）5 全过。
+- **没做**：Quizs 在回合里重发的次数（M9 的 retry 事件）内核还不读，回合记录里看不到，要看得读回合的 stream.jsonl。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

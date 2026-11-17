@@ -6908,6 +6908,49 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
 
+def test_a_quizs_overload_is_held_as_an_overload_not_a_rate_limit(tmp_path, monkeypatch):
+    # 第 181 轮（候选 #59）：MiniMax 的 HTTP 529 overloaded_error 在 Quizs 里是确定被拒、按限流交回（退出码 3，没有解除时刻），
+    # 内核原来走限流退避、写信给站主说“撞上模型接口的额度限制”（11-16 22:09 T047 的一审）。看 provider_code 归第 179 轮的过载
+    # 一类：同样从 5 分钟起加倍，扣信理由写过载（不写信）；不是过载的限流照旧
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(BARE_COORDINATOR, adapter="quizs", provider="deepseek",
+                                                      model="deepseek-flash", tools=["read", "grep", "find", "ls"]))
+    newline = chr(10)
+    inputs = tmp_path / "inputs"
+    (inputs / ".agent").mkdir(parents=True)
+    (inputs / ".agent" / "letter.md").write_text("开工", encoding="utf-8")
+    fake = tmp_path / "fake_quizs.py"
+    fake.write_text(newline.join([
+        "import json",
+        "print(json.dumps({'manifest_ref': 'a' * 64, 'files': 1, 'bytes': 6, 'skipped': []}))",
+        ""]), encoding="utf-8")
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake)]))
+    init = {"type": "init", "tools": [{"name": name} for name in ("find", "grep", "ls", "read")]}
+
+    def result(**extra):
+        return dict({"type": "result", "exit_code": 3, "error_class": "RATE_LIMIT", "actual_model": "deepseek-flash",
+                     "thinking": {"requested": "high", "mapped": "high", "effective": None}, "final_text": ""}, **extra)
+
+    overloaded = result(error_details={"provider_code": kh.QUIZS_OVERLOADED})
+    outputs = [[init, overloaded], [init, overloaded], [init, result()]]
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        out.write((newline.join(json.dumps(event, ensure_ascii=False) for event in outputs.pop(0)) + newline).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    runner = kh.TurnRunner(hub, launcher=launcher)
+    seen = []
+    for _ in range(3):
+        before = int(time.time())
+        turn = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
+        seen.append((round((turn["rate_limited_until"] - before) / 300) * 300, turn.get("hold_reason"), turn["api_error"]))
+    shown = "quizs 退出码 3（RATE_LIMIT，overloaded_error）"
+    assert seen == [(300, kh.OVERLOAD_HOLD_REASON, shown), (600, kh.OVERLOAD_HOLD_REASON, shown), (300, None, "quizs 退出码 3（RATE_LIMIT）")]
+    session = hub.agent_record(kh.COORDINATOR)["sessions"]["T001"]
+    assert session.get("throttles") == 1 and "overloads" not in session  # 过载与限流各算各的
+
+
 def test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out(tmp_path, monkeypatch):
     # 第 143 轮：quizs 岗位的资格证书最长 24 小时、要天天重新认证；文件没设、证书读不出或撑不完这一回合时，
     # 这一回合退回名册写的替补（pi），开新会话，result.json 记下原因；证书撑得住就照常走 quizs

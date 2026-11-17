@@ -443,6 +443,7 @@ const TURN_TESTS = [
   "test_overloaded_interface_errors_are_held_five_times_then_go_to_the_owner", // 第 179 轮：529 与 overloaded 单独一类，扣 5 次、最长一小时
   "test_handing_an_interface_error_to_the_owner_starts_the_count_again", // 第 179 轮：交给站主时计数清零（限流、临时报错、过载）
   "test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block",
+  "test_a_quizs_overload_is_held_as_an_overload_not_a_rate_limit", // 第 181 轮：Quizs 回报的 overloaded_error 归过载一类，不按限流扣
   "test_a_quizs_role_falls_back_to_pi_when_its_certificate_runs_out",
   "test_quizs_repository_view_for_reading_posts", // 第 156 轮：合同端在 quizs 上读工作目录冻成的整棵树（三边算出的树要一样）
   "test_a_bound_quizs_post_marks_its_provider_down_and_falls_back", // 第 156 轮：配置里绑到 quizs 的岗位按提供方记标记、退回替补
