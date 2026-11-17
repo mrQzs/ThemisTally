@@ -672,6 +672,15 @@ def test_planner_sizes_the_slice_against_one_attempt():
     assert "14 万输出 token" not in kh.role_prompt("contract-glm")
 
 
+def test_contract_takes_the_old_assertions_it_must_overturn_into_its_own_scope():
+    # 第 185 轮（候选 #10）：T027、T044 的合同没搜到钉着旧形态的测试，T045 搜到了却写成“由门禁端或站主随门禁准备合入”，
+    # 执行端照合同做完那条旧断言必红，各多走一版合同
+    contract = kh.role_prompt("contract-glm")
+    assert "按这些名字搜全部门禁基准" in contract and "逐字写明只改哪一处" in contract
+    assert "不要写成“由门禁端或站主随门禁准备合入”" in contract
+    assert "按这些名字搜全部门禁基准" not in kh.role_prompt("gate-sonnet")
+
+
 def test_gate_rules_keep_the_regression_tests_valid_after_integration():
     # T002 的 D02 断言“相对基线的改动只落在允许集合内”，落到分支末端上必然失败（第 11 轮）
     assert "不写相对基线的改动范围断言" in kh.role_prompt("gate-sonnet")
