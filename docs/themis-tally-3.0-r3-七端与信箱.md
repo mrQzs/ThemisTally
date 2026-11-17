@@ -3001,6 +3001,21 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **检查**：类型检查 0 错；内核测试 423 passed；契约 T（hub-turn）10、C（mutation-specs、source-hygiene）5 全过。
 - **没做**：Quizs 在回合里重发的次数（M9 的 retry 事件）内核还不读，回合记录里看不到，要看得读回合的 stream.jsonl。
 
+### 第 182 轮：上一次 attempt 被截断、一个文件没改，这一次的执行说明里加一段提醒（候选 #60）
+
+- **起因**：
+  - 11-16 T047 的 attempt-001（step-5-preview，high）跑了 1330 秒、输出 19.4 万 token，事件流最后 stopReason=length，一个文件没改，也没交报告。思考里反复推演门禁 S01 与合同 §11.1 的矛盾（站主核实属实，门禁热修补）。
+  - 同样的还有 T012 的 attempt-004、T024 的 attempt-001。执行器看不到协调人的信，只读 plan.md 与调度器写的执行说明；下一次 attempt 的执行说明原来与上一次一字不差，没有任何提醒。
+- **改法**（调度器，Python 与 TS 同改）：
+  - previous_attempt_text / previousAttemptText：同一任务里编号紧挨着的上一次 attempt，events-summary.json 的 final_stop_reason 是 length、changes.json 是空列表时，执行说明在“准备阶段已经做过的事”之后、“机器合同摘要”之前加一段 TRUNCATED_ATTEMPT_NOTE：上一次输出写到上限被截断、一个文件没改；这一次先照合同把实现落地、跑自检再写报告，合同或测试说不通的照合同写、记进 contract_conflicts，不要反复推演，报告从简。
+  - 别的情况（改了文件、正常停下、没有上一次、记录读不出、目录名不是 attempt-N）执行说明一字不变。
+- **测试**：
+  - test_kit_v2100 新加 `test_a_truncated_attempt_without_changes_leaves_a_note_for_the_next`。
+  - run 契约新加三个场景：加提醒的一个；截断但改了文件、正常停下没改文件这两个不加，靠三份实现的结果一致来抓。
+- **变异**：新写 dispatch-truncated-attempt（py 4、ts 7）11 条全抓住（ts 里有两条改坏的是 Python 一边，靠三份实现对照抓住）；旧的变异锚点一条没坏。
+- **检查**：类型检查 0 错；内核测试 423 passed；调度器测试（test_dispatch、test_kernel_impl、test_kit_v2100）282 passed；契约 R（run）56、C（mutation-specs、source-hygiene）5 全过。
+- **没做**：截断但改了一部分文件的 attempt（T012 的 attempt-002）不提醒，等再碰上再定。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

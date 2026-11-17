@@ -24,7 +24,7 @@ import { resolvePiCommand } from "./executor.ts";
 import { resolveBoundExecutor, resolveExecutor, withTaskLock } from "./executor-resolve.ts";
 import { verifyInputs } from "./gates.ts";
 import { ignoredInventory, mainRepoFingerprint } from "./gitops.ts";
-import { measuredCheckSeconds, renderInstruction } from "./instruction.ts";
+import { measuredCheckSeconds, previousAttemptText, renderInstruction } from "./instruction.ts";
 import { repoConfig } from "./kernel-config.ts";
 import { frozenExecutorClass } from "./metrics.ts";
 import { RESOURCE_FLAGS, childEnv, expectsSettled } from "./pi-cli.ts";
@@ -107,7 +107,7 @@ export async function cmdRun(args: RunArgs, out: PyOut, context: RunContext, ses
   try {
     writeJson(path.join(runDir, "executor.json"), executor, true);
     const setup = readJsonOr(path.join(runDir, "setup.json"), []);
-    const instruction = renderInstruction(meta, contract, executor, timeout, attemptProtectedPaths(config, meta), setup, measuredCheckSeconds(purePathParent(runDir), pyItem(contract, "checks")));
+    const instruction = renderInstruction(meta, contract, executor, timeout, attemptProtectedPaths(config, meta), setup, measuredCheckSeconds(purePathParent(runDir), pyItem(contract, "checks")), previousAttemptText(runDir));
     writeText(path.join(runDir, "instruction.md"), instruction);
     copyfile(path.join(runDir, "instruction.md"), path.join(attachDir, "instruction.md"));
     const attachments = ["plan.md", "instruction.md"].map(

@@ -4253,7 +4253,7 @@ INSTRUCTION_TEMPLATE = """# 执行说明（调度器生成）
 {self_check_rule}
 8. 验收端会在固定候选上做变异检查（mutate），你不需要自己做突变反测；确要临时改坏文件验证测试时，备份放在工作目录内（例如 `x.ts.orig`），同一条命令里改回并删除备份，不要用系统临时目录。
 9. 合同要求编写测试时，每个拒绝反例先验证合法基线，再只改受测条件并断言具体错误；避免另一条规则提前拒绝而掩盖缺口。比较摘要时固定其余字段，分别验证每个语义字段；非空、partial 等有不同分支的形态按合同分别覆盖。只从非法输入得到异常、或测试数量增加，不代表目标规则已被保护。
-{setup_facts}
+{setup_facts}{previous_attempt}
 ## 机器合同摘要（调度器据此判定范围与验收）
 以下内容由调度器从机器合同（JSON）自动生成。它与 plan.md 有任何不一致时，停止并在报告中指出，不要自行选择其一。
 
@@ -4297,9 +4297,34 @@ def setup_facts_text(setup_results: Sequence[Dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+#: 第 182 轮：上一次 attempt 写到输出上限被截断、一个文件也没改时，这一次的执行说明加的一段（见 previous_attempt_text）。
+TRUNCATED_ATTEMPT_NOTE = ("\n## 上一次 attempt（{previous}）\n"
+                          "- 输出写到上限被截断（stopReason=length），一个文件也没改，也没交报告：输出全花在了推演上。\n"
+                          "- 这一次先照合同把实现落地、跑自检，再写报告。合同或测试有说不通的地方，照合同写，记进报告的 "
+                          "contract_conflicts，不要反复推演；报告从简。\n")
+
+
+def previous_attempt_text(run_dir: Path) -> str:
+    """第 182 轮：同一任务里编号紧挨着的上一次 attempt 写到输出上限被截断（事件流最后 stopReason=length）、一个文件也
+    没改，就在执行说明里加 TRUNCATED_ATTEMPT_NOTE。11-16 T047 的 attempt-001 输出 19.4 万 token 全花在推演门禁与合同的
+    矛盾上，一行没写；之前 T012 的 attempt-004、T024 的 attempt-001 也一样。执行器看不到协调人的信，只读合同与这份说明。
+    别的情况返回空串，执行说明一字不变。"""
+    match = re.fullmatch(r"attempt-([0-9]+)", run_dir.name)
+    if not match or int(match.group(1)) < 1:
+        return ""
+    previous = run_dir.parent / ("attempt-%03d" % (int(match.group(1)) - 1))
+    summary = read_json_or(previous / "events-summary.json", {})
+    if not isinstance(summary, dict) or summary.get("final_stop_reason") != "length":
+        return ""
+    if read_json_or(previous / "changes.json", None) != []:
+        return ""
+    return TRUNCATED_ATTEMPT_NOTE.format(previous=previous.name)
+
+
 def render_instruction(meta: Dict[str, Any], contract: Dict[str, Any], executor: Dict[str, Any],
                        timeout: int, extra_protected: Sequence[str] = (),
-                       setup_results: Sequence[Dict[str, Any]] = (), measured: Optional[Dict[str, int]] = None) -> str:
+                       setup_results: Sequence[Dict[str, Any]] = (), measured: Optional[Dict[str, int]] = None,
+                       previous_attempt: str = "") -> str:
     tools = executor["tools"]
     has_shell = bool({"bash", "powershell"} & set(tools))
     actions = contract["authorization"]["executor"]
@@ -4320,7 +4345,7 @@ def render_instruction(meta: Dict[str, Any], contract: Dict[str, Any], executor:
         task_id=meta["task_id"], version=meta["plan_version"], attempt_id=meta["attempt_id"],
         work_dir=meta["worktree"], base=meta["base_sha"], tools=",".join(tools), timeout=timeout,
         commit_rule=commit_rule, self_check_rule=self_check_rule, dod_ids=dod_ids,
-        setup_facts=setup_facts_text(setup_results),
+        setup_facts=setup_facts_text(setup_results), previous_attempt=previous_attempt,
         machine_summary=machine_summary(contract, extra_protected, self_check_tools, measured))
 
 
@@ -5465,7 +5490,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         write_text(run_dir / "instruction.md", render_instruction(meta, contract, executor, timeout,
                                                                   attempt_protected_paths(config, meta),
                                                                   read_json_or(run_dir / "setup.json", []),
-                                                                  measured_check_seconds(run_dir.parent, contract["checks"])))
+                                                                  measured_check_seconds(run_dir.parent, contract["checks"]),
+                                                                  previous_attempt_text(run_dir)))
         shutil.copyfile(str(run_dir / "instruction.md"), str(attach_dir / "instruction.md"))
         run_info["attachments"] = [{"name": name, "path": str(attach_dir / name),
                                     "sha256": sha256_file(attach_dir / name)}

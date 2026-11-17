@@ -298,6 +298,22 @@ const CASES: Case[] = [
       put(join(runDir, ".."), "baseline/b1/checks.json", json({ results: [{ id: "V01", argv, cwd: ".", timed_out: false, exit_code: 1, expected_exit_code: 1, wall_seconds: 41.5 }] }));
     },
     shows: { "instruction.md": "实测最长 42 秒" } },
+  { label: "上一次 attempt 写到上限被截断、一个文件没改：执行说明加一段（第 182 轮）", status: 0,
+    before: ({ runDir }) => {
+      put(join(runDir, ".."), "attempt-000/events-summary.json", json({ final_stop_reason: "length" }));
+      put(join(runDir, ".."), "attempt-000/changes.json", json([]));
+    },
+    shows: { "instruction.md": ["## 上一次 attempt（attempt-000）", "不要反复推演；报告从简。"] } },
+  { label: "上一次 attempt 被截断但改了文件：执行说明不加（三边一致）", status: 0,
+    before: ({ runDir }) => {
+      put(join(runDir, ".."), "attempt-000/events-summary.json", json({ final_stop_reason: "length" }));
+      put(join(runDir, ".."), "attempt-000/changes.json", json([{ path: "src/app.py", status: "M" }]));
+    } },
+  { label: "上一次 attempt 正常停下、没改文件：执行说明不加（三边一致）", status: 0,
+    before: ({ runDir }) => {
+      put(join(runDir, ".."), "attempt-000/events-summary.json", json({ final_stop_reason: "stop" }));
+      put(join(runDir, ".."), "attempt-000/changes.json", json([]));
+    } },
   { label: "context_files 为 none：加 --no-context-files", status: 0,
     json: (data) => void ((data["executor"] as Json)["context_files"] = "none"),
     shows: { "run-started.json": '"--no-context-files"', "preflight/context-files.json": '"context_files": []' } },

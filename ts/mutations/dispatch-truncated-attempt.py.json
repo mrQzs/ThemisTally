@@ -1,0 +1,42 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_v2100.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "InstructionForms"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 停在别的原因也加",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if not isinstance(summary, dict) or summary.get(\"final_stop_reason\") != \"length\":",
+      "new": "if not isinstance(summary, dict):"
+    },
+    {
+      "name": "P02 改了文件也加",
+      "file": "scripts/pi_dispatch.py",
+      "old": "if read_json_or(previous / \"changes.json\", None) != []:",
+      "new": "if read_json_or(previous / \"changes.json\", None) is None:"
+    },
+    {
+      "name": "P03 看的是这一次自己",
+      "file": "scripts/pi_dispatch.py",
+      "old": "previous = run_dir.parent / (\"attempt-%03d\" % (int(match.group(1)) - 1))",
+      "new": "previous = run_dir.parent / (\"attempt-%03d\" % int(match.group(1)))"
+    },
+    {
+      "name": "P04 执行说明里不放",
+      "file": "scripts/pi_dispatch.py",
+      "old": "previous_attempt=previous_attempt,",
+      "new": "previous_attempt=\"\","
+    }
+  ]
+}

@@ -256,6 +256,30 @@ class InstructionForms(unittest.TestCase):
         self.assertIn("实测最长 181 秒", pd.render_instruction(META, _contract(), EXECUTOR, 600, (), (), measured))
         self.assertNotIn("实测最长 ", pd.render_instruction(META, _contract(), EXECUTOR, 600))
 
+    def test_a_truncated_attempt_without_changes_leaves_a_note_for_the_next(self):
+        # 第 182 轮：上一次 attempt 写到输出上限被截断、一个文件也没改（11-16 T047 的 attempt-001），这一次的执行说明加一段；
+        # 改了文件、停在别的原因、没有上一次、目录名不是 attempt-N 的都不加，执行说明一字不变
+        runs = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, runs, True)
+
+        def previous(stop, changes):
+            folder = runs / "attempt-001"
+            folder.mkdir(exist_ok=True)
+            (folder / "events-summary.json").write_text(json.dumps({"final_stop_reason": stop}), encoding="utf-8")
+            (folder / "changes.json").write_text(json.dumps(changes), encoding="utf-8")
+            return pd.previous_attempt_text(runs / "attempt-002")
+
+        note = previous("length", [])
+        self.assertEqual(note, pd.TRUNCATED_ATTEMPT_NOTE.format(previous="attempt-001"))
+        self.assertTrue(note.startswith("\n## 上一次 attempt（attempt-001）\n") and "contract_conflicts" in note)
+        self.assertEqual(previous("length", [{"path": "src/a.py", "status": "M"}]), "")
+        self.assertEqual(previous("stop", []), "")
+        self.assertEqual(pd.previous_attempt_text(runs / "attempt-001"), "")  # 没有 attempt-000
+        self.assertEqual(pd.previous_attempt_text(runs / "baseline"), "")
+        plain = pd.render_instruction(META, _contract(), EXECUTOR, 600)
+        noted = pd.render_instruction(META, _contract(), EXECUTOR, 600, (), (), None, note)
+        self.assertEqual(noted, plain.replace("\n## 机器合同摘要", note + "\n## 机器合同摘要", 1))
+
     def test_without_tools_the_summary_has_no_forms(self):
         self.assertNotIn("自检照抄：`", pd.machine_summary(_contract()))
 

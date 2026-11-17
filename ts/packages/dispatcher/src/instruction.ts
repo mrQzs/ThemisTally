@@ -41,7 +41,7 @@ const TEMPLATE = [
   "{self_check_rule}",
   "8. 验收端会在固定候选上做变异检查（mutate），你不需要自己做突变反测；确要临时改坏文件验证测试时，备份放在工作目录内（例如 `x.ts.orig`），同一条命令里改回并删除备份，不要用系统临时目录。",
   "9. 合同要求编写测试时，每个拒绝反例先验证合法基线，再只改受测条件并断言具体错误；避免另一条规则提前拒绝而掩盖缺口。比较摘要时固定其余字段，分别验证每个语义字段；非空、partial 等有不同分支的形态按合同分别覆盖。只从非法输入得到异常、或测试数量增加，不代表目标规则已被保护。",
-  "{setup_facts}",
+  "{setup_facts}{previous_attempt}",
   "## 机器合同摘要（调度器据此判定范围与验收）",
   "以下内容由调度器从机器合同（JSON）自动生成。它与 plan.md 有任何不一致时，停止并在报告中指出，不要自行选择其一。",
   "",
@@ -71,7 +71,7 @@ const TEMPLATE = [
   "",
 ].join(LF);
 
-const FIELD_RE = /[{](task_id|version|attempt_id|work_dir|base|tools|timeout|commit_rule|self_check_rule|dod_ids|setup_facts|machine_summary)[}]/gu;
+const FIELD_RE = /[{](task_id|version|attempt_id|work_dir|base|tools|timeout|commit_rule|self_check_rule|dod_ids|setup_facts|previous_attempt|machine_summary)[}]/gu;
 
 const COMMIT_ALLOWED = "可以在 worktree 中创建本地提交，但不得推送、合并或部署。";
 const COMMIT_FORBIDDEN = "不提交、推送、合并或部署；保持 HEAD 为基线提交。";
@@ -111,6 +111,7 @@ export function renderInstruction(
   extraProtected: readonly string[] = [],
   setupResults: PyValue = [],
   measured: ReadonlyMap<string, bigint> | null = null,
+  previousAttempt = "",
 ): string {
   const rawTools = pyIter(pyItem(executor, "tools"));
   const tools = rawTools.map(pyStrValue);
@@ -135,6 +136,7 @@ export function renderInstruction(
     ["self_check_rule", selfCheckRule],
     ["dod_ids", dodIds],
     ["setup_facts", setupFactsText(setupResults)],
+    ["previous_attempt", previousAttempt],
     ["machine_summary", machineSummary(contract, extraProtected, selfCheck ? tools : [], measured)],
   ]);
   return TEMPLATE.replace(FIELD_RE, (_, name: string) => fields.get(name) as string);
@@ -151,6 +153,32 @@ export function setupFactsText(setupResults: PyValue): string {
     lines.push(`- ${pyStrValue(pyGet(item, "id"))} ${code(command)}（cwd ${pyStrValue(pyGet(item, "cwd", "."))}）：${passed}，退出码 ${pyStrValue(pyGet(item, "exit_code"))}。不必重跑。`);
   }
   return lines.join(LF) + LF;
+}
+
+/** 第 182 轮：上一次 attempt 写到输出上限被截断、一个文件也没改时，这一次的执行说明加的一段（见 previousAttemptText）。 */
+export const TRUNCATED_ATTEMPT_NOTE = [
+  "",
+  "## 上一次 attempt（{previous}）",
+  "- 输出写到上限被截断（stopReason=length），一个文件也没改，也没交报告：输出全花在了推演上。",
+  "- 这一次先照合同把实现落地、跑自检，再写报告。合同或测试有说不通的地方，照合同写，记进报告的 contract_conflicts，不要反复推演；报告从简。",
+  "",
+].join(LF);
+
+/**
+ * previous_attempt_text（第 182 轮）：同一任务里编号紧挨着的上一次 attempt 写到输出上限被截断（事件流最后 stopReason=length）、
+ * 一个文件也没改，就在执行说明里加 TRUNCATED_ATTEMPT_NOTE（缘由见 Python 的同名函数）；别的情况返回空串。
+ */
+export function previousAttemptText(runDir: string): string {
+  const match = /^attempt-([0-9]+)$/u.exec(path.basename(runDir));
+  const number = match === null ? 0 : Number.parseInt(match[1] as string, 10);
+  if (number < 1) return "";
+  const name = `attempt-${String(number - 1).padStart(3, "0")}`;
+  const previous = path.join(path.dirname(runDir), name);
+  const summary = readJsonOr(path.join(previous, "events-summary.json"), new Map());
+  if (!(summary instanceof Map) || summary.get("final_stop_reason") !== "length") return "";
+  const changes = readJsonOr(path.join(previous, "changes.json"), null);
+  if (!Array.isArray(changes) || changes.length !== 0) return "";
+  return TRUNCATED_ATTEMPT_NOTE.replace("{previous}", () => name);
 }
 
 /**
