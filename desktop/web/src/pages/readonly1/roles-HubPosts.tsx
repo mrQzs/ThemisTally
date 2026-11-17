@@ -6,10 +6,28 @@ import type { ReactNode } from 'react';
 import type { Envelope, HubRolesData, ProfilesData } from '../../api';
 import { EffortPair, Table, Tag, type TableColumn } from '../../components';
 import { Section } from './common-Section';
-import { allowedProfiles, hubFallbackCandidates, hubPostName, normalizeHubPost, type HubPostInfo } from './roles-logic';
+import {
+  allowedProfiles,
+  hubBudgetText,
+  hubEffortDiffers,
+  hubEffortState,
+  hubEffortTriple,
+  hubFallbackCandidates,
+  hubFallbackExcerpt,
+  hubLastTurnMark,
+  hubLastTurnText,
+  hubMib,
+  hubPostName,
+  hubTimeoutText,
+  normalizeHubPost,
+  type HubPostInfo,
+  type HubPostLastTurnInfo,
+  type HubPostTurnInfo,
+} from './roles-logic';
 import { useWriteFlow } from '../../writes/useWriteFlow';
 import { WriteFlow } from '../../writes/WriteConfirmDialog';
 import { HubBindAction, HubUnsetAction } from '../../writes/HubBindForm';
+import './roles-hub-turns.css';
 
 const DASH = '—';
 
@@ -21,6 +39,9 @@ interface HubRow {
   思考档位: ReactNode;
   来源: ReactNode;
   替补: string;
+  时限与工具: string;
+  预算: ReactNode;
+  最近一回合: ReactNode;
   操作: ReactNode;
 }
 
@@ -31,6 +52,9 @@ const COLUMNS: readonly TableColumn<HubRow>[] = [
   { key: '思考档位', header: '思考档位' },
   { key: '来源', header: '来源' },
   { key: '替补', header: '替补' },
+  { key: '时限与工具', header: '时限与工具' },
+  { key: '预算', header: '预算' },
+  { key: '最近一回合', header: '最近一回合' },
   { key: '操作', header: '操作' },
 ];
 
@@ -58,6 +82,80 @@ function sourceCell(p: HubPostInfo): ReactNode {
   return <Tag tone="neutral">默认</Tag>;
 }
 
+// 思考档位格：有最近一回合时是三值（要求 · 映射 · 生效，值取自 hubEffortTriple 的三段：label 两字 + 空格 + 值）；
+// 没有最近一回合（audit、exec）照旧经 EffortPair，生效未知。生效与要求不同时格末加 warning Tag。
+function effortCell(p: HubPostInfo): ReactNode {
+  const lastTurn = p.lastTurn;
+  if (lastTurn == null) return <EffortPair requested={p.thinking} effective={null} />;
+  const parts = hubEffortTriple(lastTurn).split(' · ');
+  return (
+    <span className="tt-effort" data-state={hubEffortState(lastTurn)}>
+      {parts.map((part, i) => (
+        <span key={part}>
+          {i > 0 ? ' · ' : ''}
+          <span className="tt-effort__label">{part.slice(0, 2)}</span>{' '}
+          <span className="tt-effort__level">{part.slice(3)}</span>
+        </span>
+      ))}
+      {hubEffortDiffers(lastTurn) && (
+        <>
+          {' '}
+          <Tag tone="warning">与要求不同</Tag>
+        </>
+      )}
+    </span>
+  );
+}
+
+// 预算格：文字照旧是 hubBudgetText 的整句，只把「入 / 出 / 对象 MiB」那一段包进带 aria-label 的 span
+// （读屏念「单次输入 2 MiB、单次回应 8 MiB、单个对象 8 MiB」，屏幕上仍是换算后的数字）。
+function budgetCell(turn: HubPostTurnInfo | null): ReactNode {
+  const budgets = turn?.budgets ?? null;
+  const shown = hubBudgetText(budgets);
+  if (budgets == null) return shown;
+  const parts = shown.split(' · ');
+  const input = hubMib(budgets.max_input_bytes);
+  const output = hubMib(budgets.max_response_bytes);
+  const object = hubMib(budgets.max_object_bytes);
+  return (
+    <>
+      {parts[0]} · {parts[1]} ·{' '}
+      <span aria-label={`单次输入 ${input} MiB、单次回应 ${output} MiB、单个对象 ${object} MiB`}>{parts[2]}</span>
+    </>
+  );
+}
+
+// 最近一回合格：时刻 · 实际载体 · 模型；退回替补或与当前绑定不同时加 Tag；退回的原因文字截断显示，title 给全文。
+function lastTurnCell(p: HubPostInfo): ReactNode {
+  const lastTurn = p.lastTurn;
+  if (lastTurn == null) return hubLastTurnText(null);
+  const mark = hubLastTurnMark(lastTurn, p.adapter);
+  const excerpt = hubFallbackExcerpt(lastTurn.fallback);
+  return (
+    <>
+      {hubLastTurnText(lastTurn)}
+      {mark === '退回替补' && (
+        <>
+          {' '}
+          <Tag tone="warning">退回替补</Tag>
+        </>
+      )}
+      {mark === '与当前绑定不同' && (
+        <>
+          {' '}
+          <Tag tone="neutral">与当前绑定不同</Tag>
+        </>
+      )}
+      {excerpt.shown !== '' && (
+        <>
+          {' '}
+          <span title={excerpt.full}>{excerpt.shown}</span>
+        </>
+      )}
+    </>
+  );
+}
+
 export interface HubPostsProps {
   hub: Envelope<HubRolesData>;
   profiles?: ProfilesData['profiles'];
@@ -82,9 +180,12 @@ export function HubPosts({ hub, profiles = [], reload }: HubPostsProps) {
                 岗位: hubPostName(p.post),
                 运行时: runtimeText(p.runtime, p.adapter),
                 模型: `${p.provider ?? DASH}/${p.model ?? DASH}`,
-                思考档位: <EffortPair requested={p.thinking} effective={null} />,
+                思考档位: effortCell(p),
                 来源: sourceCell(p),
                 替补: fallbackText(p.fallback),
+                时限与工具: hubTimeoutText(p.turn),
+                预算: budgetCell(p.turn),
+                最近一回合: lastTurnCell(p),
                 操作: (
                   <>
                     <HubBindAction

@@ -91,12 +91,60 @@ export function allowPreviewText(value: PyValue): boolean {
 }
 
 /**
+ * 七端岗位每一回合拿到了什么（scripts/kit_roles.py 的 _hub_turn 与 _hub_last_turn，r3 T047 片一）：内核在每行加
+ * turn 与 last_turn 两个对象——turn 是 {timeout_seconds, tools, budgets}（budgets 只在载体是 quizs 的岗位有，
+ * 抄 QUIZS_TURN_BUDGETS/QUIZS_VIEW_BUDGETS；不在 HUB_TURN_LIMITS 的岗位整项是 null）；last_turn 从信箱
+ * .agent/mailbox/turns/<工人>/<回合>/result.json 读最近一回合（scripts/kit_hub.py:2724-2731 的字段），没有信箱、
+ * 没跑完过或读不出时整项是 null。下面四个校验器与 HUB_ROLES_ALLOW 末尾的 15 条路径放行这些值；turn、
+ * last_turn、turn.budgets、last_turn.thinking 四层对象本身不登记（T031 只认其下的叶子路径）。
+ */
+
+/** 非负整数：null 放行；bigint 与 number 都接（pyjson 把大整数解析成 bigint），number 要是整数且不小于 0。
+ * 用于 turn 的 timeout_seconds 与 budgets 的五项字节/次数（scripts/kit_roles.py 的 _hub_turn）。 */
+export function allowNonNegativeInt(value: PyValue): boolean {
+  if (value === null) return true;
+  if (typeof value === "bigint") return value >= 0n;
+  if (typeof value !== "number") return false;
+  return Number.isInteger(value) && value >= 0;
+}
+
+/** 工具名：字母开头、字母数字与 -_ 至多 64 个，可带一段括号参数（如 Bash(npm view:*)）；且不像凭据（tokenShaped 为假）。
+ * 照 scripts/kit_roles.py 的 HUB_TURN_LIMITS 里各岗位的工具名单（read/grep/find/ls/edit/write/bash 与 Claude 的
+ * Read/Grep/Glob、Bash(npm view:*)）。 */
+export function allowToolName(value: PyValue): boolean {
+  if (typeof value !== "string") return false;
+  return /^[A-Za-z][A-Za-z0-9_-]{0,63}(\([^()\r\n]{1,128}\))?$/u.test(value) && !tokenShaped(value);
+}
+
+/** 秒级 ISO 8601 UTC 时刻：null 放行；形如 2026-11-15T08:00:00Z，Z 与 +00:00 两种结尾、不带毫秒
+ * （scripts/kit_hub.py 的 utc_now() 是秒级）。 */
+export function allowIsoSecondUtc(value: PyValue): boolean {
+  return value === null || (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$/u.test(value));
+}
+
+/** 生效档位：null 放行；否则按逗号拆开，每段 trim 后非空且都在七个档位里。审核端的生效档位可能是逗号连起来的
+ * 多个（scripts/kit_hub.py:2683 把 effective_levels 用 , 连起来），逐段校验。 */
+const EFFORT_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+export function allowEffortLevels(value: PyValue): boolean {
+  if (value === null) return true;
+  if (typeof value !== "string") return false;
+  return value.split(",").every((part) => {
+    const level = part.trim();
+    return level !== "" && EFFORT_LEVELS.has(level);
+  });
+}
+
+/**
  * /hub/roles 的白名单（config hub show --json 的 {"posts":[…]}）：逐字段登记六个岗位的一行行字段。岗位六个名字抄
  * scripts/kit_roles.py 的 HUB_POST_ADAPTERS（TS 一份在 ts/packages/config/src/roles-check.ts）；适配器名抄同一处的
  * HUB_POST_ADAPTERS 与 ADAPTERS。内核会给 null 的字段（adapter/provider/model/thinking/profile/runtime 及其 fallback 下
  * 同名）校验函数一律接受 null——base 的 allowId 不接受 null、allowEnum 只有把 null 列进 choices 才放行 null，而
  * redactJsonAllowing 命中路径照样拿值调校验函数、不合格就换成 <redacted>。fallback 本身（对象或 null）不登记；内核没给的键
  * （缺省行 coordinator 的 fallback 只有四个键）路径不命中，值照 redactJson 的默认口径走。
+ *
+ * T047 片一在末尾追加 15 条：turn 的 timeout_seconds、tools 逐个元素、budgets 五项，last_turn 的 at、adapter、
+ * models 逐个元素、profile、thinking 三项与 fallback。last_turn.fallback 是退回替补的原因文字，可能带本机路径
+ * （scripts/kit_hub.py:2145 的「读不出资格证书 %s」），照 allowNullablePreviewText 放行——界面截断显示、title 给全文。
  */
 export const HUB_ROLES_ALLOW: AllowList = [
   [["posts", "*", "post"], allowEnum("coordinator", "planner", "contract", "gate", "audit", "exec")],
@@ -114,6 +162,21 @@ export const HUB_ROLES_ALLOW: AllowList = [
   [["posts", "*", "fallback", "thinking"], HUB_THINKING_ENUM],
   [["posts", "*", "fallback", "profile"], allowNullableId],
   [["posts", "*", "fallback", "runtime"], allowNullableId],
+  [["posts", "*", "turn", "timeout_seconds"], allowNonNegativeInt],
+  [["posts", "*", "turn", "tools", "*"], allowToolName],
+  [["posts", "*", "turn", "budgets", "max_requests"], allowNonNegativeInt],
+  [["posts", "*", "turn", "budgets", "max_tool_calls"], allowNonNegativeInt],
+  [["posts", "*", "turn", "budgets", "max_input_bytes"], allowNonNegativeInt],
+  [["posts", "*", "turn", "budgets", "max_response_bytes"], allowNonNegativeInt],
+  [["posts", "*", "turn", "budgets", "max_object_bytes"], allowNonNegativeInt],
+  [["posts", "*", "last_turn", "at"], allowIsoSecondUtc],
+  [["posts", "*", "last_turn", "adapter"], HUB_ADAPTER_ENUM],
+  [["posts", "*", "last_turn", "models", "*"], allowBindingName],
+  [["posts", "*", "last_turn", "profile"], allowNullableId],
+  [["posts", "*", "last_turn", "thinking", "requested"], HUB_THINKING_ENUM],
+  [["posts", "*", "last_turn", "thinking", "mapped"], HUB_THINKING_ENUM],
+  [["posts", "*", "last_turn", "thinking", "effective"], allowEffortLevels],
+  [["posts", "*", "last_turn", "fallback"], allowNullablePreviewText],
 ];
 
 /**

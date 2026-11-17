@@ -1,0 +1,4 @@
+/* 七端岗位每行「这一回合拿到了什么」（T047 片一）：表加了「时限与工具」「预算」「最近一回合」三列，十列比七列宽。
+   表的最小宽照 roles-styles.css:69 的 .rl-hub .tt-table 放宽：本文件比 roles-styles.css 先载入（RolesView 先 import
+   HubPosts 才 import 那个文件），特异性不提一级会被旧规则盖掉。 */
+.rl-hub table.tt-table { min-width: 1120px; } /* 画布：七端岗位表十列（T047 片一）后的最小宽，照 .rl-hub .tt-table 的写法换更高特异性 */

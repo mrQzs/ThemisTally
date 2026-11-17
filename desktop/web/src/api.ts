@@ -171,6 +171,34 @@ export interface HubPostFallback {
   profile?: string | null;
   runtime?: string | null;
 }
+// 七端岗位每行「这一回合拿到了什么」（T047 片一；scripts/kit_roles.py 的 _hub_turn 与 _hub_last_turn）：
+// 时限与工具、绑在 quizs 上时才有的每回合预算，以及信箱里最近一个跑完的回合。两个键都是可选的——
+// 旧服务没有这两个键，前端按 null 处理。
+export interface HubPostBudgets {
+  max_requests: number | null;
+  max_tool_calls: number | null;
+  max_input_bytes: number | null;
+  max_response_bytes: number | null;
+  max_object_bytes: number | null;
+};
+export interface HubPostTurn {
+  timeout_seconds: number | null;
+  tools: string[];
+  budgets: HubPostBudgets | null;
+};
+export interface HubPostLastTurn {
+  at: string | null;
+  adapter: string | null;
+  models: string[];
+  profile: string | null;
+  thinking: HubPostLastTurnThinking;
+  fallback: string | null;
+};
+export interface HubPostLastTurnThinking {
+  requested: string | null;
+  mapped: string | null;
+  effective: string | null;
+};
 export interface HubPostRow {
   post: string;
   source: 'default' | 'config';
@@ -182,6 +210,8 @@ export interface HubPostRow {
   profile: string | null;
   runtime: string | null;
   fallback: HubPostFallback | null;
+  turn?: HubPostTurn | null;
+  last_turn?: HubPostLastTurn | null;
 }
 export interface HubRolesData {
   posts: HubPostRow[];

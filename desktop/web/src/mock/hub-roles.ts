@@ -17,6 +17,19 @@ export const HUB_ROLES_POSTS: HubRolesData = {
       profile: null,
       runtime: null,
       fallback: { adapter: 'pi', provider: 'dsf', model: 'deepseek-flash', thinking: 'high' },
+      turn: {
+        timeout_seconds: 600,
+        tools: ['read', 'grep', 'find', 'ls'],
+        budgets: { max_requests: 32, max_tool_calls: 48, max_input_bytes: 2097152, max_response_bytes: 8388608, max_object_bytes: 8388608 },
+      },
+      last_turn: {
+        at: '2026-11-15T08:00:00Z',
+        adapter: 'quizs',
+        models: ['deepseek-flash'],
+        profile: null,
+        thinking: { requested: 'high', mapped: 'high', effective: null },
+        fallback: null,
+      },
     },
     {
       post: 'planner',
@@ -29,6 +42,15 @@ export const HUB_ROLES_POSTS: HubRolesData = {
       profile: null,
       runtime: null,
       fallback: null,
+      turn: { timeout_seconds: 2400, tools: ['Read', 'Grep', 'Glob', 'Bash(npm view:*)'], budgets: null },
+      last_turn: {
+        at: '2026-11-15T07:30:00Z',
+        adapter: 'claude-code',
+        models: ['claude-opus-5-5'],
+        profile: null,
+        thinking: { requested: 'max', mapped: null, effective: 'max' },
+        fallback: null,
+      },
     },
     {
       post: 'contract',
@@ -48,6 +70,19 @@ export const HUB_ROLES_POSTS: HubRolesData = {
         model: 'step-5-preview',
         thinking: 'high',
       },
+      turn: {
+        timeout_seconds: 2400,
+        tools: ['read', 'grep', 'find', 'ls'],
+        budgets: { max_requests: 128, max_tool_calls: 128, max_input_bytes: 2097152, max_response_bytes: 8388608, max_object_bytes: 8388608 },
+      },
+      last_turn: {
+        at: '2026-11-15T09:00:00Z',
+        adapter: 'pi',
+        models: ['step-5-preview'],
+        profile: 'step-high',
+        thinking: { requested: 'high', mapped: null, effective: 'high' },
+        fallback: '读不出资格证书 C:\\Users\\example\\.agent\\mailbox\\quizs\\live\\minimax\\qualification.json',
+      },
     },
     {
       post: 'gate',
@@ -60,6 +95,15 @@ export const HUB_ROLES_POSTS: HubRolesData = {
       profile: null,
       runtime: null,
       fallback: null,
+      turn: { timeout_seconds: 2400, tools: ['read', 'grep', 'find', 'ls', 'edit', 'write', 'bash'], budgets: null },
+      last_turn: {
+        at: '2026-11-15T09:15:00Z',
+        adapter: 'pi',
+        models: ['cc-switch-zhipu-glm/glm-5.3'],
+        profile: null,
+        thinking: { requested: 'high', mapped: null, effective: 'high' },
+        fallback: null,
+      },
     },
     {
       post: 'audit',
@@ -72,6 +116,8 @@ export const HUB_ROLES_POSTS: HubRolesData = {
       profile: null,
       runtime: null,
       fallback: null,
+      turn: { timeout_seconds: 2400, tools: ['read', 'grep', 'find', 'ls'], budgets: null },
+      last_turn: null,
     },
     {
       post: 'exec',
@@ -84,6 +130,8 @@ export const HUB_ROLES_POSTS: HubRolesData = {
       profile: 'step-high',
       runtime: 'pi',
       fallback: null,
+      turn: null,
+      last_turn: null,
     },
   ],
 };

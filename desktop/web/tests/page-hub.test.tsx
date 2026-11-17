@@ -81,7 +81,7 @@ afterEach(() => {
 });
 
 describe('七端岗位（桩模式渲染 #/roles）', () => {
-  it('区块标题「七端岗位」、表 aria-label「七端岗位」、七列列头末尾是「操作」', async () => {
+  it('区块标题「七端岗位」、表 aria-label「七端岗位」、十列列头末尾是「操作」', async () => {
     await mount('#/roles');
     const sec = hubSec();
     expect(sec, '应有标题为「七端岗位」的 section').not.toBeNull();
@@ -89,7 +89,7 @@ describe('七端岗位（桩模式渲染 #/roles）', () => {
     expect(qa(sec, '.common-section__desc').length, '不加次级说明').toBe(0);
     const table = hubTable();
     expect(table, '表应带 aria-label="七端岗位"').not.toBeNull();
-    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补', '操作']);
+    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作']);
   });
 
   it('操作列每行两个入口：改绑定…/恢复缺省…；planner 改绑定…禁用；contract/exec 恢复缺省…可点、其余禁用', async () => {
@@ -130,7 +130,9 @@ describe('七端岗位（桩模式渲染 #/roles）', () => {
     const runtimes = ['—（quizs）', '—（claude-code）', 'quizs（quizs）', '—（pi）', '—（pi）', 'pi（pi）'];
     const models = ['deepseek/deepseek-flash', '—/claude-opus-5-5', 'minimax/MiniMax-M3.1-Flash', 'cc-switch-zhipu-glm/glm-5.3', 'minimax/MiniMax-M3.1-Flash', 'bb/step-5-preview'];
     const fallbacks = ['—（pi） · dsf/deepseek-flash', '—', 'step-high · pi（pi） · bb/step-5-preview', '—', '—', '—'];
-    const think = ['high', 'max', 'high', 'high', 'max', 'high'];
+    // 思考档位：有最近一回合的四行是三值（要求 · 映射 · 生效），audit/exec 两行照旧经 EffortPair（生效未知）
+    const triples = ['要求 high · 映射 high · 生效 —', '要求 max · 映射 — · 生效 max', '要求 high · 映射 — · 生效 high', '要求 high · 映射 — · 生效 high'];
+    const pairs: Record<string, string> = { audit: '要求 max · 生效 未知', exec: '要求 high · 生效 未知' };
     POSTS.forEach((post, i) => {
       const row = rows[i];
       expect(text(row['岗位']), post + ' 岗位名').toBe(names[i]);
@@ -138,9 +140,13 @@ describe('七端岗位（桩模式渲染 #/roles）', () => {
       expect(text(row['模型']), post + ' 模型').toBe(models[i]);
       expect(text(row['替补']), post + ' 替补').toBe(fallbacks[i]);
       const effort = row['思考档位'].querySelector('.tt-effort');
-      expect(effort, post + ' 思考档位经 EffortPair').not.toBeNull();
-      expect(effort.getAttribute('data-state'), post + ' data-state').toBe('unknown');
-      expect(text(effort), post + ' 思考档位文字').toBe('要求 ' + think[i] + ' · 生效 未知');
+      expect(effort, post + ' 思考档位有 tt-effort').not.toBeNull();
+      if (i < 4) {
+        expect(text(effort), post + ' 三值文字').toBe(triples[i]);
+      } else {
+        expect(effort.getAttribute('data-state'), post + ' data-state').toBe('unknown');
+        expect(text(effort), post + ' 思考档位文字').toBe(pairs[post]);
+      }
       const cell = row['来源'];
       if (i === 2 || i === 5) {
         expect(qa(cell, '.tt-tag').length, post + ' 配置行来源不是 Tag').toBe(0);
@@ -152,6 +158,43 @@ describe('七端岗位（桩模式渲染 #/roles）', () => {
         expect(tag.getAttribute('data-tone')).toBe('neutral');
       }
     });
+  });
+
+  it('三个新列的逐格文字：时限与工具、预算、最近一回合（含 contract 的退回替补 Tag 与 title 全文）', async () => {
+    // contract 行退回替补的原因文字（带本机路径；服务照 allowNullablePreviewText 放行，界面截断显示、title 给全文）
+    const FULL_FALLBACK = '读不出资格证书 C:\\Users\\example\\.agent\\mailbox\\quizs\\live\\minimax\\qualification.json';
+    await mount('#/roles');
+    const rows = hubRows();
+    expect(rows.length).toBe(6);
+    const timeoutTools = ['10 分钟 · read、grep、find、ls', '40 分钟 · Read、Grep、Glob、Bash(npm view:*)',
+      '40 分钟 · read、grep、find、ls', '40 分钟 · read、grep、find、ls、edit、write、bash',
+      '40 分钟 · read、grep、find、ls', '—'];
+    const budgetTexts = ['请求 32 · 工具调用 48 · 2 / 8 / 8 MiB', '—', '请求 128 · 工具调用 128 · 2 / 8 / 8 MiB', '—', '—', '—'];
+    const lastTurns = ['2026-11-15T08:00:00Z · quizs · deepseek-flash', '2026-11-15T07:30:00Z · claude-code · claude-opus-5-5',
+      '2026-11-15T09:00:00Z · pi · step-5-preview', '2026-11-15T09:15:00Z · pi · cc-switch-zhipu-glm/glm-5.3', '—', '—'];
+    POSTS.forEach((post, i) => {
+      expect(text(rows[i]['时限与工具']), post + ' 时限与工具').toBe(timeoutTools[i]);
+      expect(text(rows[i]['预算']), post + ' 预算').toBe(budgetTexts[i]);
+      if (post === 'contract') {
+        expect(text(rows[i]['最近一回合']), post + ' 最近一回合').toContain(lastTurns[i]);
+        const tag = rows[i]['最近一回合'].querySelector('.tt-tag--warning');
+        expect(tag, 'contract 有退回替补 Tag').not.toBeNull();
+        expect(text(tag)).toBe('退回替补');
+        const titled = qa(rows[i]['最近一回合'], '[title]').find((el: any) => (el.getAttribute('title') || '').indexOf('读不出资格证书') === 0);
+        expect(titled, '原因文字那一段带 title').toBeTruthy();
+        expect(titled.getAttribute('title'), 'title 给全文').toBe(FULL_FALLBACK);
+        expect(text(titled), '截断显示：前 20 个字加 …').toBe(FULL_FALLBACK.slice(0, 20) + '…');
+      } else {
+        expect(text(rows[i]['最近一回合']), post + ' 最近一回合').toBe(lastTurns[i]);
+      }
+    });
+    // 预算格的 MiB 段单独一个 span，aria-label 念「单次输入 2 MiB、单次回应 8 MiB、单个对象 8 MiB」，文字照旧
+    for (const i of [0, 2]) {
+      const span = qa(rows[i]['预算'], 'span[aria-label]')[0];
+      expect(span, POSTS[i] + ' 的 MiB 段应有 span[aria-label]').toBeTruthy();
+      expect(span.getAttribute('aria-label')).toBe('单次输入 2 MiB、单次回应 8 MiB、单个对象 8 MiB');
+      expect(text(span)).toBe('2 / 8 / 8 MiB');
+    }
   });
 
   it('位置：这一组在角色卡网格之后、profile 表之前', async () => {

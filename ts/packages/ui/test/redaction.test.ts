@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import { dumps, loads, type PyValue } from "@themis/base/pyjson";
 import { redactJson } from "@themis/base/secrets";
-import { CONFIG_ALLOW, PREVIEW_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW, usedByShape } from "../src/redaction.ts";
+import {
+  CONFIG_ALLOW, HUB_ROLES_ALLOW, PREVIEW_ALLOW, PROFILES_ALLOW, SECRETS_ALLOW, SECRET_SHOW_ALLOW, usedByShape,
+} from "../src/redaction.ts";
 
 const TOKEN = "sk-abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -154,5 +156,100 @@ describe("/preview 的白名单：改到的岗位此刻在跑的回合（r3 第 
     // 不登记时只过 redactSecrets，只遮句子里的那一段（「前缀 <redacted> 后缀」）
     const shown = plain(redactJson(loads(`{"running_turns":["审核端（audit）：2 个回合在跑","前缀 ${TOKEN} 后缀"]}`), PREVIEW_ALLOW));
     expect(shown).toEqual({ running_turns: ["审核端（audit）：2 个回合在跑", "<redacted>"] });
+  });
+});
+
+describe("/hub/roles 的白名单：每行的 turn 与 last_turn（T047 片一）", () => {
+  // 退回替补的原因文字带本机路径（scripts/kit_hub.py:2145 的「读不出资格证书 %s」）：JSON 里经 stringify 转义
+  const FALLBACK = "读不出资格证书 C:\\Users\\example\\.agent\\mailbox\\quizs\\live\\minimax\\qualification.json";
+  const row = (extra: string): Map<string, unknown> =>
+    redactJson(loads(`{"posts":[${extra}]}`), HUB_ROLES_ALLOW) as Map<string, unknown>;
+  const first = (extra: string): Map<string, unknown> =>
+    ((row(extra).get("posts") as unknown[])[0] as Map<string, unknown>);
+
+  it("合格值原样放行：时限、工具（含 Bash(npm view:*)）、预算五项、秒级时刻、多档位生效、带本机路径的 fallback", () => {
+    const one = first(
+      `{"post":"coordinator","source":"default","allowed_adapters":["quizs","pi"],"adapter":"quizs",`
+      + `"provider":"deepseek","model":"deepseek-flash","thinking":"high","profile":null,"runtime":null,"fallback":null,`
+      + `"turn":{"timeout_seconds":600,"tools":["read","grep","find","ls","edit","write","bash","Read","Grep",`
+      + `"Glob","Bash(npm view:*)"],"budgets":{"max_requests":32,"max_tool_calls":48,"max_input_bytes":2097152,`
+      + `"max_response_bytes":8388608,"max_object_bytes":8388608}},`
+      + `"last_turn":{"at":"2026-11-15T08:00:00Z","adapter":"quizs","models":["deepseek-flash"],"profile":null,`
+      + `"thinking":{"requested":"high","mapped":"high","effective":"high,medium"},`
+      + `"fallback":${JSON.stringify(FALLBACK)}}}`,
+    );
+    const turn = one.get("turn") as Map<string, unknown>;
+    expect(Number(turn.get("timeout_seconds"))).toBe(600);
+    expect(turn.get("tools")).toEqual(["read", "grep", "find", "ls", "edit", "write", "bash", "Read", "Grep", "Glob", "Bash(npm view:*)"]);
+    const budgets = turn.get("budgets") as Map<string, unknown>;
+    expect(Number(budgets.get("max_requests"))).toBe(32);
+    expect(Number(budgets.get("max_tool_calls"))).toBe(48);
+    expect(Number(budgets.get("max_input_bytes"))).toBe(2097152);
+    expect(Number(budgets.get("max_response_bytes"))).toBe(8388608);
+    expect(Number(budgets.get("max_object_bytes"))).toBe(8388608);
+    const lastTurn = one.get("last_turn") as Map<string, unknown>;
+    expect(lastTurn.get("at")).toBe("2026-11-15T08:00:00Z");
+    expect(lastTurn.get("adapter")).toBe("quizs");
+    expect(lastTurn.get("models")).toEqual(["deepseek-flash"]);
+    expect(lastTurn.get("profile")).toBe(null);
+    const thinking = lastTurn.get("thinking") as Map<string, unknown>;
+    expect(thinking.get("requested")).toBe("high");
+    expect(thinking.get("mapped")).toBe("high");
+    expect(thinking.get("effective"), "逗号连起来的多个档位逐段放行").toBe("high,medium");
+    expect(lastTurn.get("fallback"), "带本机路径的原因文字照 allowNullablePreviewText 放行")
+      .toBe("读不出资格证书 C:\\Users\\example\\.agent\\mailbox\\quizs\\live\\minimax\\qualification.json");
+    expect(dumps(one as unknown as PyValue, { ensureAscii: false })).not.toContain("<redacted>");
+  });
+
+  it("+00:00 结尾的秒级时刻同样放行", () => {
+    const one = first(
+      `{"post":"planner","source":"default","allowed_adapters":["claude-code"],"adapter":"claude-code",`
+      + `"provider":null,"model":"claude-opus-5-5","thinking":"max","profile":null,"runtime":null,"fallback":null,`
+      + `"turn":null,"last_turn":{"at":"2026-11-15T08:00:00+00:00","adapter":"claude-code",`
+      + `"models":["claude-opus-5-5"],"profile":null,"thinking":{"requested":"max","mapped":null,`
+      + `"effective":"max"},"fallback":null}}`,
+    );
+    expect((one.get("last_turn") as Map<string, unknown>).get("at")).toBe("2026-11-15T08:00:00+00:00");
+  });
+
+  it("不合格值换成 <redacted>：负数与小数时限、带毫秒的时刻、非法档位、像凭据的工具名", () => {
+    const one = first(
+      `{"post":"gate","source":"default","allowed_adapters":["pi"],"adapter":"pi","provider":null,"model":null,`
+      + `"thinking":"high","profile":null,"runtime":null,"fallback":null,`
+      + `"turn":{"timeout_seconds":-1,"tools":["read","${TOKEN}"],"budgets":{"max_requests":1.5,`
+      + `"max_tool_calls":48,"max_input_bytes":2097152,"max_response_bytes":8388608,"max_object_bytes":8388608}},`
+      + `"last_turn":{"at":"2026-11-15T08:00:00.000Z","adapter":"pi","models":["glm-5.3"],"profile":null,`
+      + `"thinking":{"requested":"high","mapped":null,"effective":"high,bogus"},"fallback":null}}`,
+    );
+    const turn = one.get("turn") as Map<string, unknown>;
+    expect(turn.get("timeout_seconds")).toBe("<redacted>");
+    expect(turn.get("tools")).toEqual(["read", "<redacted>"]);
+    expect((turn.get("budgets") as Map<string, unknown>).get("max_requests")).toBe("<redacted>");
+    const lastTurn = one.get("last_turn") as Map<string, unknown>;
+    expect(lastTurn.get("at")).toBe("<redacted>");
+    expect((lastTurn.get("thinking") as Map<string, unknown>).get("effective")).toBe("<redacted>");
+    expect((lastTurn.get("thinking") as Map<string, unknown>).get("requested")).toBe("high");
+  });
+
+  it("HUB_ROLES_ALLOW 原有 15 条路径一条不少（逐条比对路径元组），四层对象本身不登记", () => {
+    const paths = HUB_ROLES_ALLOW.map(([path]) => path);
+    const has = (...segments: string[]): boolean => paths.some((path) => path.length === segments.length && path.every((seg, i) => seg === segments[i]));
+    for (const path of [
+      ["posts", "*", "post"], ["posts", "*", "source"], ["posts", "*", "allowed_adapters", "*"],
+      ["posts", "*", "adapter"], ["posts", "*", "provider"], ["posts", "*", "model"],
+      ["posts", "*", "thinking"], ["posts", "*", "profile"], ["posts", "*", "runtime"],
+      ["posts", "*", "fallback", "adapter"], ["posts", "*", "fallback", "provider"],
+      ["posts", "*", "fallback", "model"], ["posts", "*", "fallback", "thinking"],
+      ["posts", "*", "fallback", "profile"], ["posts", "*", "fallback", "runtime"],
+    ]) {
+      expect(has(...path), `既有路径 ${path.join(".")} 应仍在白名单里`).toBe(true);
+    }
+    // T031 只认 turn/last_turn 之下的叶子路径：这四层对象登记了会被判成「别的路径」
+    for (const layer of [
+      ["posts", "*", "turn"], ["posts", "*", "last_turn"], ["posts", "*", "turn", "budgets"], ["posts", "*", "last_turn", "thinking"],
+    ]) {
+      expect(has(...layer), `对象层 ${layer.join(".")} 不许登记`).toBe(false);
+    }
+    expect(paths).toHaveLength(30);
   });
 });

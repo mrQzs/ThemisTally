@@ -21,7 +21,7 @@ hubChangeLines 与桩的岗位情景接好；本片只做入口与表单）：
   的静态形状（title/aria-label/rowHeight/rl-hub/hubPostName/data-post，不出现 data-role）一个不少。
 - ``src/pages/readonly1/roles-RolesView.tsx``：``<HubPosts hub={data.hub} profiles={data.profiles.profiles}
   reload={reload} />``（位置不动）。
-- 包内测试两处照新行为改：page-hub.test.tsx 列头七列（末尾「操作」）并补操作列用例；page-app.test.tsx
+- 包内测试两处照新行为改：page-hub.test.tsx 列头十列（T047 三列插在「替补」与「操作」之间，末尾仍是「操作」）并补操作列用例；page-app.test.tsx
   角色页禁用数 6→11；两个 describe 标题（「七端岗位（桩模式渲染 #/roles）」「写入口个数（过渡）」）一字不动。
 - 执行端两个新测试文件：roles-hub-candidates.test.ts（hubFallbackCandidates 边界）与
   writes-hub-bind.test.tsx（入口与表单的组件测试）。
@@ -93,12 +93,12 @@ BASELINE_MOCK_JSON_COUNT = 14
 BASELINE_PAGE_COUNT = 9
 
 # 禁改文件的基线冻结（行尾归一 LF 后的字节数与 sha256；合同 forbidden_paths：依赖、roles-styles.css、
-# mock/**、hubChangeLines.ts 一个字节都不许动——桩的禁用数 11 与探针的期望值都依赖这些夹具）
+# mock/profiles.json、hubChangeLines.ts 一个字节都不许动——桩的禁用数 11 与探针的期望值都依赖这些夹具；
+# mock/hub-roles.ts 由 T047 放开字节冻结：桩的每行加了 turn、last_turn，改成结构钉住，见 _mock_stub_problems）
 BASELINE_DIGESTS = {
     f"{WEB_REL}/package.json": (820, "094d3622e54097e0f50f0ab2a71a5caa22491dba9d3ac6ef83047426f8c57f5a"),
     f"{WEB_REL}/package-lock.json": (108793, "1bc4e1fbfeb02a17280d0de1d98a5f3b2721fa91229c271c66d590d059d82d28"),
     ROLES_STYLES_REL: (4282, "a81ce331e93a3ef9b06f44c76ee3c72d75c0a52f965169437bf9e9f8bd338d06"),
-    MOCK_HUB_ROLES_REL: (2443, "fce65ff6c834d4cfe0b464e1928f16e7179104101c03dda96432df30234ebc63"),
     MOCK_PROFILES_REL: (359, "594431a2f72bd63755c5bef2af9af126b1679917b6be3a66e8e0064907197297"),
     HUBLINES_REL: (2866, "8828b71b4451e9c8e3338b7e92534e4094fc3bbc79e4e45d902d2e99dfb90ba3"),
 }
@@ -157,9 +157,11 @@ ASSUMPTIONS = (
     "不静态钉源码里的调用次序",
     "探针断言底部命令用「去掉 --dry-run/--json 后的 argv 空格连接」的子串（不钉 bash scripts/dispatch-pi.sh "
     "前缀：表单照 RuntimeForm 用 dispatchCommand 渲染，前缀在不在都算过）",
-    "禁改文件按字节冻结（行尾归一 LF）：依赖两份、roles-styles.css、mock/hub-roles.ts、mock/profiles.json、"
-    "hubChangeLines.ts——都在合同 forbidden_paths 里，桩的禁用数 11 与探针期望值依赖这些夹具",
-    "page-hub.test.tsx 的「补一条用例」与 page-app.test.tsx 的标题改动按记号断言（列头七列数组、按钮两个"
+    "禁改文件按字节冻结（行尾归一 LF）：依赖两份、roles-styles.css、mock/profiles.json、"
+    "hubChangeLines.ts——都在合同 forbidden_paths 里，桩的禁用数 11 与探针期望值依赖这些夹具；"
+    "mock/hub-roles.ts 由 T047 放开字节冻结：桩的每行加了 turn、last_turn，改成结构钉住"
+    "（六个岗位名与行序、十个绑定字段的值逐字不变，见 _mock_stub_problems）",
+    "page-hub.test.tsx 的「补一条用例」与 page-app.test.tsx 的标题改动按记号断言（列头十列数组、按钮两个"
     "字、planner 禁用、禁用数 11、两个 describe 标题逐字），用例数与写法不设上限；运行时行为由 page 探针"
     "独立钉住",
     "执行端测试文件的覆盖记号是最低要求（有这些记号才说明测到了合同点名的那几件事）；运行时行为由两份"
@@ -524,14 +526,14 @@ def test_s06_rolesview_props():
 
 
 def test_s07_package_tests_updated():
-    """S07 / D07：两处包内测试照新行为改——page-hub.test.tsx 列头七列（末尾「操作」）、it 标题跟着改、
-    补操作列用例（两个按钮的 textContent、planner 禁用、contract/exec 可点其余禁用）；
+    """S07 / D07：两处包内测试照新行为改——page-hub.test.tsx 列头十列（T047 三列插在「替补」与「操作」之间，末尾仍是「操作」）、
+    it 标题跟着改、补操作列用例（两个按钮的 textContent、planner 禁用、contract/exec 可点其余禁用）；
     page-app.test.tsx 角色页禁用数 6→11、it 标题跟着改；两个 describe 标题一字不动；
     读失败分支零按钮的既有断言照旧；都不许 skip/only/todo。"""
     problems = []
     hub_text = read_rel(need_file(PAGE_HUB_TEST_REL))
-    if "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '操作']" not in hub_text:
-        problems.append("page-hub.test.tsx 的列头断言应改成七列（末尾「操作」）")
+    if "['岗位', '运行时', '模型', '思考档位', '来源', '替补', '时限与工具', '预算', '最近一回合', '操作']" not in hub_text:
+        problems.append("page-hub.test.tsx 的列头断言应改成十列（T047 三列插在「替补」与「操作」之间，末尾仍是「操作」）")
     if "describe('七端岗位（桩模式渲染 #/roles）'" not in hub_text:
         problems.append("page-hub.test.tsx 的 describe 标题「七端岗位（桩模式渲染 #/roles）」一字不动")
     for token in (BUTTON_BIND, BUTTON_UNSET, "planner"):
@@ -577,10 +579,145 @@ def test_s08_executor_tests():
     fail_if(problems, "执行端两个新测试文件（S08）")
 
 
+# ---------------------------------------------------------------------------
+# T047 门禁准备：桩的每行加了 turn、last_turn，mock/hub-roles.ts 的字节冻结改成结构钉住
+# （六个岗位名与行序不变、十个绑定字段的值逐字不变、仍是普通 TS 字面量）。期望值对照
+# tests/test_gate_t038_baseline.py 的 SIX_ROWS_TS；只比字面量的值（去空白与尾逗号），
+# 不按当前文件重算字节再冻结。
+# ---------------------------------------------------------------------------
+BINDING_FIELDS = ("post", "source", "allowed_adapters", "adapter", "provider", "model",
+                  "thinking", "profile", "runtime", "fallback")
+
+
+def _WS(text):
+    """TS 字面量归一：去掉所有空白与尾逗号，只比值不后排版。"""
+    return re.sub(r",([}\]])", r"\1", re.sub(r"\s+", "", text))
+
+
+def _skip_string(text, i):
+    """从单引号处跳过一段字符串，返回结束后的下标。"""
+    j = i + 1
+    while j < len(text):
+        if text[j] == "\\":
+            j += 2
+            continue
+        if text[j] == "'":
+            return j + 1
+        j += 1
+    return j
+
+
+def _stub_rows(text, start=0):
+    """取对象数组里每个对象的原文：按 post: 'name' 的出现顺序，往前找最近的 '{'，
+    再按花括号配平取到对应的 '}'。"""
+    rows = []
+    for match in re.finditer(r"post:\s*'([a-z]+)'", text[start:]):
+        at = start + match.start()
+        open_at = text.rfind("{", start, at)
+        if open_at < 0:
+            continue
+        depth = 0
+        i = open_at
+        while i < len(text):
+            ch = text[i]
+            if ch == "'":
+                i = _skip_string(text, i)
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        rows.append((match.group(1), text[open_at:i + 1]))
+    return rows
+
+
+def _binding_value(row_text, field):
+    """取一行里某个顶层字段的原文值（只认该行的直接成员，嵌套里的同名键不算）；没有就 None。"""
+    body = row_text[1:-1] if row_text.startswith("{") else row_text
+    depth = 0
+    i = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if ch == "'":
+            i = _skip_string(body, i)
+            continue
+        if ch in "{[":
+            depth += 1
+            i += 1
+            continue
+        if ch in "}]":
+            depth -= 1
+            i += 1
+            continue
+        if depth == 0:
+            match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*:", body[i:])
+            if match:
+                if match.group(1) == field:
+                    j = i + match.end()
+                    k = j
+                    inner = 0
+                    while k < n:
+                        c2 = body[k]
+                        if c2 == "'":
+                            k = _skip_string(body, k)
+                            continue
+                        if c2 in "{[":
+                            inner += 1
+                        elif c2 in "}]":
+                            if inner == 0:
+                                break
+                            inner -= 1
+                        elif c2 == "," and inner == 0:
+                            break
+                        k += 1
+                    return body[j:k]
+                i += 1
+                continue
+        i += 1
+    return None
+
+
+def _six_rows_ts():
+    """tests/test_gate_t038_baseline.py 的 SIX_ROWS_TS 原文（桩的六行绑定字段的期望值）。"""
+    text = read_rel("tests/test_gate_t038_baseline.py")
+    match = re.search(r'SIX_ROWS_TS = """(.*?)"""', text, re.S)
+    assert match, "test_gate_t038_baseline.py 里应有 SIX_ROWS_TS"
+    return match.group(1)
+
+
+def _mock_stub_problems():
+    """桩的结构钉住：六个岗位名与行序不变、十个绑定字段的值逐字不变、仍是普通 TS 字面量。"""
+    problems = []
+    actual_text = read_rel(need_file(MOCK_HUB_ROLES_REL))
+    expected_rows = _stub_rows(_six_rows_ts(), 0)
+    start = actual_text.find("posts:")
+    if start < 0:
+        problems.append("桩里应有 posts: [ … ] 数组")
+        return problems
+    actual_rows = _stub_rows(actual_text, start)
+    if [name for name, _ in actual_rows] != [name for name, _ in expected_rows]:
+        problems.append("桩的六个岗位名与行序应照旧（coordinator、planner、contract、gate、audit、exec）")
+        return problems
+    for (name, row), (_, want_row) in zip(actual_rows, expected_rows):
+        for field in BINDING_FIELDS:
+            got = _binding_value(row, field)
+            want = _binding_value(want_row, field)
+            if got is None or want is None or _WS(got) != _WS(want):
+                problems.append(f"桩 {name} 行的 {field} 应逐字不变（期望 {_WS(want or '')}）")
+    if not re.search(r"export const HUB_ROLES_POSTS: HubRolesData = \{", actual_text):
+        problems.append("桩仍应是普通 TS 字面量：export const HUB_ROLES_POSTS: HubRolesData = { posts: [ … ] }")
+    return problems
+
+
 def test_s09_shared_surfaces():
     """S09 / D09、兼容性：共享面——src/mock 仍恰 14 份 JSON、src/pages 顶层仍 9 个 *Page.tsx；
-    依赖与禁改文件字节冻结（package.json/package-lock.json、roles-styles.css、mock/hub-roles.ts、
-    mock/profiles.json、hubChangeLines.ts——桩的禁用数 11 与探针期望值都依赖这些夹具）。"""
+    依赖与禁改文件字节冻结（package.json/package-lock.json、roles-styles.css、mock/profiles.json、
+    hubChangeLines.ts——桩的禁用数 11 与探针期望值都依赖这些夹具）；mock/hub-roles.ts 由 T047 放开字节
+    冻结，改成结构钉住：六个岗位名与行序不变、十个绑定字段的值逐字不变、仍是普通 TS 字面量。"""
     problems = []
     mock_jsons = sorted(p.name for p in (REPO_ROOT / SRC_REL / "mock").glob("*.json"))
     if len(mock_jsons) != BASELINE_MOCK_JSON_COUNT:
@@ -592,6 +729,7 @@ def test_s09_shared_surfaces():
         got = file_digest(REPO_ROOT / rel)
         if got != digest:
             problems.append(f"{rel} 应字节冻结（行尾归一 LF 后 {digest[0]} 字节），实际 {got}")
+    problems.extend(_mock_stub_problems())
     fail_if(problems, "共享面与禁改面（S09）")
 
 
@@ -1055,10 +1193,13 @@ afterEach(() => {
 });
 
 describe('桩模式：操作列与两个入口（D05、D11）', () => {
-  it('列头七列（末尾「操作」）；每行两个按钮的 textContent 恰是「改绑定…」「恢复缺省…」（按钮里不藏岗位名）', async () => {
+  it('列头前六列一字不改、第七至九列是 T047 的三列、末尾是「操作」；每行两个按钮的 textContent 恰是「改绑定…」「恢复缺省…」（按钮里不藏岗位名）', async () => {
     await mountApp('#/roles');
     const table = hubSec().querySelector('table[aria-label="七端岗位"]');
-    expect(qa(table, 'thead th').map(text)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补', '操作']);
+    const headers = qa(table, 'thead th').map(text);
+    expect(headers.slice(0, 6)).toEqual(['岗位', '运行时', '模型', '思考档位', '来源', '替补']);
+    expect(headers.slice(6, 9)).toEqual(['时限与工具', '预算', '最近一回合']);
+    expect(headers[headers.length - 1]).toBe('操作');
     for (const post of POSTS) {
       const row = hubRow(post);
       const buttons = qa(row, 'button');

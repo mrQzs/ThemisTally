@@ -202,3 +202,50 @@ describe("不许的绑定：内核整份校验拒掉，信封 ok=false、配置�
     expect(snapshotAgent(), "预览不写配置与审计").toEqual(before);
   });
 });
+
+describe("T047：每行的 turn 与最近一回合 last_turn（信箱里真有一回合）", () => {
+  it("coordinator 行的时限/工具/预算与最近一回合逐字段一致；其余五个岗位的 last_turn 是 null", async () => {
+    await open();
+    // 夹具仓库的信箱里放一条 coordinator（工人 womovie-c8）跑完的回合：生效档位是逗号连起来的多个
+    // （scripts/kit_hub.py:2683），quizs_fallback 是带本机路径的原因文字（scripts/kit_hub.py:2145）
+    const turnDir = join(repo, ".agent", "mailbox", "turns", "womovie-c8", "20261115T080000Z-demo");
+    mkdirSync(turnDir, { recursive: true });
+    writeFileSync(join(turnDir, "result.json"), JSON.stringify({
+      finished_at: "2026-11-15T08:00:00Z",
+      adapter: "quizs",
+      models: ["deepseek-flash"],
+      binding_profile: null,
+      effort_requested: "high",
+      effort_mapped: "high",
+      effort_effective: "high,medium",
+      quizs_fallback: "读不出资格证书 C:\\Users\\example\\.agent\\mailbox\\quizs\\live\\minimax\\qualification.json",
+    }), "utf8");
+    const shown = await getJson("/api/v1/hub/roles");
+    const direct = cli("config", "hub", "show", "--json");
+    expect(direct.status, direct.stderr).toBe(0);
+    // 读路由与 config hub show --json 逐字段一致（白名单对合法值不作改动）
+    expect(data(shown)).toEqual(JSON.parse(direct.stdout) as Record<string, unknown>);
+    const posts = data(shown)["posts"] as Record<string, unknown>[];
+    const coordinator = posts.find((row) => row["post"] === "coordinator");
+    const turn = coordinator?.["turn"] as Record<string, unknown>;
+    expect(Number(turn["timeout_seconds"]), "coordinator 的 turn.timeout_seconds").toBe(600);
+    expect(turn["tools"], "coordinator 的 turn.tools").toEqual(["read", "grep", "find", "ls"]);
+    const budgets = turn["budgets"] as Record<string, unknown>;
+    expect(Number(budgets["max_requests"]), "coordinator 的 turn.budgets.max_requests").toBe(32);
+    expect(Number(budgets["max_tool_calls"]), "coordinator 的 turn.budgets.max_tool_calls").toBe(48);
+    const lastTurn = coordinator?.["last_turn"] as Record<string, unknown>;
+    expect(lastTurn["at"], "last_turn.at").toBe("2026-11-15T08:00:00Z");
+    expect(lastTurn["adapter"], "last_turn.adapter").toBe("quizs");
+    expect(lastTurn["models"], "last_turn.models").toEqual(["deepseek-flash"]);
+    const thinking = lastTurn["thinking"] as Record<string, unknown>;
+    expect(thinking["mapped"], "last_turn.thinking.mapped").toBe("high");
+    expect(thinking["effective"], "逗号连起来的多个档位没被遮成 <redacted>").toBe("high,medium");
+    expect(lastTurn["fallback"], "带本机路径的原因文字没被遮").toBe(
+      "读不出资格证书 C:\\Users\\example\\.agent\\mailbox\\quizs\\live\\minimax\\qualification.json",
+    );
+    for (const post of ["planner", "contract", "gate", "audit", "exec"]) {
+      const row = posts.find((item) => item["post"] === post);
+      expect(row?.["last_turn"], `${post} 没有信箱 → last_turn 是 null`).toBe(null);
+    }
+  });
+});
