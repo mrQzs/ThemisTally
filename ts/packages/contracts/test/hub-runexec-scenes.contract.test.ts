@@ -540,7 +540,8 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
     return scrubResult({ ...state, files: { ...files, write }, result: value === null ? result : { ok: true, value: toTagged(value) } });
   }
 
-  it("一审前（题库读模板目录，端点答 401：无意见）与终审前（题库照记录注入，端点答两题：标出要留意的）；只发往假端点，带的是假 key", async () => {
+  it("一审前（题库读模板目录，端点答 401：无意见）与终审前（题库照记录注入，端点答两题：标出要留意的）；只发往假端点，带的是假 key。"
+    + "第 191 轮：JEV 记录末尾已有两次 auth_failed 时，这一串投过信的不再投、答 402 换了原因另起一串、没投过的照 11-06 起数", async () => {
     /** 收到的请求只记路径与 Authorization 对不对，收到的头不进任何输出。 */
     const requests: { path: string; authorized: boolean }[] = [];
     const replies: (() => [number, string])[] = [];
@@ -556,13 +557,26 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
     await new Promise<void>((ready) => server.listen(0, "127.0.0.1", () => ready()));
     const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
-      const jevScene = (): Scene => scene(BASE_FILES, (repo, _wt, head) => {
+      const jevScene = (extra: (repo: string) => void = () => undefined): Scene => scene(BASE_FILES, (repo, _wt, head) => {
         put(repo, ".agent/plans/t001-doc.v1.md", contractMd(head));
         put(repo, ".agent/plans/t001-doc.v1.json", JSON.stringify({ title: "改文档", scope: { allowed_modified_files: ["src/doc.py"] }, definition_of_done: ["D01"] }));
         put(repo, ".agent/mailbox/tasks/T001-1-plan/report.md", "规划：title() 交回 new。");
         put(repo, `${RUN}/scope.json`, JSON.stringify({ files: [{ path: "src/doc.py", status: "M" }, "x"] }));
         put(repo, `${RUN}/observations.json`, JSON.stringify({ review_hints: { assertion_lines_removed: 1 } }));
+        extra(repo);
       }, false);
+      const refused = (at: string): string => JSON.stringify({ at, status: "no_opinion", reason: "auth_failed", context: { task: "T000", stage: "3j-jev" } });
+      const earlier = (repo: string): void => put(repo, ".agent/mailbox/ledger/decisions.jsonl", lines(refused("2026-11-06T05:22:29Z"), refused("2026-11-07T05:00:00Z")));
+      const told11 = (repo: string): void => put(repo, ".agent/mailbox/ledger/jev-stuck.json", JSON.stringify({ at: "2026-11-06T05:22:30Z", reason: "auth_failed", since: "2026-11-06T05:22:29Z" }));
+      const toldEarlier = (repo: string): void => {
+        earlier(repo);
+        told11(repo);
+      };
+      /** 投过信的那一串之后有过一次有意见：再坏是新的一串。 */
+      const recovered = (repo: string): void => {
+        put(repo, ".agent/mailbox/ledger/decisions.jsonl", lines(refused("2026-11-06T05:22:29Z"), JSON.stringify({ at: "2026-11-07T05:00:00Z", status: "answered", reason: "" })));
+        told11(repo);
+      };
       const jevTs = (sc: Scene): PyDict => execTs(sc, {
         stages: { "2-contract": { fields: { 摘要: "合同摘要", 验证: "校验过了" } }, "5-exec": { fields: { 摘要: "执行摘要", 偏离: "无" } } },
         exec: { run_dir: previous(sc), check_exit: 0, scope_violations: 0 }, gate_post: { whitebox_exit: 0, mutation_counts: { caught: 2 } }, jev: {},
@@ -570,6 +584,7 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
       const previous = (sc: Scene): string => join(sc.repo, ...RUN.split("/"));
       const before = jevScene();
       const after = jevScene();
+      const [same, credits, counted, renewed] = [jevScene(toldEarlier), jevScene(toldEarlier), jevScene(earlier), jevScene(recovered)];
       const jev = { endpoint, key: FAKE_KEY };
       const none = { write: {}, delete: [] };
       const cases: [ProbeRequest, () => [number, string]][] = [
@@ -581,6 +596,10 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
           }),
           jev,
         }, () => [200, JSON.stringify({ answers: { scope_creep: { type: "noul", noul: 0.8 }, quality: { type: "score", score: 3.0 } }, usage: { input_tokens: 31, output_tokens: 5 }, model: DEFAULT_MODEL })]],
+        [{ ...flow("run_jev", same, [jevTs(same), "3j-jev"]), jev }, () => [401, "{}"]],
+        [{ ...flow("run_jev", credits, [jevTs(credits), "3j-jev"]), jev }, () => [402, "{}"]],
+        [{ ...flow("run_jev", counted, [jevTs(counted), "3j-jev"]), jev }, () => [403, "{}"]],
+        [{ ...flow("run_jev", renewed, [jevTs(renewed), "3j-jev"]), jev }, () => [401, "{}"]],
       ];
       const shown: unknown[][] = [];
       for (const impl of IMPLS) {
@@ -593,13 +612,28 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
         shown.push(row);
       }
       const [python, ...others] = shown;
-      for (const [index, other] of others.entries()) expect(JSON.stringify(other).slice(0, 6000), `${IMPLS[index + 1]?.name} 与 Python 不同`).toBe(JSON.stringify(python).slice(0, 6000));
+      // 第 191 轮：逐个场景整份比。原来整行只比前 6000 字，后面几个场景的差别看不见（JEV 告警的 5 条 TS 变异因此漏过）
+      for (const [index, other] of others.entries()) {
+        for (const [at, state] of other.entries()) {
+          expect(JSON.stringify(state), `${IMPLS[index + 1]?.name} 与 Python 在第 ${at + 1} 个场景不同`).toBe(JSON.stringify(python?.[at]));
+        }
+      }
       const states = (python as Record<string, unknown>[]).map((state) => ({ ...state, result: (state["result"] as Record<string, unknown>) }));
       injectedCleanly(states);
-      expect(requests.length, "每边两次请求").toBe(2 * IMPLS.length);
+      expect(requests.length, "每边六次请求").toBe(6 * IMPLS.length);
       expect(requests.map((item) => item.path), "只发往假端点的 System One 路径").toEqual(Array.from({ length: requests.length }, () => "POST /v1/systemone"));
       expect(requests.every((item) => item.authorized), "Authorization 与假 key 不符").toBe(true);
-      expect(states.map(errorOf), JSON.stringify(states.map((state) => state["result"])).slice(0, 3000)).toEqual([null, null]);
+      expect(states.map(errorOf), JSON.stringify(states.map((state) => state["result"])).slice(0, 3000)).toEqual([null, null, null, null, null, null]);
+      // 第 191 轮：给站主的信（信箱 new 下）与“这一串投过了”的记录
+      const owner = (state: Record<string, unknown>): string[] => Object.keys(written(state)).filter((key) => key.includes("/inbox/站主/new/")).sort().map((key) => text(state, key));
+      const told = states.map(owner);
+      expect(told.map((letters) => letters.length), "每个场景投给站主的信数").toEqual([1, 0, 0, 1, 1, 1]);
+      expect(told[0]?.[0]).toContain("连续 1 次无意见（auth_failed）：决策 API 拒绝了凭据（HTTP 401/403）");
+      expect(told[3]?.[0]).toContain("连续 1 次无意见（credits_exhausted）：决策 API 的额度用完了（HTTP 402）");
+      expect(told[3]?.[0]).toContain("充值");
+      expect(told[4]?.[0]).toContain("JEV 自 2026-11-06T05:22:29Z 起连续 3 次无意见（auth_failed）");
+      expect(told[5]?.[0]).toContain("连续 1 次无意见（auth_failed）");
+      expect(states.map((state) => Object.keys(written(state)).some((key) => key.endsWith("/ledger/jev-stuck.json"))), "记下投过的那一串").toEqual([true, false, false, true, true, true]);
       const after6 = fromTagged((states[1]?.["result"] as Record<string, unknown>)["value"] as Tagged) as PyDict;
       expect(String(after6.get("摘要"))).toContain("超出范围：");
       expect(String(after6.get("摘要"))).toContain("【需关注】");

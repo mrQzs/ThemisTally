@@ -31,7 +31,7 @@ const TESTS = [
   "test_parallel_comes_from_the_flag_or_runner_json", "test_passing_and_owner_close_release_the_dependents",
   "test_runner_exits_between_steps_once_the_kernel_changes", "test_runner_restarts_on_committed_kernel_changes",
   "test_serial_hub_requeues_interrupted_stages_when_it_starts", "test_serial_hub_stays_while_letters_are_held",
-  "test_serial_runner_refuses_while_task_runners_are_alive", "test_status_shows_the_parallel_runners",
+  "test_serial_runner_refuses_while_task_runners_are_alive", "test_status_names_a_stuck_jev", "test_status_shows_the_parallel_runners",
   "test_supervisor_counts_runners_left_by_its_previous_generation", "test_supervisor_keeps_going_after_a_bad_tick",
   "test_supervisor_picks_up_runner_json_changes_while_running", "test_supervisor_restart_keeps_where_parallel_came_from",
   "test_supervisor_runs_one_runner_per_task_up_to_the_limit", "test_supervisor_stays_while_a_runner_works_without_unread_letters",
@@ -127,7 +127,7 @@ describe("第 ⑤j1 片：pytest 的场景（样例只有 tests/test_kit_hub.py 
     expect(shortOf(tally(all.map((item) => item.fn)), {
       cmd_metrics: 1,
       cmd_send: 20,
-      cmd_status: 2, // 第 155 轮：status 的用例多一段（车道里有人时那一行）
+      cmd_status: 5, // 第 155 轮：status 的用例多一段（车道里有人时那一行）；第 191 轮：JEV 那一行的三次
       cmd_task_after: 10,
       cmd_task_budget: 10,
       cmd_task_cap: 4,

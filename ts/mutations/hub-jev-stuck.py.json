@@ -1,0 +1,84 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "jev_stuck or stuck_jev or refuses_the_key"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 有意见的一次不结束这一串",
+      "file": "scripts/kit_hub.py",
+      "old": "        if item.get(\"status\") == \"answered\":\n            break\n        if item.get(\"reason\") not in JEV_STUCK:",
+      "new": "        if item.get(\"status\") == \"answered-x\":\n            break\n        if item.get(\"reason\") not in JEV_STUCK:"
+    },
+    {
+      "name": "P02 超时、网络这类也算进这一串",
+      "file": "scripts/kit_hub.py",
+      "old": "        if item.get(\"reason\") not in JEV_STUCK:\n            continue",
+      "new": "        if False and item.get(\"reason\") not in JEV_STUCK:\n            continue"
+    },
+    {
+      "name": "P03 换了原因不另起一串",
+      "file": "scripts/kit_hub.py",
+      "old": "        elif item[\"reason\"] != run[\"reason\"]:\n            break",
+      "new": "        elif False and item[\"reason\"] != run[\"reason\"]:\n            break"
+    },
+    {
+      "name": "P04 第一次的时刻记成最近一次",
+      "file": "scripts/kit_hub.py",
+      "old": "        run[\"since\"] = item.get(\"at\")",
+      "new": "        run[\"since\"] = run[\"last\"]"
+    },
+    {
+      "name": "P05 不会自己好的原因漏了没有 key",
+      "file": "scripts/kit_hub.py",
+      "old": "JEV_STUCK = (\"auth_failed\", \"credits_exhausted\", \"no_key\")",
+      "new": "JEV_STUCK = (\"auth_failed\", \"credits_exhausted\")"
+    },
+    {
+      "name": "P06 同一串照样每次都投",
+      "file": "scripts/kit_hub.py",
+      "old": "    if told.get(\"reason\") == run[\"reason\"] and told.get(\"since\") == run[\"since\"]:\n        return",
+      "new": "    if False and told.get(\"reason\") == run[\"reason\"] and told.get(\"since\") == run[\"since\"]:\n        return"
+    },
+    {
+      "name": "P07 只按原因认一串（有意见之后再坏不再投）",
+      "file": "scripts/kit_hub.py",
+      "old": "    if told.get(\"reason\") == run[\"reason\"] and told.get(\"since\") == run[\"since\"]:",
+      "new": "    if told.get(\"reason\") == run[\"reason\"]:"
+    },
+    {
+      "name": "P08 投过的那一串记不下来",
+      "file": "scripts/kit_hub.py",
+      "old": "    write_text_atomic(path, json.dumps({\"reason\": run[\"reason\"], \"since\": run[\"since\"], \"at\": utc_now()},",
+      "new": "    write_text_atomic(path.with_name(\"jev-stuck-x.json\"), json.dumps({\"reason\": run[\"reason\"], \"since\": run[\"since\"], \"at\": utc_now()},"
+    },
+    {
+      "name": "P09 账本不记 jev.stuck",
+      "file": "scripts/kit_hub.py",
+      "old": "    hub.append_event(\"jev.stuck\", reason=run[\"reason\"], since=run[\"since\"], count=run[\"count\"])",
+      "new": "    hub.append_event(\"jev.stuck-x\", reason=run[\"reason\"], since=run[\"since\"], count=run[\"count\"])"
+    },
+    {
+      "name": "P10 run_jev 不查 JEV 是不是一直坏着",
+      "file": "scripts/kit_hub.py",
+      "old": "    report_jev_stuck(hub)\n    verdict = ",
+      "new": "    verdict = "
+    },
+    {
+      "name": "P11 status 不写 JEV 那一行",
+      "file": "scripts/kit_hub.py",
+      "old": "    if stuck is not None:  # 第 191 轮",
+      "new": "    if False and stuck is not None:  # 第 191 轮"
+    }
+  ]
+}

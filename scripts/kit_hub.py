@@ -4529,11 +4529,69 @@ def run_jev(hub: Hub, ts: Dict[str, Any], suffix: str) -> Dict[str, str]:
         suffix, battery["id"], battery["version"], result["status"], result.get("reason") or "",
         "\n".join("- " + line for line in lines) or "- （无意见）")
     write_text_atomic(hub.task_dir("%s-%s" % (ts["task"], suffix)) / "report.md", report_md)
+    report_jev_stuck(hub)
     verdict = "；".join(lines) if lines else "无意见（%s）" % (result.get("reason") or result["status"])
     return {"摘要": ("JEV（%s）：%s" % (battery["id"], verdict))[:600], "提交": "无",
             "验证": "决策 API %s，%s ms" % (result["status"], result.get("latency_ms")),
             "偏离": "无", "需协调人决定": "无（JEV 只是参考，门禁不读）",
             "证据": ".agent/mailbox/tasks/%s-%s/report.md" % (ts["task"], suffix)}
+
+
+#: 第 191 轮（候选 #68）：JEV 的无意见原因里不会自己好的几种，各自是什么情形、站主该做什么（%s 是凭据名）
+JEV_STUCK = ("auth_failed", "credits_exhausted", "no_key")
+JEV_STUCK_TEXT = {
+    "auth_failed": ("决策 API 拒绝了凭据（HTTP 401/403）",
+                    "请站主核对决策 API 的 key：失效了就在 TypeSafe 换一个新 key，用 bash scripts/dispatch-pi.sh config secret set %s 存；"
+                    "要先分清是 key 失效还是网络层被拒，可以跑一次 bash scripts/dispatch-pi.sh doctor --probe-decisions（联网、花钱）"),
+    "credits_exhausted": ("决策 API 的额度用完了（HTTP 402）",
+                          "请站主给决策 API 的账户充值，或者换一个有额度的 key（bash scripts/dispatch-pi.sh config secret set %s）"),
+    "no_key": ("环境变量与凭据库里都没有决策 API 的 key",
+               "请站主用 bash scripts/dispatch-pi.sh config secret set %s 存决策 API 的 key；不用 JEV 的话，登记主任务时加 --no-jev"),
+}
+
+
+def jev_stuck(hub: Hub) -> Optional[Dict[str, Any]]:
+    """hub 的 JEV 记录（ledger/decisions.jsonl）末尾连着的、不会自己好的无意见：原因、次数、第一次与最近一次的时刻；没有就是 None。
+    有意见的一次结束这一串，换了原因另起一串；别的无意见（超时、网络、状态太大……）跳过，不算也不断。"""
+    from codekit import decisions
+    run: Optional[Dict[str, Any]] = None
+    for item in reversed(decisions.read_records(hub.root / "ledger" / "decisions.jsonl")):
+        if item.get("status") == "answered":
+            break
+        if item.get("reason") not in JEV_STUCK:
+            continue
+        if run is None:
+            run = {"reason": item["reason"], "count": 0, "last": item.get("at")}
+        elif item["reason"] != run["reason"]:
+            break
+        run["count"] += 1
+        run["since"] = item.get("at")
+    return run
+
+
+def report_jev_stuck(hub: Hub) -> None:
+    """JEV 连着无意见、原因不会自己好时给站主投一封信（第 191 轮，候选 #68）。同一串只投一次：按原因与第一次的时刻认，记在
+    ledger/jev-stuck.json；有意见之后再坏、或者换了原因，另起一串再投。hub 的 JEV 从 11-06 起每次 auth_failed，到 11-18 连续
+    77 次没人发现：JEV 的信只进协调人信箱，还写着“JEV 只是参考，门禁不读”。"""
+    from codekit import decisions
+    run = jev_stuck(hub)
+    if run is None:
+        return
+    path = hub.root / "ledger" / "jev-stuck.json"
+    told = json.loads(read_text(path) or "{}")
+    if told.get("reason") == run["reason"] and told.get("since") == run["since"]:
+        return
+    write_text_atomic(path, json.dumps({"reason": run["reason"], "since": run["since"], "at": utc_now()},
+                                       ensure_ascii=False, sort_keys=True) + "\n")
+    hub.append_event("jev.stuck", reason=run["reason"], since=run["since"], count=run["count"])
+    what, advice = JEV_STUCK_TEXT[run["reason"]]
+    hub.deliver({"from": KERNEL, "to": OWNER, "task-id": "none", "in-reply-to": "none", "type": "阻塞"},
+                {"摘要": "JEV 自 %s 起连续 %d 次无意见（%s）：%s，一审、终审前的 JEV 判断都是空的" % (
+                    run["since"], run["count"], run["reason"], what),
+                 "提交": "无", "验证": "内核读 hub 的 JEV 记录：最近一次 %s" % run["last"], "偏离": "无",
+                 "需协调人决定": (advice % decisions.DEFAULT_API_KEY_ENV) + "。JEV 只是参考，门禁不读，主任务照常推进；"
+                                                                      "同一串只投这一封，有意见之后再坏会再投",
+                 "证据": ".agent/mailbox/ledger/decisions.jsonl"})
 
 
 def exec_marks(hub: Hub) -> Path:
@@ -7365,6 +7423,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         "、".join(executing) or "无"))
     queue = lane_queue(hub)
     print("重活车道：%s%s" % (heavy_holder(hub) or "空", "；排队 %d 份：%s" % (len(queue), "、".join(queue)) if queue else ""))
+    stuck = jev_stuck(hub)
+    if stuck is not None:  # 第 191 轮
+        print("JEV：自 %s 起连续 %d 次无意见（%s），最近一次 %s" % (stuck["since"], stuck["count"], stuck["reason"], stuck["last"]))
     return EXIT_OK
 
 

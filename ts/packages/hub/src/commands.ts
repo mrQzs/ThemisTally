@@ -34,7 +34,7 @@ import { DirLock, Hub, dirLockAlive } from "./mailbox.ts";
 import { budgetUsage } from "./prompt.ts";
 import { runnerLock } from "./requeue.ts";
 import { checkSpendCap, describeSpendCap, turnMetrics } from "./spend.ts";
-import { execMarks } from "./runexec.ts";
+import { execMarks, jevStuck } from "./runexec.ts";
 import { moveBase, newTaskState, stageBusy, stageStatusTable } from "./taskstate.ts";
 
 const BS = String.fromCharCode(92);
@@ -658,6 +658,11 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
     + `在跑的执行端：${executing.join("、") || "无"}`);
   const queue = laneQueue(hub, deps);
   out.print(`重活车道：${heavyHolder(hub, deps) || "空"}${queue.length ? `；排队 ${queue.length} 份：${queue.join("、")}` : ""}`);
+  const stuck = jevStuck(hub);
+  if (stuck !== null) { // 第 191 轮
+    out.print(`JEV：自 ${pyStrValue(stuck.get("since") as PyValue)} 起连续 ${stuck.get("count") as bigint} 次无意见（${stuck.get("reason") as string}），`
+      + `最近一次 ${pyStrValue(stuck.get("last") as PyValue)}`);
+  }
   return EXIT_OK;
 }
 

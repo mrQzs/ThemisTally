@@ -1,0 +1,58 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-runexec-scenes.contract.test.ts",
+    "-t",
+    "run_jev 的真会话",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T01 有意见的一次不结束这一串",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "    if (pyGet(item, \"status\") === \"answered\") break;",
+      "new": "    if (pyGet(item, \"status\") === \"answered-x\") break;"
+    },
+    {
+      "name": "T02 换了原因不另起一串",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "    else if (reason !== run.get(\"reason\")) break;",
+      "new": "    else if (false && reason !== run.get(\"reason\")) break;"
+    },
+    {
+      "name": "T03 第一次的时刻记成最近一次",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "    run.set(\"since\", pyGet(item, \"at\"));",
+      "new": "    run.set(\"since\", run.get(\"last\") as PyValue);"
+    },
+    {
+      "name": "T04 同一串照样每次都投",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "  if (pyGet(told, \"reason\") === reason && pyGet(told, \"since\") === since) return;",
+      "new": "  if (false && pyGet(told, \"reason\") === reason && pyGet(told, \"since\") === since) return;"
+    },
+    {
+      "name": "T05 只按原因认一串（有意见之后再坏不再投）",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "pyGet(told, \"reason\") === reason && pyGet(told, \"since\") === since) return;",
+      "new": "pyGet(told, \"reason\") === reason) return;"
+    },
+    {
+      "name": "T06 账本不记 jev.stuck",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "  await hub.appendEvent(\"jev.stuck\", [",
+      "new": "  await hub.appendEvent(\"jev.stuck-x\", ["
+    },
+    {
+      "name": "T07 runJev 不查 JEV 是不是一直坏着",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "  await reportJevStuck(hub);\n",
+      "new": ""
+    }
+  ]
+}

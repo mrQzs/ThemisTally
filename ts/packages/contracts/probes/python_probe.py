@@ -2711,6 +2711,7 @@ def op_hub_contract_flow(request):
     saved_env = {name: os.environ.get(name) for name in given_env}
     saved = {name: getattr(_flow_target(name), _flow_attr(name)) for name in replaced + ["utc_now", "utc_compact", "new_msg_id"]}
     saved_wait, saved_session, saved_time = kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session, time.time
+    saved_decisions_now = codekit_decisions.utc_now
     # ⑤h2：后台回归的三个时限各有各的键，同 hub_probe.ts；land_wait 照旧只管 EXEC_LAND_WAIT_SECONDS
     # 第 155 轮：重活车道排队与落地试锁的时限（手写场景里车道或落地锁由另一个进程拿着时设短）
     waits = {"land_lock_wait": "LAND_WAIT_SECONDS", "sweep_wait": "SWEEP_WAIT_SECONDS", "sweep_seconds": "SWEEP_SECONDS",
@@ -2738,6 +2739,9 @@ def op_hub_contract_flow(request):
         setattr(kit_hub, name, Path(item) if isinstance(saved_constants[name], Path) else item)
     if request.get("jev"):
         codekit_decisions.Session = _jev_session(request["jev"]["endpoint"], request["jev"]["key"])
+        # 第 191 轮：决策记录的时刻也跟钉住的时钟走（TS 的决策客户端用 base/clock 的 utcNow，钉住期间本来就是钉住的时刻）：
+        # 给站主的 JEV 信写第一次与最近一次的时刻
+        codekit_decisions.utc_now = kit_hub.utc_now
     for name in replaced:
         setattr(_flow_target(name), _flow_attr(name), _flow_install(name, saved[name], lambda inner, _fn: _flow_injector(inner, queue, roots)))
     # ⑤i1 手写场景：照剧本交回的内层函数（runner 另由 _flow_call 用），调用完还原
@@ -2792,6 +2796,7 @@ def op_hub_contract_flow(request):
         for name, item in saved.items():
             setattr(_flow_target(name), _flow_attr(name), item)
         kit_hub.EXEC_LAND_WAIT_SECONDS, codekit_decisions.Session, time.time = saved_wait, saved_session, saved_time
+        codekit_decisions.utc_now = saved_decisions_now
         for name, item in saved_constants.items():
             setattr(kit_hub, name, item)
         for name, item in saved_waits.items():

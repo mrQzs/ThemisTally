@@ -327,6 +327,19 @@ describe("第 ⑤j1 片：变异补的场景（手写，各条 it 的标题里�
     expect(stdoutOf(state).trimEnd().split(LF).at(-1)).toBe("重活车道：空；排队 2 份：T037 的落地检查、站主：第 160 轮契约");
   }, 600_000);
 
+  // 第 191 轮（候选 #68）：JEV 记录末尾连着不会自己好的无意见时，status 末尾加一行。怪记录照 Python：原因不是字符串的、超时这类跳过，
+  // 坏行跳过，最近一次没记时刻写 None；有意见的一次结束这一串（更早的 no_key 不算进来）
+  it("第 191 轮：status 末尾的 JEV 那一行：原因不是字符串的与超时跳过、没记时刻写 None、有意见的一次结束这一串", () => {
+    const record = (item: Record<string, unknown>): string => JSON.stringify({ status: "no_opinion", ...item });
+    const sc = stateScene(() => undefined, (repo) => put(repo, `${BOX}/ledger/decisions.jsonl`, [
+      record({ at: "2026-10-31T00:00:00Z", reason: "no_key" }), record({ at: "2026-11-01T00:00:00Z", status: "answered", reason: "" }),
+      record({ at: "2026-11-02T00:00:00Z", reason: "no_key" }), record({ at: "2026-11-03T00:00:00Z", reason: "timeout" }),
+      record({ at: "2026-11-04T00:00:00Z", reason: 401 }), "坏行", record({ reason: "no_key" }), "",
+    ].join(LF)));
+    const [state] = agreeFlow([flow("cmd_status", sc, [command(sc.repo, "status", { json: false })])]);
+    expect(stdoutOf(state).trimEnd().split(LF).at(-1)).toBe("JEV：自 2026-11-02T00:00:00Z 起连续 2 次无意见（no_key），最近一次 None");
+  }, 600_000);
+
   it("task_quiet：.runner 有人拿着、却不是 supervisor 时照样要拿总锁（J03）；暂停标记里的 pid 是命令自己的进程，别的进程问得到它活着（J11）", () => {
     const held: ChildProcess[] = [];
     const log = join(tempDir("spy"), "seen.jsonl");

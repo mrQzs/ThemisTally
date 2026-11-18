@@ -1289,6 +1289,119 @@ def test_execution_jev_gets_the_objective_fingerprint(tmp_path, monkeypatch):
     assert "【需关注】" in fields["摘要"]
 
 
+def write_jev_records(hub, *outcomes):
+    """第 191 轮：往 hub 的 JEV 记录（ledger/decisions.jsonl）追加几条，answered 或者无意见的原因；时刻按行号编（第 n 行是 11 月 n 日）。"""
+    path = hub.root / "ledger" / "decisions.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    start = len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+    with open(path, "a", encoding="utf-8", newline="\n") as handle:
+        for line, outcome in enumerate(outcomes, start=start + 1):
+            status, reason = ("answered", "") if outcome == "answered" else ("no_opinion", outcome)
+            handle.write(json.dumps({"at": "2026-11-%02dT05:00:00Z" % line, "status": status, "reason": reason,
+                                     "context": {"task": "T001", "stage": "3j-jev"}}) + "\n")
+
+
+def test_jev_stuck_counts_the_run_of_reasons_that_will_not_fix_themselves(tmp_path):
+    """第 191 轮（候选 #68）：从 hub 的 JEV 记录末尾往前数不会自己好的无意见（凭据被拒、额度用完、没有 key）。有意见的一次结束这一串，
+    换了原因另起一串，超时、网络、状态太大这类跳过（不算也不断），坏行跳过。"""
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    assert kh.jev_stuck(hub) is None
+    write_jev_records(hub, "answered", "timeout")
+    assert kh.jev_stuck(hub) is None
+    write_jev_records(hub, "auth_failed", "network", "auth_failed")
+    assert kh.jev_stuck(hub) == {"reason": "auth_failed", "count": 2, "since": "2026-11-03T05:00:00Z",
+                                 "last": "2026-11-05T05:00:00Z"}
+    with open(hub.root / "ledger" / "decisions.jsonl", "a", encoding="utf-8") as handle:
+        handle.write("不是 JSON\n")
+    write_jev_records(hub, "no_key")
+    assert kh.jev_stuck(hub) == {"reason": "no_key", "count": 1, "since": "2026-11-07T05:00:00Z",
+                                 "last": "2026-11-07T05:00:00Z"}
+    write_jev_records(hub, "credits_exhausted", "state_too_large", "credits_exhausted")
+    assert kh.jev_stuck(hub) == {"reason": "credits_exhausted", "count": 2, "since": "2026-11-08T05:00:00Z",
+                                 "last": "2026-11-10T05:00:00Z"}
+    write_jev_records(hub, "answered")
+    assert kh.jev_stuck(hub) is None
+
+
+def test_the_owner_is_told_once_per_run_of_a_stuck_jev(tmp_path):
+    """第 191 轮（候选 #68）：hub 的 JEV 从 11-06 起每次 auth_failed，到 11-18 连续 77 次没人发现。不会自己好的无意见给站主投一封信，
+    同一串只投一次；换了原因、有意见之后再坏，另起一串再投；信里按原因说站主该做什么。"""
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+
+    def told():
+        paths = hub.unread(kh.OWNER)
+        letters = [path.read_text(encoding="utf-8") for path in paths]
+        for path in paths:
+            hub.take(path)
+        return letters
+
+    kh.report_jev_stuck(hub)
+    write_jev_records(hub, "answered", "timeout")
+    kh.report_jev_stuck(hub)
+    assert told() == []
+    write_jev_records(hub, "auth_failed", "auth_failed")
+    kh.report_jev_stuck(hub)
+    [letter] = told()
+    assert "type: 阻塞" in letter
+    assert "JEV 自 2026-11-03T05:00:00Z 起连续 2 次无意见（auth_failed）：决策 API 拒绝了凭据（HTTP 401/403）" in letter
+    assert "最近一次 2026-11-04T05:00:00Z" in letter
+    assert "config secret set TYPESAFE_API_KEY" in letter and "doctor --probe-decisions" in letter
+    assert "同一串只投这一封" in letter
+    record = json.loads((hub.root / "ledger" / "jev-stuck.json").read_text(encoding="utf-8"))
+    assert (record["reason"], record["since"]) == ("auth_failed", "2026-11-03T05:00:00Z")
+    write_jev_records(hub, "auth_failed", "network")
+    kh.report_jev_stuck(hub)
+    assert told() == []
+    write_jev_records(hub, "credits_exhausted")
+    kh.report_jev_stuck(hub)
+    [letter] = told()
+    assert "JEV 自 2026-11-07T05:00:00Z 起连续 1 次无意见（credits_exhausted）" in letter and "充值" in letter
+    write_jev_records(hub, "answered", "credits_exhausted")
+    kh.report_jev_stuck(hub)
+    [letter] = told()
+    assert "JEV 自 2026-11-09T05:00:00Z 起连续 1 次无意见（credits_exhausted）" in letter
+    write_jev_records(hub, "no_key")
+    kh.report_jev_stuck(hub)
+    [letter] = told()
+    assert "环境变量与凭据库里都没有决策 API 的 key" in letter and "--no-jev" in letter
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [(e["reason"], e["since"], e["count"]) for e in events if e["event"] == "jev.stuck"] == [
+        ("auth_failed", "2026-11-03T05:00:00Z", 2), ("credits_exhausted", "2026-11-07T05:00:00Z", 1),
+        ("credits_exhausted", "2026-11-09T05:00:00Z", 1), ("no_key", "2026-11-10T05:00:00Z", 1)]
+
+
+def test_run_jev_tells_the_owner_when_the_decision_api_refuses_the_key(tmp_path, monkeypatch):
+    """第 191 轮：run_jev 用真会话、传输层答 401：JEV 记录里记一条 auth_failed，站主收到一封信；再跑一次是同一串，不再投。"""
+    from codekit import decisions
+    real = decisions.Session
+
+    def refused(body, headers, timeout, url):
+        raise decisions.DecisionError("auth_failed", "")
+    battery = {"id": "report-screen", "version": "1.0.0", "sha256": "0" * 64, "labels": {},
+               "questions": {"scope_creep": {"type": "noul", "criteria": {"true": "改了范围外的文件", "false": "没有"}}},
+               "thresholds": {}}
+    monkeypatch.setattr(decisions, "Session", lambda settings, path: real(
+        settings, path, transport=refused, environ={settings.api_key_env: "fake-key"}))
+    monkeypatch.setattr(decisions, "load_locked_batteries", lambda path: {"report-screen": battery})
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    run_dir = tmp_path / "attempt-001"
+    run_dir.mkdir()
+    ts = locked(make_ts())
+    ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
+    ts["gate_post"] = {"whitebox_exit": 0, "mutation_counts": {}}
+    fields = kh.run_jev(hub, ts, "6j-jev")
+    assert fields["摘要"] == "JEV（report-screen）：无意见（auth_failed）"
+    assert ts["jev"]["6j-jev"]["reason"] == "auth_failed"
+    [letter] = [path.read_text(encoding="utf-8") for path in hub.unread(kh.OWNER)]
+    assert "连续 1 次无意见（auth_failed）" in letter
+    kh.run_jev(hub, ts, "6j-jev")
+    assert len(hub.unread(kh.OWNER)) == 1
+    assert kh.jev_stuck(hub)["count"] == 2
+
+
 def test_guard_final_pass_needs_final_review():
     ts = locked(make_ts())
     assert "终审还没有通过" in kh.guard(ts, meta("通过", "exec-step", "T001-5-exec"))
@@ -5292,6 +5405,24 @@ def test_status_shows_the_parallel_runners(tmp_path, capsys):
     with kh.heavy_lane(hub, "基线检查", "T003"):  # 第 155 轮：车道里是谁
         kh.cmd_status(argparse.Namespace(repo=str(repo), json=False))
     assert "重活车道：T003 的基线检查" in capsys.readouterr().out
+
+
+def test_status_names_a_stuck_jev(tmp_path, capsys):
+    """第 191 轮（候选 #68）：JEV 连着无意见、原因不会自己好时，status 末尾加一行，说从哪天起、连续几次、最近一次；好的时候不写。"""
+    import argparse
+    repo, _head = git_repo(tmp_path)
+    hub = kh.Hub(repo)
+    hub.ensure()
+
+    def jev_lines():
+        kh.cmd_status(argparse.Namespace(repo=str(repo), json=False))
+        return [line for line in capsys.readouterr().out.splitlines() if line.startswith("JEV")]
+
+    assert jev_lines() == []
+    write_jev_records(hub, "answered", "auth_failed", "timeout", "auth_failed")
+    assert jev_lines() == ["JEV：自 2026-11-02T05:00:00Z 起连续 2 次无意见（auth_failed），最近一次 2026-11-04T05:00:00Z"]
+    write_jev_records(hub, "answered")
+    assert jev_lines() == []
 
 
 def test_status_says_no_hub_when_the_runner_lock_holder_is_gone(tmp_path, capsys, monkeypatch):

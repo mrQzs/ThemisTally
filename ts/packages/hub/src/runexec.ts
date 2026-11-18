@@ -18,15 +18,16 @@ import { purePathName, purePathParent, purePathStr, pyResolve } from "@themis/ba
 import { cmpCodePoints, codePoints, pyStrip } from "@themis/base/pyre";
 import { compilePy, fromPoints, toPoints } from "@themis/base/pyregex";
 import { pyWinErrorMessage } from "@themis/base/supervise";
-import { type Battery, batteryDict, loadBatteries, loadLockedBatteries, type Settings, settingsFromConfig } from "@themis/config/decisions";
+import { type Battery, DEFAULT_API_KEY_ENV, batteryDict, loadBatteries, loadLockedBatteries, type Settings, settingsFromConfig } from "@themis/config/decisions";
 import { Session } from "@themis/config/decisions-client";
 import { mdScopeLists, mdSection } from "@themis/dispatcher/contract";
 import { answerValue } from "@themis/dispatcher/decision-records";
 import { globPaths } from "@themis/dispatcher/instruction";
+import { readRecords } from "@themis/dispatcher/metrics";
 import { compilePatterns, matches } from "@themis/dispatcher/patterns";
 import { getState } from "@themis/dispatcher/status";
 import { type ContractDeps, REAL_DEPS, bumpContractVersion, setContractBase, syncExecutorLine } from "./accept.ts";
-import { EXIT_BLOCKED } from "./constants.ts";
+import { EXIT_BLOCKED, KERNEL, OWNER } from "./constants.ts";
 import { contractPaths, tail } from "./contract.ts";
 import { HubError } from "./errors.ts";
 import {
@@ -664,10 +665,63 @@ export async function runJev(hub: Hub, ts: PyDict, suffix: string, deps: ExecDep
     + `- 结果：${pyStrValue(pyItem(result, "status"))} ${pyStrValue(or(pyGet(result, "reason"), ""))}${LF}${LF}`
     + `${lines.map((line) => `- ${line}`).join(LF) || "- （无意见）"}${LF}`;
   writeTextAtomic(purePathStr(hub.taskDir(`${pyStrValue(pyItem(ts, "task"))}-${suffix}`), "report.md"), reportMd);
+  await reportJevStuck(hub);
   const verdict = lines.length ? lines.join("；") : `无意见（${pyStrValue(or(pyGet(result, "reason"), pyItem(result, "status")))}）`;
   return new Map<string, PyValue>([
     ["摘要", codePoints(`JEV（${pyStrValue(pyItem(battery, "id"))}）：${verdict}`).slice(0, 600).join("")], ["提交", "无"],
     ["验证", `决策 API ${pyStrValue(pyItem(result, "status"))}，${pyStrValue(pyGet(result, "latency_ms"))} ms`], ["偏离", "无"],
     ["需协调人决定", "无（JEV 只是参考，门禁不读）"], ["证据", `.agent/mailbox/tasks/${pyStrValue(pyItem(ts, "task"))}-${suffix}/report.md`],
   ]);
+}
+
+/** 第 191 轮（候选 #68）：JEV 的无意见原因里不会自己好的几种，各自是什么情形、站主该做什么（%s 是凭据名）。 */
+export const JEV_STUCK: readonly string[] = ["auth_failed", "credits_exhausted", "no_key"];
+const JEV_STUCK_TEXT: Readonly<Record<string, readonly [string, string]>> = {
+  auth_failed: ["决策 API 拒绝了凭据（HTTP 401/403）",
+    "请站主核对决策 API 的 key：失效了就在 TypeSafe 换一个新 key，用 bash scripts/dispatch-pi.sh config secret set %s 存；"
+    + "要先分清是 key 失效还是网络层被拒，可以跑一次 bash scripts/dispatch-pi.sh doctor --probe-decisions（联网、花钱）"],
+  credits_exhausted: ["决策 API 的额度用完了（HTTP 402）",
+    "请站主给决策 API 的账户充值，或者换一个有额度的 key（bash scripts/dispatch-pi.sh config secret set %s）"],
+  no_key: ["环境变量与凭据库里都没有决策 API 的 key",
+    "请站主用 bash scripts/dispatch-pi.sh config secret set %s 存决策 API 的 key；不用 JEV 的话，登记主任务时加 --no-jev"],
+};
+
+/**
+ * hub 的 JEV 记录（ledger/decisions.jsonl）末尾连着的、不会自己好的无意见：原因、次数、第一次与最近一次的时刻；没有就是 null。
+ * 有意见的一次结束这一串，换了原因另起一串；别的无意见（超时、网络、状态太大……）跳过，不算也不断。
+ */
+export function jevStuck(hub: Hub): PyDict | null {
+  let run: PyDict | null = null;
+  for (const item of readRecords(purePathStr(hub.root, "ledger", "decisions.jsonl")).reverse()) {
+    if (pyGet(item, "status") === "answered") break;
+    const reason = pyGet(item, "reason");
+    if (typeof reason !== "string" || !JEV_STUCK.includes(reason)) continue;
+    if (run === null) run = new Map<string, PyValue>([["reason", reason], ["count", 0n], ["last", pyGet(item, "at")]]);
+    else if (reason !== run.get("reason")) break;
+    run.set("count", (run.get("count") as bigint) + 1n);
+    run.set("since", pyGet(item, "at"));
+  }
+  return run;
+}
+
+/**
+ * JEV 连着无意见、原因不会自己好时给站主投一封信（第 191 轮，候选 #68）。同一串只投一次：按原因与第一次的时刻认，记在
+ * ledger/jev-stuck.json；有意见之后再坏、或者换了原因，另起一串再投。
+ */
+export async function reportJevStuck(hub: Hub): Promise<void> {
+  const run = jevStuck(hub);
+  if (run === null) return;
+  const path = purePathStr(hub.root, "ledger", "jev-stuck.json");
+  const told = loads(readText(path) || "{}");
+  const [reason, since, count, last] = [run.get("reason") as string, run.get("since") as PyValue, run.get("count") as bigint, run.get("last") as PyValue];
+  if (pyGet(told, "reason") === reason && pyGet(told, "since") === since) return;
+  writeTextAtomic(path, `${dumps(new Map<string, PyValue>([["reason", reason], ["since", since], ["at", utcNow()]]), { ensureAscii: false, sortKeys: true })}${LF}`);
+  await hub.appendEvent("jev.stuck", [["reason", reason], ["since", since], ["count", count]]);
+  const [what, advice] = JEV_STUCK_TEXT[reason] as readonly [string, string];
+  await hub.deliver(new Map([["from", KERNEL], ["to", OWNER], ["task-id", "none"], ["in-reply-to", "none"], ["type", "阻塞"]]), new Map<string, PyValue>([
+    ["摘要", `JEV 自 ${pyStrValue(since)} 起连续 ${count} 次无意见（${reason}）：${what}，一审、终审前的 JEV 判断都是空的`], ["提交", "无"],
+    ["验证", `内核读 hub 的 JEV 记录：最近一次 ${pyStrValue(last)}`], ["偏离", "无"],
+    ["需协调人决定", `${advice.replace("%s", DEFAULT_API_KEY_ENV)}。JEV 只是参考，门禁不读，主任务照常推进；同一串只投这一封，有意见之后再坏会再投`],
+    ["证据", ".agent/mailbox/ledger/decisions.jsonl"],
+  ]));
 }

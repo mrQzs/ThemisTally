@@ -3142,6 +3142,25 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 规划端返工（1-plan）之后的续作、撤回一次指名：用得上再加；指名只活到下一次派遣。
   - 只动了范围的重写自动续作：内核分不出重写改没改行为，由站主决定。
 
+### 第 191 轮：JEV 一直无意见、原因不会自己好时，内核给站主投信，status 加一行（候选 #68）
+
+- **起因**：
+  - hub 的 JEV（一审前 contract-screen、终审前 report-screen）从 11-06 起每次都是无意见（auth_failed，决策 API 回 401/403），到 11-18 连续 77 次没人发现。JEV 的信只进协调人信箱，还写着“JEV 只是参考，门禁不读”；status 与站主信箱都不提；plugins list 只看凭据在不在，照样 READY。
+  - 11-17 只比对过（不输出值）TS 与 Python 两边凭据库取到的 key：相同，不是移植读错凭据。要分清 key 失效还是网络层被拒，得发一次探测（联网、花钱），等站主定。
+- **改法**（Python 与 TS 同改）：
+  - jev_stuck：从 hub 的 JEV 记录（ledger/decisions.jsonl，run_jev 每次都记）末尾往前数不会自己好的无意见（auth_failed、credits_exhausted、no_key）。有意见的一次结束这一串，换了原因另起一串，超时、网络、状态太大这类跳过（不算也不断）；交回原因、次数、第一次与最近一次的时刻。记录是现算的，11-06 起的那一串也数得出来。
+  - report_jev_stuck：run_jev 每次写完 JEV 报告就查一次。有这样一串、而 ledger/jev-stuck.json 里记的不是这一串（按原因与第一次的时刻认）时，记下它、账本记 jev.stuck、给站主投一封“阻塞”信：从哪天起连续几次、是什么情形、站主该做什么（凭据被拒：核对 key，换新 key 用 config secret set 存，要分清 key 还是网络层可以跑一次 doctor --probe-decisions，联网、花钱；额度用完：充值或换 key；没有 key：存 key，或者登记主任务时加 --no-jev），并写明 JEV 只是参考、主任务照常推进、同一串只投这一封。
+  - status 末尾加一行“JEV：自 <时刻> 起连续 N 次无意见（原因），最近一次 <时刻>”，好的时候不写；--json 不变。
+- **测试**：
+  - test_kit_hub 新增四条：`test_jev_stuck_counts_the_run_of_reasons_that_will_not_fix_themselves`（没有记录、只有超时、跳过网络与坏行、换原因、有意见结束）；`test_the_owner_is_told_once_per_run_of_a_stuck_jev`（同一串只投一次，换原因、恢复之后再坏各投一封，三种原因各自的话，jev-stuck.json 与账本）；`test_run_jev_tells_the_owner_when_the_decision_api_refuses_the_key`（真会话、传输层答 401，再跑一次不再投）；`test_status_names_a_stuck_jev`。
+  - 三边契约：run_jev 那条进 hub-runexec 的采样重放（采样器把用例换上的会话连同它写下的 JEV 记录一起录下，重放照录注入，不真发请求），status 那条进 hub-commands。hub-runexec-scenes 的 JEV 真会话场景（本机假端点、假 key）从两种加到六种：这一串投过的不再投、答 402 换了原因、没投过的照 11-06 起数、恢复之后再坏。hub-commands-scenes 手写 status 的怪记录：原因不是字符串的与超时跳过、没记时刻写 None、有意见的一次结束这一串。JEV 场景的三边比较改成逐个场景整份比：原来整行只比前 6000 字，后面几个场景的差别看不见。Python 探针在 JEV 场景里让决策记录的时刻也跟钉住的时钟走（TS 的决策客户端本来就用钉住的时钟），信里的时刻三边才对得上。
+- **变异**：新写 hub-jev-stuck（py 11、ts 7、ts-cmd 4）：有意见不结束这一串、超时也算进来、换原因不另起、第一次的时刻记错、漏了 no_key、同一串照样投、只按原因认一串、投过的记不下来、账本不记、run_jev 不查、status 不写。22 条全部抓住；第一遍 TS 那份只抓住 2 条（就是上面说的 6000 字截断：新加的四个场景没比），改成逐个场景整份比之后复检 7/7。
+- **检查**：变异锚点 225 条无失效；类型检查 0 错；元测试 5 条；内核测试 433 passed；手写场景（hub-commands-scenes、hub-runexec-scenes）35 条，hub-commands、hub-runexec 的采样重放 4 条（Python、Node、Bun 三边一致）；复检：类型检查 0 错、hub-runexec-scenes 15 条、TS 变异 7/7。
+- **没做**：
+  - 401/403 也记回复正文的前 300 字（照 422 的遮蔽）：分清 key 还是网络层，doctor --probe-decisions 更直接，等站主批准那次探测。
+  - 恢复时再投一封“JEV 好了”：status 那一行消失就是信号，先不加。
+  - plugins list 的 READY 照旧只看凭据在不在：那是调度器的插件页，管不到 hub 的 JEV。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
