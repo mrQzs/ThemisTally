@@ -217,5 +217,22 @@ export function createLiveClient(options: LiveClientOptions = {}): LiveClient {
       const body = result.json === undefined ? envelopeOf<unknown>(result.status, result.json, result.retryAfter) : result.json;
       return { status: result.status, body: body as T };
     },
+
+    // 写原始 JSON（作业对象不是信封）：POST 形状照 post，状态码与正文原样交回，401 先 reauth，断线 reject。
+    async postRaw<T>(path: string, body: unknown, timeoutSeconds?: number): Promise<{ status: number; body: T }> {
+      const result = await request(
+        path,
+        undefined,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Themis-UI': '1' }, body: JSON.stringify(body) },
+        timeoutSeconds,
+      );
+      if ('missed' in result) throw result.missed;
+      if (result.status === 401) {
+        await runReauth();
+        return { status: 401, body: failure<unknown>(MSG_401) as unknown as T };
+      }
+      const raw = result.json === undefined ? envelopeOf<unknown>(result.status, result.json, result.retryAfter) : result.json;
+      return { status: result.status, body: raw as T };
+    },
   };
 }

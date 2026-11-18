@@ -14,6 +14,8 @@ export type LiveClient = {
   post<T>(path: string, body: unknown, timeoutSeconds?: number): Promise<{ status: number; body: Envelope<T> }>;
   // 读原始 JSON（操作终态）：不归成信封，正文原样交回。
   getRaw<T>(path: string, query?: Record<string, string | undefined>, timeoutSeconds?: number): Promise<{ status: number; body: T }>;
+  // 写原始 JSON（作业对象不是信封）：POST 形状照 post，状态码与正文原样交回，拿不到回应时 reject。
+  postRaw<T>(path: string, body: unknown, timeoutSeconds?: number): Promise<{ status: number; body: T }>;
 };
 
 let injected: LiveClient | null | undefined;

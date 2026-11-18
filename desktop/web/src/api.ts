@@ -41,6 +41,7 @@ import {
   mockUnsetHubRole,
   mockUsePreset,
 } from './mock/writes';
+import { mockCancelJob, mockGetJob, mockStartJob } from './mock/jobs';
 import { liveClient } from './live/mode';
 import { isEnvelope } from './live/transport';
 import { HISTORY_ENTRIES, type HistoryEntryData } from './mock/readonly2-history-entries';
@@ -147,6 +148,24 @@ export interface OperationView {
   started_ms: number | null;
   finished_ms: number | null;
   envelope: Envelope<null> | null;
+}
+
+// 作业类型（本片只接 runtime-scan 一类；服务还有五类，前端本片不接）。
+export type JobKind = 'runtime-scan';
+
+export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
+
+// 作业暴露给界面的八键投影（照 ts/packages/ui/src/jobs.ts 的 jobView，八键一个不能少；
+// envelope 不是合法七字段信封时取 null，作业被取消时服务给的就是 null）。
+export interface JobView {
+  id: string;
+  kind: JobKind;
+  state: JobState;
+  reason: string | null;
+  created_ms: number;
+  started_ms: number | null;
+  finished_ms: number | null;
+  envelope: Envelope<unknown> | null;
 }
 
 export type MetaData = typeof metaJson;
@@ -461,6 +480,23 @@ function toOperationView(body: unknown): OperationView | null {
   };
 }
 
+// 作业终态的八键投影：envelope 不是合法七字段信封就取 null；正文不是对象或缺 kind/state 时整个视图取 null。
+function toJobView(body: unknown): JobView | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const row = body as Record<string, unknown>;
+  if (typeof row.kind !== 'string' || typeof row.state !== 'string') return null;
+  return {
+    id: textOf(row.id),
+    kind: row.kind as JobKind,
+    state: row.state as JobState,
+    reason: textOf(row.reason) === '' ? null : textOf(row.reason),
+    created_ms: typeof row.created_ms === 'number' ? row.created_ms : 0,
+    started_ms: typeof row.started_ms === 'number' ? row.started_ms : null,
+    finished_ms: typeof row.finished_ms === 'number' ? row.finished_ms : null,
+    envelope: isEnvelope(row.envelope) ? (row.envelope as Envelope<unknown>) : null,
+  };
+}
+
 // profile.add / profile.edit 的执行正文：除路径参数 profile 以外的键，过同一份整理规则，再加确认号。
 function profileBody(
   args: { runtime?: string; model?: string; thinking?: string; credential_env?: string[] },
@@ -729,6 +765,51 @@ export function getOperation(id: string): Promise<HttpReply<OperationView>> {
       );
   }
   return mockGetOperation(id);
+}
+
+// 作业接口（本片三个）：创建 runtime-scan 作业、查作业终态、取消作业。作业对象不是信封（八键），
+// 不能归成信封：创建与取消走 postRaw（正文原样交回），查询走 getRaw。桩分支转 src/mock/jobs.ts。
+// 时限 15/15/30 秒是客户端等回应的时限（服务端内核命令时限另见 JOB_TIMEOUTS，取消要等服务端等子进程树结束故宽些）。
+export function startJob(kind: JobKind): Promise<HttpReply<JobView>> {
+  const client = liveClient();
+  if (client) {
+    return client
+      .postRaw<unknown>('/api/v1/jobs', { kind }, 15)
+      .then((reply) =>
+        reply.status === 201
+          ? { status: 201, body: okEnvelope<JobView>([], toJobView(reply.body)) }
+          : { status: reply.status, body: reply.body as Envelope<JobView> },
+      );
+  }
+  return mockStartJob(kind);
+}
+
+export function getJob(id: string): Promise<HttpReply<JobView>> {
+  const client = liveClient();
+  if (client) {
+    return client
+      .getRaw<unknown>(`/api/v1/jobs/${encodeURIComponent(id)}`, undefined, 15)
+      .then((reply) =>
+        reply.status === 200
+          ? { status: 200, body: okEnvelope<JobView>([], toJobView(reply.body)) }
+          : { status: reply.status, body: reply.body as Envelope<JobView> },
+      );
+  }
+  return mockGetJob(id);
+}
+
+export function cancelJob(id: string): Promise<HttpReply<JobView>> {
+  const client = liveClient();
+  if (client) {
+    return client
+      .postRaw<unknown>(`/api/v1/jobs/${encodeURIComponent(id)}/cancel`, {}, 30)
+      .then((reply) =>
+        reply.status === 200
+          ? { status: 200, body: okEnvelope<JobView>([], toJobView(reply.body)) }
+          : { status: reply.status, body: reply.body as Envelope<JobView> },
+      );
+  }
+  return mockCancelJob(id);
 }
 
 export function usePreset(name: string, confirmation: string): Promise<HttpReply<null>> {

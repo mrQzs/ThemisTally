@@ -107,7 +107,7 @@ describe('空态也显示 Quizs 一块：?mock=empty', () => {
     expect(frame().querySelector('.tt-page__error'), '空态没有页面级出错块').toBeNull();
     const buttons = headerButtons(frame());
     expect(buttons.map((b) => text(b))).toEqual(['扫描 PATH', '手动登记…', '刷新']);
-    expect((buttons[0] as HTMLButtonElement).disabled, '[扫描 PATH] 照旧禁用').toBe(true);
+    expect((buttons[0] as HTMLButtonElement).disabled, '[扫描 PATH] 照旧禁用').toBe(false);
     expect((buttons[1] as HTMLButtonElement).disabled, '空态下 [手动登记…] 可点').toBe(false);
   });
 

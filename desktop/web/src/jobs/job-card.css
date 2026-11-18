@@ -1,0 +1,94 @@
+/* 作业进度卡样式（T054）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色（照 hub-bind-form.css 的写法）。
+   进度条是不确定进度条：一条主色令牌的条用 CSS 动画左右扫，prefers-reduced-motion: reduce 时停住。 */
+.jc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-3);
+}
+
+.jc-title {
+  font: var(--tt-title-sm);
+  color: var(--tt-text-1);
+}
+
+.jc-running {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.jc-progress {
+  position: relative;
+  height: 4px;
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-surface-3);
+  overflow: hidden;
+}
+
+.jc-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: var(--tt-radius-full);
+  background: var(--tt-primary);
+  animation: jc-sweep 1.2s var(--tt-ease-standard) infinite;
+}
+
+@keyframes jc-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.jc-elapsed {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.jc-cancel {
+  align-self: flex-start;
+}
+
+.jc-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.jc-failed {
+  margin: 0;
+  font: var(--tt-text-md-medium);
+  color: var(--tt-tone-danger-fg);
+}
+
+.jc-error__text {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-tone-danger-fg);
+  white-space: pre-wrap;
+}
+
+.jc-cancelled {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.jc-timeout {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-tone-warning-fg);
+}
+
+.jc-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jc-progress::after {
+    animation: none;
+  }
+}

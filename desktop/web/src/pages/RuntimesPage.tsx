@@ -1,11 +1,9 @@
 // CLI 运行时页（合同第 2、6 条）：并行读 getRuntimes 与两个 Quizs 读函数；只有 runtimes 失败才整页失败，
 // 两个 Quizs 信封整个放进 data.quizs（Quizs 读失败只在区块里显示，页面其余照常）。空态「还没有登记的
-// runtime」；页头 [扫描 PATH] 仍禁用（服务没有 config runtime scan 写路由），[手动登记…] 由 src/writes 的
+// runtime」；页头 [扫描 PATH] 可点（走作业接口，由 src/writes 的 ScanRuntimesAction 接上），[手动登记…] 由 src/writes 的
 // AddRuntimeAction 接上。空态（一个 runtime 都没有）也摆 Quizs 一块：EmptyState 之后接 QuizsBlock，
 // 直接挂在页面下（视图根之外），间距靠 .tt-page 自己的 gap，不加任何样式。
 import { PageFrame } from '../shell/PageFrame';
-import { DisabledAction } from '../shell/DisabledAction';
-import { SearchIcon } from '../icons';
 import {
   getQuizsLive,
   getQuizsProviders,
@@ -19,6 +17,7 @@ import { EmptyState } from '../components';
 import { RuntimesView } from './readonly1/runtimes-RuntimesView';
 import { QuizsBlock } from './readonly1/runtimes-QuizsBlock';
 import { AddRuntimeAction } from '../writes/RuntimeForm';
+import { ScanRuntimesAction } from '../writes/RuntimeScan';
 
 // 并行读三条：runtimes 失败（!ok 或 data 为空）时整页返回那个信封；成功时两个 Quizs 信封整个放进 data.quizs，
 // 不参与整页失败判定。
@@ -57,7 +56,7 @@ export default function RuntimesPage() {
       isEmpty={isRuntimesEmpty}
       actions={(reload) => (
         <>
-          <DisabledAction label="扫描 PATH" icon={<SearchIcon width={16} height={16} />} />
+          <ScanRuntimesAction reload={reload} />
           <AddRuntimeAction reload={reload} />
         </>
       )}

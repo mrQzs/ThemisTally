@@ -456,7 +456,7 @@ def test_s03_runtimes_page_parallel():
             if not re.search(rf"\b{name}\b", m.group(0)):
                 problems.append(f"api 引入里应有 {name}")
     # 页头与 children 不动
-    for needle in ('title="CLI 运行时"', '<DisabledAction label="扫描 PATH"', "AddRuntimeAction",
+    for needle in ('title="CLI 运行时"', 'ScanRuntimesAction', "AddRuntimeAction",
                    "还没有登记的 runtime"):
         if needle not in text:
             problems.append(f"页头/空态的既有内容应保留（看不到 {needle}）")

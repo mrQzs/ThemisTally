@@ -557,10 +557,10 @@ def test_s07_package_tests_updated():
         problems.append("page-app.test.tsx 的角色页禁用数断言应在位")
     elif roles_line.group(1) != str(ROLES_PAGE_DISABLED):
         problems.append(f"page-app.test.tsx 的角色页禁用数应是 {ROLES_PAGE_DISABLED}（桩下 2+1+4）")
-    if not re.search(r"it\('角色页 \d+（[^']*）?、运行时页 5、总览 0'", app_text) and "'角色页 11'" not in app_text:
+    if not re.search(r"it\('角色页 \d+（[^']*）?、运行时页 4、总览 0'", app_text) and "'角色页 11'" not in app_text:
         if "'角色页 11'" not in app_text:
             problems.append("page-app.test.tsx 的 it 标题应跟着改成 11（照新行为改标题）")
-    for token, pat in (("运行时页 5", r"toBe\(5\)"), ("总览 0", r"toBe\(0\)")):
+    for token, pat in (("运行时页 4", r"toBe\(4\)"), ("总览 0", r"toBe\(0\)")):
         if not re.search(pat, app_text):
             problems.append(f"page-app.test.tsx 的 {token} 断言应照旧")
     problems.extend("page-app.test.tsx: " + p for p in _no_skip_marks(app_text))

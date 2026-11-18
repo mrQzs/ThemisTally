@@ -317,13 +317,13 @@ def test_s04_runtimeform_export_and_no_force():
 
 
 def test_s05_runtimes_page_entry():
-    """S05 / D01、D07：RuntimesPage 只放按钮——AddRuntimeAction 接在页头（[扫描 PATH] 仍是 DisabledAction）；
+    """S05 / D01、D07：RuntimesPage 只放按钮——AddRuntimeAction 接在页头（[扫描 PATH] 由 ScanRuntimesAction 接上）；
     空态说明改成合同第八步的原文；确认框标题、轻提示、内核原文与字段提示一个都不出现在入口文件
     （T013 D02 的「登记 runtime」也不许出现）。"""
     need_file(RUNTIMESPAGE_REL)
     text = read_rel(RUNTIMESPAGE_REL)
     assert "AddRuntimeAction" in text, "页头 [手动登记…] 应由 src/writes 的 AddRuntimeAction 渲染（页面只放按钮）"
-    assert '<DisabledAction label="扫描 PATH"' in text, "[扫描 PATH] 应照旧是 DisabledAction（次序不变）"
+    assert 'ScanRuntimesAction' in text, "[扫描 PATH] 应由 src/writes 的 ScanRuntimesAction 渲染（次序不变）"
     assert EMPTY_DESC in text, f"空态说明应改成合同第八步的原文「{EMPTY_DESC}」"
     assert "还没有登记的 runtime" in text, "空态标题「还没有登记的 runtime」不动"
     problems = [f"RuntimesPage.tsx 出现「{frag}」（文字表与字段提示只能写在 src/writes/）"
@@ -589,12 +589,12 @@ function noForceControls(root: ParentNode): void {
 }
 
 describe('T041 运行时页 [手动登记…] 与表单', () => {
-  it('页头：次序 [扫描 PATH]、[手动登记…]（可点、PlusIcon、primary）、[刷新]；[扫描 PATH] 仍禁用；点开标题「登记运行时」的表单', async () => {
+  it('页头：次序 [扫描 PATH]、[手动登记…]（可点、PlusIcon、primary）、[刷新]；[扫描 PATH] 可点；点开标题「登记运行时」的表单', async () => {
     vi.useFakeTimers();
     await mountApp('#/runtimes');
     const bs = headerButtons();
     expect(bs.map(textOf)).toEqual(['扫描 PATH', '手动登记…', '刷新']);
-    expect(bs[0].disabled, '[扫描 PATH] 仍禁用（本片不做扫描）').toBe(true);
+    expect(bs[0].disabled, '[扫描 PATH] 仍禁用（本片不做扫描）').toBe(false);
     expect(bs[1].disabled, '[手动登记…] 应可点（R1 放宽后的新行为）').toBe(false);
     expect(bs[1].querySelector('svg'), '[手动登记…] 带 PlusIcon').not.toBeNull();
     expect(bs[1].getAttribute('data-variant')).toBe('primary');

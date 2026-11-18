@@ -267,8 +267,8 @@ def test_s02_runtimes_page_empty_branch():
     if "from './readonly1/runtimes-QuizsBlock'" not in code and 'from "./readonly1/runtimes-QuizsBlock"' not in code:
         problems.append("QuizsBlock 应从 './readonly1/runtimes-QuizsBlock' 引入")
     # 页头两钮仍在（空态下 [手动登记…] 照样能用）
-    if '<DisabledAction label="扫描 PATH"' not in code:
-        problems.append("[扫描 PATH] 应照旧是 DisabledAction")
+    if 'ScanRuntimesAction' not in code:
+        problems.append("[扫描 PATH] 应由 src/writes 的 ScanRuntimesAction 渲染")
     if "<AddRuntimeAction reload={reload}" not in code:
         problems.append("页头 [手动登记…]（AddRuntimeAction reload={reload}）应保留")
     # 禁字表（t041）与「登记 runtime」
@@ -469,7 +469,7 @@ describe('T049 空态也摆 Quizs 一块：?mock=empty', () => {
     const f = needFrame();
     const buttons = headerButtons(f);
     expect(buttons.map(textOf)).toEqual(['扫描 PATH', '手动登记…', '刷新']);
-    expect((buttons[0] as HTMLButtonElement).disabled, '[扫描 PATH] 照旧禁用').toBe(true);
+    expect((buttons[0] as HTMLButtonElement).disabled, '[扫描 PATH] 照旧禁用').toBe(false);
     expect((buttons[1] as HTMLButtonElement).disabled, '空态下 [手动登记…] 可点').toBe(false);
     expect(buttons[1].getAttribute('data-variant')).toBe('primary');
   });
@@ -583,7 +583,7 @@ describe('T049 有 runtime 时页面照旧', () => {
     expect((sec as Element).closest('[data-page="runtimes"]'), '有 runtime 时 Quizs 一块在视图根内').toBe(root);
     const buttons = headerButtons(f);
     expect(buttons.map(textOf)).toEqual(['扫描 PATH', '手动登记…', '刷新']);
-    expect((buttons[0] as HTMLButtonElement).disabled, '[扫描 PATH] 照旧禁用').toBe(true);
+    expect((buttons[0] as HTMLButtonElement).disabled, '[扫描 PATH] 照旧禁用').toBe(false);
   });
 });
 
