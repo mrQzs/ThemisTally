@@ -42,17 +42,17 @@ function modeOptionsOf(modes: readonly SelectOption[], candidates: readonly stri
     .map((m) => ({ value: m.value, label: m.label }));
 }
 
-function RoleBindDialog({
-  open,
+// 表单本体：外层只在打开时挂载它（{open && <RoleBindFormDialog … />}），所以预填、两个字段的取值与底部
+// 实时预览每次打开都按当时的 props 重算，关掉时未保存的取值连同预览结果一起丢掉。
+function RoleBindFormDialog({
   onClose,
+  onConfirm,
   role,
   roleLabel,
   modes,
   candidates,
   binding,
-  reload,
-}: RoleBindFormProps & { open: boolean; onClose: () => void }) {
-  const { start, flow } = useWriteFlow(reload);
+}: RoleBindFormProps & { onClose: () => void; onConfirm: (spec: WriteSpec) => void }) {
   const options = modeOptionsOf(modes, candidates);
 
   // 预填（内核 role set 整条替换绑定，不预填会悄悄丢掉 host 与 cadence_seconds）：模式——现有模式在可选列表里
@@ -64,8 +64,8 @@ function RoleBindDialog({
   const [profile, setProfile] = useState(initialProfile);
 
   const headless = mode === 'headless';
-  // 只有表单开着且取值合法才在 300ms 防抖后调 preview（关着的表单不预览，页面上同时只有一个开着的表单）。
-  const canPreview = open && mode !== '' && (!headless || profile !== '');
+  // 内层只在表单开着时挂载：取值合法才在 300ms 防抖后调 preview（页面上同时只有一个开着的表单）。
+  const canPreview = mode !== '' && (!headless || profile !== '');
   const buildArgs = (): WriteArgs => {
     const args: WriteArgs = { role, target: headless ? profile : mode };
     // host 只回传给交互式宿主（内核对模式词配 --host 直接报错），且现有绑定也是交互式宿主、host 非空才带。
@@ -81,10 +81,10 @@ function RoleBindDialog({
   const { result, current } = useLivePreview('role.set', buildArgs(), canPreview);
   const confirmEnabled = canPreview && current && result !== null && result.ok;
 
-  const onConfirm = () => {
+  const onConfirmClick = () => {
     const spec: WriteSpec = { action: 'role.set', args: buildArgs() };
     onClose();
-    start(spec);
+    onConfirm(spec);
   };
 
   const renderBottom = (): ReactNode => {
@@ -113,37 +113,65 @@ function RoleBindDialog({
   };
 
   return (
-    <>
-      <Dialog
-        open={open}
-        onClose={onClose}
-        title={`改绑定：${roleLabel}`}
-        footer={
-          <>
-            <Button variant="secondary" onClick={onClose}>取消</Button>
-            <Button variant="primary" disabled={!confirmEnabled} onClick={onConfirm}>确认…</Button>
-          </>
-        }
-      >
-        <div className="hb-form">
+    <Dialog
+      open
+      onClose={onClose}
+      title={`改绑定：${roleLabel}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!confirmEnabled} onClick={onConfirmClick}>确认…</Button>
+        </>
+      }
+    >
+      <div className="hb-form">
+        <Select
+          label="模式"
+          value={mode}
+          onChange={(e) => setMode(e.target.value)}
+          options={options}
+          help={candidates.length === 0 ? REASON_NO_PROFILES : undefined}
+        />
+        {headless && (
           <Select
-            label="模式"
-            value={mode}
-            onChange={(e) => setMode(e.target.value)}
-            options={options}
-            help={candidates.length === 0 ? REASON_NO_PROFILES : undefined}
+            label="profile"
+            value={profile}
+            onChange={(e) => setProfile(e.target.value)}
+            options={candidates.map((id) => ({ value: id, label: id }))}
           />
-          {headless && (
-            <Select
-              label="profile"
-              value={profile}
-              onChange={(e) => setProfile(e.target.value)}
-              options={candidates.map((id) => ({ value: id, label: id }))}
-            />
-          )}
-          <div className="hb-bottom">{renderBottom()}</div>
-        </div>
-      </Dialog>
+        )}
+        <div className="hb-bottom">{renderBottom()}</div>
+      </div>
+    </Dialog>
+  );
+}
+
+// 外层：写流程留在这里，表单关掉也照常渲染确认框、执行、重读与终态；表单本体只在打开时挂载。
+function RoleBindDialog({
+  open,
+  onClose,
+  role,
+  roleLabel,
+  modes,
+  candidates,
+  binding,
+  reload,
+}: RoleBindFormProps & { open: boolean; onClose: () => void }) {
+  const { start, flow } = useWriteFlow(reload);
+
+  return (
+    <>
+      {open && (
+        <RoleBindFormDialog
+          role={role}
+          roleLabel={roleLabel}
+          modes={modes}
+          candidates={candidates}
+          binding={binding}
+          onClose={onClose}
+          onConfirm={start}
+        />
+      )}
       <WriteFlow flow={flow} />
     </>
   );

@@ -31,9 +31,11 @@ interface HubBindFormProps {
   reload?: () => Promise<void>;
 }
 
-function HubBindDialog({
-  open,
+// 表单本体：外层只在打开时挂载它（{open && <HubBindFormDialog … />}），所以预填、两个字段的取值与底部
+// 实时预览每次打开都按当时的 props 重算，关掉时未保存的取值连同预览结果一起丢掉。
+function HubBindFormDialog({
   onClose,
+  onConfirm,
   post,
   postLabel,
   mainCandidates,
@@ -41,10 +43,7 @@ function HubBindDialog({
   source,
   mainProfile,
   fallbackProfile,
-  reload,
-}: HubBindFormProps & { open: boolean; onClose: () => void }) {
-  const { start, flow } = useWriteFlow(reload);
-
+}: HubBindFormProps & { onClose: () => void; onConfirm: (spec: WriteSpec) => void }) {
   // 预填（内核 hub set 整条替换绑定，不预填会悄悄清掉原来的替补）：主选——配置行且现有主绑定在候选里 → 预填它，
   // 否则第一个候选；替补——配置行且现有替补在该主选下的替补候选里 → 预填它，否则空。
   const initialMain =
@@ -61,8 +60,8 @@ function HubBindDialog({
   const fbCandidates = fallbackCandidatesFor(main);
   const fbEnabled = fbCandidates.length > 0;
 
-  // 只有表单开着且主选非空才在 300ms 防抖后调 preview（关着的表单不预览，页面上同时只有一个开着的表单）。
-  const canPreview = open && main !== '';
+  // 内层只在表单开着时挂载：主选非空才在 300ms 防抖后调 preview（页面上同时只有一个开着的表单）。
+  const canPreview = main !== '';
   const buildArgs = (): WriteArgs => {
     const args: WriteArgs = { post, profile: main };
     if (fallback !== '') args.fallback = fallback;
@@ -77,10 +76,10 @@ function HubBindDialog({
     if (!fallbackCandidatesFor(value).includes(fallback)) setFallback('');
   };
 
-  const onConfirm = () => {
+  const onConfirmClick = () => {
     const spec: WriteSpec = { action: 'hub.set', args: buildArgs() };
     onClose();
-    start(spec);
+    onConfirm(spec);
   };
 
   const renderBottom = (): ReactNode => {
@@ -117,30 +116,62 @@ function HubBindDialog({
   const fbOptions = [{ value: '', label: '不设替补' }, ...fbCandidates.map((id) => ({ value: id, label: id }))];
 
   return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`改绑定：${postLabel}`}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>取消</Button>
+          <Button variant="primary" disabled={!confirmEnabled} onClick={onConfirmClick}>确认…</Button>
+        </>
+      }
+    >
+      <div className="hb-form">
+        <Select label="主绑定" value={main} onChange={(e) => onMainChange(e.target.value)} options={mainOptions} />
+        <Select
+          label="替补"
+          value={fallback}
+          onChange={(e) => setFallback(e.target.value)}
+          options={fbOptions}
+          disabled={!fbEnabled}
+        />
+        <div className="hb-bottom">{renderBottom()}</div>
+      </div>
+    </Dialog>
+  );
+}
+
+// 外层：写流程留在这里，表单关掉也照常渲染确认框、执行、重读与终态；表单本体只在打开时挂载。
+function HubBindDialog({
+  open,
+  onClose,
+  post,
+  postLabel,
+  mainCandidates,
+  fallbackCandidatesFor,
+  source,
+  mainProfile,
+  fallbackProfile,
+  reload,
+}: HubBindFormProps & { open: boolean; onClose: () => void }) {
+  const { start, flow } = useWriteFlow(reload);
+
+  return (
     <>
-      <Dialog
-        open={open}
-        onClose={onClose}
-        title={`改绑定：${postLabel}`}
-        footer={
-          <>
-            <Button variant="secondary" onClick={onClose}>取消</Button>
-            <Button variant="primary" disabled={!confirmEnabled} onClick={onConfirm}>确认…</Button>
-          </>
-        }
-      >
-        <div className="hb-form">
-          <Select label="主绑定" value={main} onChange={(e) => onMainChange(e.target.value)} options={mainOptions} />
-          <Select
-            label="替补"
-            value={fallback}
-            onChange={(e) => setFallback(e.target.value)}
-            options={fbOptions}
-            disabled={!fbEnabled}
-          />
-          <div className="hb-bottom">{renderBottom()}</div>
-        </div>
-      </Dialog>
+      {open && (
+        <HubBindFormDialog
+          post={post}
+          postLabel={postLabel}
+          mainCandidates={mainCandidates}
+          fallbackCandidatesFor={fallbackCandidatesFor}
+          source={source}
+          mainProfile={mainProfile}
+          fallbackProfile={fallbackProfile}
+          onClose={onClose}
+          onConfirm={start}
+        />
+      )}
       <WriteFlow flow={flow} />
     </>
   );
