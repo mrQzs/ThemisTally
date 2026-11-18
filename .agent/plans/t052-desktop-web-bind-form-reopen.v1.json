@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "task_id": "t052-desktop-web-bind-form-reopen",
+  "plan_version": 1,
+  "title": "改绑定的两个表单每次打开都按当时的绑定预填",
+  "repository": "ThemisTally",
+  "base_sha": "f7c06d495764509ad569c8729f9470ec9d44266b",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/writes/HubBindForm.tsx",
+      "desktop/web/src/writes/RoleBindForm.tsx"
+    ],
+    "allowed_new_files": [
+      "desktop/web/tests/writes-bind-reopen.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t052_*.py",
+      "tests/test_gate_t001_baseline.py",
+      "tests/test_gate_t002_baseline.py",
+      "tests/test_gate_t003_baseline.py",
+      "tests/test_gate_t004_baseline.py",
+      "tests/test_gate_t005_baseline.py",
+      "tests/test_gate_t006_baseline.py",
+      "tests/test_gate_t007_baseline.py",
+      "tests/test_gate_t008_baseline.py",
+      "tests/test_gate_t009_baseline.py",
+      "tests/test_gate_t010_baseline.py",
+      "tests/test_gate_t011_baseline.py",
+      "tests/test_gate_t012_baseline.py",
+      "tests/test_gate_t013_baseline.py",
+      "tests/test_gate_t014_baseline.py",
+      "tests/test_gate_t015_baseline.py",
+      "tests/test_gate_t016_baseline.py",
+      "tests/test_gate_t017_baseline.py",
+      "tests/test_gate_t018_baseline.py",
+      "tests/test_gate_t019_baseline.py",
+      "tests/test_gate_t020_baseline.py",
+      "tests/test_gate_t021_baseline.py",
+      "tests/test_gate_t022_baseline.py",
+      "tests/test_gate_t023_baseline.py",
+      "tests/test_gate_t024_baseline.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t027_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "tests/test_gate_t031_baseline.py",
+      "tests/test_gate_t032_baseline.py",
+      "tests/test_gate_t033_baseline.py",
+      "tests/test_gate_t034_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t036_baseline.py",
+      "tests/test_gate_t037_baseline.py",
+      "tests/test_gate_t038_baseline.py",
+      "tests/test_gate_t039_baseline.py",
+      "tests/test_gate_t040_baseline.py",
+      "tests/test_gate_t041_baseline.py",
+      "tests/test_gate_t042_baseline.py",
+      "tests/test_gate_t043_baseline.py",
+      "tests/test_gate_t044_baseline.py",
+      "tests/test_gate_t045_baseline.py",
+      "tests/test_gate_t046_baseline.py",
+      "tests/test_gate_t047_baseline.py",
+      "tests/test_gate_t048_baseline.py",
+      "tests/test_gate_t049_baseline.py",
+      "tests/test_gate_t050_baseline.py",
+      "tests/test_gate_t051_baseline.py",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/web/src/pages/readonly1/roles-styles.css",
+      "desktop/web/src/mock/profiles.json",
+      "desktop/web/src/mock/quizs.ts",
+      "desktop/web/src/mock/hub-roles.ts",
+      "desktop/web/src/pages/readonly1/runtimes-quizs-logic.ts",
+      "desktop/web/src/writes/hubChangeLines.ts",
+      "desktop/web/src/writes/hub-bind-form.css",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/writeOutcome.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/src/writes/RuntimeForm.tsx",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-HubPosts.tsx",
+      "desktop/web/src/pages/readonly1/roles-RoleCard.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/tests/writes-hub-bind.test.tsx",
+      "desktop/web/tests/writes-role-bind.test.tsx",
+      "desktop/web/tests/roles-hub-logic.test.ts",
+      "desktop/web/tests/roles-hub-turns.test.ts",
+      "desktop/web/tests/live-api.test.ts",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/packages/ui/src/readroutes.ts",
+      "ts/packages/ui/src/writeroutes.ts",
+      "scripts/**",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t052_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "test",
+        "--",
+        "tests/writes-bind-reopen.test.tsx"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "No test files found"
+      ]
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3000,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "两个表单每次打开都按**当时**的 props 重新预填，三条情形都对（改字段取消后再开回到现有绑定；外部改了绑定、重读后 props 变了再开按新绑定预填；表单早已挂着、后来新增了候选再开按当时的候选预填）",
+      "evidence": [
+        "V04",
+        "V01"
+      ],
+      "intent": "这是站主登记的三个情形，行为一个都不许漏"
+    },
+    {
+      "id": "D02",
+      "text": "写流程一个字不变——点 [确认…] 先关表单再 `start`，确认框、执行、重读、终态在表单关上之后照常走完（`useWriteFlow` 与 `<WriteFlow flow={flow} />` 留在外层）；请求路径、正文与重读次数照旧",
+      "evidence": [
+        "V04",
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "表单关掉不能把写流程一起卸载"
+    },
+    {
+      "id": "D03",
+      "text": "有意的行为变化落地：再打开时底部先显示「预览中…」、[确认…] 灰到新的预览回来才可点（与第一次打开一样）；表单开着时 props 变了仍不重置用户正在改的字段",
+      "evidence": [
+        "V04",
+        "V01"
+      ],
+      "intent": "去掉「按旧数据显示」这一类问题，同时不动用户手下的输入"
+    },
+    {
+      "id": "D04",
+      "text": "两个源文件的门禁字面量一个不少（T045 S03/S10 与 T051 S07 的逐条：导出、原因句、标题、标签、`useLivePreview(`、`'hub.set'`／`'role.set'`、`<WriteFlow flow={flow} />`、门控里的 `current`／`result.ok`／`onClose`、不出现 `aria-label`、代码里不出现 `step-low`、不写 `style={{`、css import 之后不再有 import、不写死颜色、不出现禁词、不跨层引 `src/pages`）",
+      "evidence": [
+        "G01",
+        "R01"
+      ],
+      "intent": "这两份门禁是包含式核对，字面量一丢就红"
+    },
+    {
+      "id": "D05",
+      "text": "其余行为、文字、样式与导出形态一个字不变（导出名与 props 不变；不改入口文件与共享件；不改依赖与锁文件；`src/mock` 仍 14 份 JSON、`src/pages` 顶层仍 9 个 `*Page.tsx`）",
+      "evidence": [
+        "scope",
+        "R01",
+        "review"
+      ],
+      "intent": "这一片只修预填，不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D06",
+      "text": "新增 `desktop/web/tests/writes-bind-reopen.test.tsx`，覆盖 D01–D03 点名的每一项（两个表单各五条），测真实实现，不许 `skip`/`only`/`todo`；情形 (c) 断言预览请求的 args 与 [确认…] 可点（不能只断言 `select.value`）",
+      "evidence": [
+        "V04",
+        "V01",
+        "review"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D07",
+      "text": "所有修改都在允许集合内（可改 2 个源文件、可新增 1 个测试文件），没有碰 forbidden_paths（`tests/test_gate_t052_*.py` 与其余 50 份门禁基准、既有包内测试、`useWriteFlow.ts`、`useLivePreview.ts`、`components/**`、`shell/**`、`hub-bind-form.css`、入口文件、`package.json` 与锁文件、`ts/packages/ui/**`、`scripts/**`）",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D08",
+      "text": "`npm test`、`npm run typecheck`、`npm run build` 全过，51 份既有门禁基准全过",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "R01"
+      ],
+      "intent": "不能为了修预填把别处弄坏"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 9000,
+    "max_wall_seconds_total": 18000,
+    "cost_budget": null
+  }
+}
