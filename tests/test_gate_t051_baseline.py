@@ -157,9 +157,9 @@ WF_TITLE = "`改角色绑定 ${args.role}？`"
 WF_SUCCESS = "`已改角色绑定 ${args.role}`"
 WF_SUMMARY = "`角色 ${args.role} 的绑定改成 ${args.target}`"
 
-# 桩下角色页禁用按钮数（page-app 的口径，T051 之后）：页头「保存当前为方案…」1 + 方案条「切换…」1 +
-# planner 无候选的「改绑定…」1 + 四个缺省行的「恢复缺省…」4 = 7（四张角色卡的 [更改…] 变可点）
-ROLES_PAGE_DISABLED = 7
+# 桩下角色页禁用按钮数（page-app 的口径，T053 之后）：方案条「切换…」1 +
+# planner 无候选的「改绑定…」1 + 四个缺省行的「恢复缺省…」4 = 6（[保存当前为方案…] 变可点）
+ROLES_PAGE_DISABLED = 6
 
 # mock/writes.ts 的 WriteScenario 恰 27 个值（T044 S07 钉死；本片一个都不许加）
 WRITE_SCENARIO_COUNT = 27
@@ -1195,7 +1195,7 @@ afterEach(() => {
 });
 
 describe('桩模式：四张角色卡的 [更改…]（D06）', () => {
-  it('四张卡的 [更改…] 都可点，是 secondary/sm；角色页禁用按钮数 7；对话框关着时卡片里没有下拉', async () => {
+  it('四张卡的 [更改…] 都可点，是 secondary/sm；角色页禁用按钮数 6；对话框关着时卡片里没有下拉', async () => {
     await mountApp('#/roles');
     for (const role of ROLES) {
       const b = btnIn(card(role), CHANGE);
@@ -1204,7 +1204,7 @@ describe('桩模式：四张角色卡的 [更改…]（D06）', () => {
       expect(b.getAttribute('data-size'), role + ' sm').toBe('sm');
       expect(qa(card(role), 'select').length, role + ' 对话框关着不渲染表单字段').toBe(0);
     }
-    expect(qa(frame(), 'button').filter((b: any) => b.disabled).length, '角色页禁用按钮数 7（page-app 的口径）').toBe(7);
+    expect(qa(frame(), 'button').filter((b: any) => b.disabled).length, '角色页禁用按钮数 6（page-app 的口径）').toBe(6);
   });
   it('四个角色各自只列允许的模式（次序照 ROLE_MODES）且预填现有模式；无头时才有 profile 下拉并预填现有 profile', async () => {
     for (const role of ROLES) {

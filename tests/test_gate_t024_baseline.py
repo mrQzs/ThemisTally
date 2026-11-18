@@ -298,11 +298,11 @@ def test_s06_writes_texts_live_in_writes():
 
 def test_s07_rolespage_header_entry():
     """S07 / D08、第四节：页头 [新建 profile] 由 src/writes 的 NewProfileAction 渲染；次序照旧
-    （[保存当前为方案…] 仍是 DisabledAction）；T022 S15 的四个禁词一个都不出现（注释也算）。"""
+    （[保存当前为方案…] 由 T053 的 PresetSaveAction 渲染，不再是 DisabledAction）；T022 S15 的四个禁词一个都不出现（注释也算）。"""
     need_file(ROLES_PAGE_REL)
     text = read_rel(ROLES_PAGE_REL)
     assert "NewProfileAction" in text, "页头 [新建 profile] 应由 src/writes 的 NewProfileAction 渲染（页面只放按钮）"
-    assert '<DisabledAction label="保存当前为方案…"' in text, "页头 [保存当前为方案…] 应照旧是 DisabledAction"
+    assert "PresetSaveAction" in text, "页头 [保存当前为方案…] 应由 src/writes 的 PresetSaveAction 渲染（不再是 DisabledAction）"
     problems = [w for w in FORBIDDEN_WORDS if re.search(rf"\b{w}\b", text)]
     assert not problems, f"RolesPage.tsx 不许出现 {problems}（T022 S15，注释也算）"
 
@@ -1085,7 +1085,7 @@ describe('T024 表单对话框与两个入口', () => {
     expect(pageButtons(), '编辑入口关上后页里的按钮集合也与打开前一致').toEqual(before);
   });
 
-  it('两个入口的样式与仍在禁用的入口：页头次序照旧、[新建 profile] secondary/md 可点；4 张角色卡的 [更改…] 可点；角色页禁用数 7', async () => {
+  it('两个入口的样式：页头次序照旧、[保存当前为方案…] 与 [新建 profile] 都 secondary/md 可点；4 张角色卡的 [更改…] 可点；角色页禁用数 6', async () => {
     vi.useFakeTimers();
     await mountApp('#/roles?write=ok');
     const actions = document.querySelector('.tt-page__actions') as HTMLElement;
@@ -1093,17 +1093,18 @@ describe('T024 表单对话框与两个入口', () => {
     const labels = buttons(actions).map((b) => textOf(b));
     expect(labels, '页头按钮次序照旧（T009 D06）').toEqual(['保存当前为方案…', '新建 profile', '刷新']);
     const save = buttonByText(actions, '保存当前为方案…');
-    expect(save.disabled, '[保存当前为方案…] 仍禁用（不在本片）').toBe(true);
+    expect(save.disabled, '[保存当前为方案…] 可点（T053 接上）').toBe(false);
+    expect(save.getAttribute('data-variant')).toBe('secondary');
+    expect(save.getAttribute('data-size')).toBe('md');
     const create = buttonByText(actions, '新建 profile');
     expect(create.disabled).toBe(false);
     expect(create.getAttribute('data-variant')).toBe('secondary');
     expect(create.getAttribute('data-size')).toBe('md');
-    expect(await tipOf(save), '仍在禁用的入口悬停「第二阶段接入」').toBe('第二阶段接入');
     const changes = buttons(pageFrame()).filter((b) => textOf(b) === '更改…');
     expect(changes.length, '角色卡应有 4 个 [更改…]').toBe(4);
     for (const c of changes) expect(c.disabled, '[更改…] 可点（T051 接上）').toBe(false);
     const disabledCount = buttons(pageFrame()).filter((b) => b.disabled).length;
-    expect(disabledCount, '角色页禁用按钮 9→6→11→7（T051 接上 4 个 [更改…]；page-app 的口径）').toBe(7);
+    expect(disabledCount, '角色页禁用按钮 9→6→11→7→6（T053 接上 [保存当前为方案…]；page-app 的口径）').toBe(6);
   });
 
   it('offline 下两个入口照旧可点', async () => {

@@ -106,7 +106,7 @@ API_READ_NAMES = (
 )
 # RolesPage 的页头说明（一字不改）与两个页头按钮之一；四个禁词（T024 S07）
 PAGE_DESC = "四个角色各用哪个 CLI 与模型；方案可以一键切换"
-PAGE_HEAD_DISABLED = "保存当前为方案…"
+PAGE_HEAD_DISABLED = 'PresetSaveAction'
 ROLES_PAGE_FORBIDDEN = ("preview", "getOperation", "usePreset", "setPluginEnabled")
 # 仓库约定：src/mock 恰 14 份 JSON（桩只能是 .ts）；src/pages 顶层恰 9 个 *Page.tsx
 MOCK_JSON_COUNT = 14
@@ -411,7 +411,7 @@ def rolespage_problems(text):
     if PAGE_DESC not in text:
         problems.append("页头说明应一字不改")
     if PAGE_HEAD_DISABLED not in text or "NewProfileAction" not in text:
-        problems.append("页头两个按钮（保存当前为方案…、NewProfileAction）应照旧")
+        problems.append("页头两个按钮（PresetSaveAction、NewProfileAction）应照旧")
     if "getHubRoles" not in text:
         problems.append("RolesPage 应引用 getHubRoles")
     for word in ROLES_PAGE_FORBIDDEN:

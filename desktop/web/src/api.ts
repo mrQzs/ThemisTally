@@ -34,6 +34,7 @@ import {
   mockRemoveProfile,
   mockRemoveRuntime,
   mockRollback,
+  mockSavePreset,
   mockSetRoleBinding,
   mockSetHubRole,
   mockSetPluginEnabled,
@@ -74,7 +75,8 @@ export type WriteAction =
   | 'hub.set'
   | 'hub.unset'
   | 'runtime.add'
-  | 'role.set';
+  | 'role.set'
+  | 'preset.save';
 
 // 写操作的参数：值是字符串或字符串数组（T024 新增；数组按顺序原样传给服务，不拼成字符串）。
 export type WriteArgs = Record<string, string | string[]>;
@@ -314,6 +316,11 @@ function writeArgs(args: WriteArgs): Record<string, unknown> {
       continue;
     }
     if (value === '') continue;
+    // force 只认字符串 'true'，转成 JSON 布尔 true（服务侧 validValue 只认布尔 true）；其余写法原样传，服务回 400。
+    if (key === 'force' && value === 'true') {
+      out[key] = true;
+      continue;
+    }
     out[key] = key === 'number' || key === 'cadence_seconds' ? asNumber(value) : value;
   }
   return out;
@@ -911,4 +918,25 @@ export function addRuntime(
     );
   }
   return mockAddRuntime(args, confirmation);
+}
+
+// 本片一个写函数：把当前角色绑定存成方案。name 是路径参数，不重复传进正文（服务会把路径参数压正文）；
+// roles 一律显式带（全选也带），description 非空才带，force 只在「重名且勾了覆盖」时才带（值 'true'，writeArgs 转成 JSON 布尔 true）。
+// 预览与执行共用 writeArgs 这一份规则（否则服务按确认号记的 argv 与这次的 argv 对不上，回 409）。确认号与参数核对在 mock 侧。
+export function savePreset(
+  args: { name: string; roles: string[]; description?: string; force?: string },
+  confirmation: string
+): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) {
+    const w: WriteArgs = { roles: args.roles };
+    if (args.description !== undefined) w.description = args.description;
+    if (args.force !== undefined) w.force = args.force;
+    return client.post<null>(
+      `/api/v1/presets/${encodeURIComponent(args.name)}/save`,
+      { ...writeArgs(w), confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
+  return mockSavePreset(args, confirmation);
 }

@@ -17,6 +17,7 @@ import {
   removeProfile,
   removeRuntime,
   rollback,
+  savePreset,
   setRoleBinding,
   setHubRole,
   setPluginEnabled,
@@ -66,6 +67,7 @@ type EditProfileArgs = { profile: string; runtime?: string; model?: string; thin
 type AddRuntimeArgs = { runtime: string; adapter: string; command?: string[] };
 type HubSetArgs = { post: string; profile: string; fallback?: string };
 type RoleSetArgs = { role: string; target: string; host?: string; cadence_seconds?: string };
+type PresetSaveArgs = { name: string; roles: string[]; description?: string; force?: string };
 
 // 轮询上限：写路由时限 90 秒再加宽限（D12：119 秒不下结论，120 秒进「结果未知」）。
 const POLL_LIMIT_MS = 120000;
@@ -96,6 +98,7 @@ function titleOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'hub.set') return `改绑定 ${args.post}？`;
   if (action === 'hub.unset') return `恢复缺省 ${args.post}？`;
   if (action === 'role.set') return `改角色绑定 ${args.role}？`;
+  if (action === 'preset.save') return `保存方案 ${args.name}？`;
   return `确认操作 ${action}？`;
 }
 
@@ -113,6 +116,7 @@ function successTextOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'hub.set') return `已改绑定 ${args.post}`;
   if (action === 'hub.unset') return `已恢复缺省 ${args.post}`;
   if (action === 'role.set') return `已改角色绑定 ${args.role}`;
+  if (action === 'preset.save') return `已保存方案 ${args.name}`;
   return `已回滚到 #${args.number} 之后`;
 }
 
@@ -134,6 +138,12 @@ function changeSummaryOf(action: WriteAction, args: WriteArgs): string | null {
     return `角色 ${args.role} 的绑定改成 ${args.target}` + suffix;
   }
   if (action === 'preset.remove') return `方案表里去掉 ${args.name}，角色绑定不变`;
+  if (action === 'preset.save') {
+    // roles 照表单给的次序（args.roles 数组）；带 force（覆盖）与不带（新增）两种摘要。
+    const roles = Array.isArray(args.roles) ? args.roles : [];
+    const list = roles.join('、');
+    return args.force === 'true' ? `覆盖方案 ${args.name}：存 ${list}` : `方案表里加上 ${args.name}：存 ${list}`;
+  }
   if (action === 'profile.remove') return `profile 表里去掉 ${args.profile}`;
   if (action === 'runtime.remove') return `已登记表里去掉 ${args.runtime}；本机文件里登记的命令一并删去`;
   if (action === 'profile.add') return `profile 表里加上 ${args.profile}`;
@@ -173,6 +183,12 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
       return { ok: true, snapshot: presetSnapshot(presets.data, roles.data) };
     }
     if (action === 'preset.remove') {
+      const presets = await getPresets();
+      if (!presets.ok || !presets.data) return { ok: false };
+      return { ok: true, snapshot: presetRemoveSnapshot(presets.data) };
+    }
+    if (action === 'preset.save') {
+      // 保存方案：方案表里多出一个名字，用同一份投影（active_preset + presets[].{name,active}）比对。
       const presets = await getPresets();
       if (!presets.ok || !presets.data) return { ok: false };
       return { ok: true, snapshot: presetRemoveSnapshot(presets.data) };
@@ -542,7 +558,9 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
                           ? unsetHubRole(sargs.post, confirmRef.current)
                           : spec.action === 'role.set'
                             ? setRoleBinding(spec.args as unknown as RoleSetArgs, confirmRef.current)
-                            : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
+                            : spec.action === 'preset.save'
+                              ? savePreset(spec.args as unknown as PresetSaveArgs, confirmRef.current)
+                              : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
     call.then(
       (reply) => {
         if (isCurrent(my)) proceed(classifyWrite(reply.status, reply.body), reply.body, my);

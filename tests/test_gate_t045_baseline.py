@@ -122,9 +122,9 @@ REASON_UNSET_DEFAULT = "这个岗位现在用的是内核缺省，没有要恢�
 # 七端岗位的列头：前六个一字不改，第七列是「操作」
 HUB_HEADERS = ("岗位", "运行时", "模型", "思考档位", "来源", "替补", "操作")
 
-# 桩下角色页禁用按钮数（page-app 的口径）：页头「保存当前为方案…」与方案条的「切换…」2 个 +
-# planner 无候选的「改绑定…」1 个 + coordinator/planner/gate/audit 缺省行的「恢复缺省…」4 个 = 7
-ROLES_PAGE_DISABLED = 7
+# 桩下角色页禁用按钮数（page-app 的口径）：方案条的「切换…」1 个 +
+# planner 的「改绑定…」1 个 + 四个缺省行的「恢复缺省…」4 个 = 6
+ROLES_PAGE_DISABLED = 6
 
 # 执行端两个新测试文件的最小覆盖记号（合同第 8 步）
 EXECUTOR_TEST_TOKENS = {
@@ -1228,9 +1228,9 @@ describe('桩模式：操作列与两个入口（D05、D11）', () => {
       expect(btnIn(hubRow(post), UNSET).disabled, post + ' 缺省行 → 恢复缺省…禁用').toBe(true);
     }
   });
-  it('角色页禁用按钮数 7（page-app 的口径：2 旧 + planner 改绑定… + 4 个缺省行恢复缺省…）', async () => {
+  it('角色页禁用按钮数 6（page-app 的口径：方案条 切换… 1 + planner 改绑定… 1 + 4 个缺省行恢复缺省…）', async () => {
     await mountApp('#/roles');
-    expect(qa(frame(), 'button').filter((b: any) => b.disabled).length).toBe(7);
+    expect(qa(frame(), 'button').filter((b: any) => b.disabled).length).toBe(6);
   });
   it('对话框关着时：七端岗位一组只有 12 个入口按钮，没有下拉与候选文字（step-low 不出现）', async () => {
     await mountApp('#/roles');

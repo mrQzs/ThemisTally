@@ -287,7 +287,7 @@ def test_s01_roles_page_live_read():
     if "<RolesViewdata={data}onDiff={diffPresets}reload={reload}live={live}/>" not in squished:
         problems.append("children 应写 <RolesView data={data} onDiff={diffPresets} reload={reload} live={live} />")
     for token in ('description="四个角色各用哪个 CLI 与模型；方案可以一键切换"',
-                  '<DisabledAction label="保存当前为方案…" />', "<NewProfileAction reload={reload} />"):
+                  '<PresetSaveAction', "<NewProfileAction reload={reload} />"):
         if _squish(token) not in squished:
             problems.append(f"页头说明与两个页头按钮一字不改（看不到 {token}）")
     if "type QuizsLiveData" not in text:

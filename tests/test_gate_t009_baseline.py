@@ -2373,12 +2373,14 @@ describe('D06 角色卡', () => {
     });
   });
 
-  it('页头 actions：[保存当前为方案…]、[新建 profile] 排在刷新钮之前；[保存当前为方案…] 禁用', async () => {
+  it('页头 actions：[保存当前为方案…]、[新建 profile] 排在刷新钮之前；[保存当前为方案…] 可点', async () => {
     await mountRoles();
     const actions = document.querySelector('.tt-page__actions') as any;
     const buttons = qa(actions, 'button');
     expect(buttons.map(textOf)).toEqual(['保存当前为方案…', '新建 profile', '刷新']);
-    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].disabled).toBe(false);
+    expect(buttons[0].getAttribute('data-variant')).toBe('secondary');
+    expect(buttons[0].getAttribute('data-size')).toBe('md');
     // [新建 profile] 不再断言禁用：T024 接上 profile 新建（站主按 T024 规划报告 §7.1 退役）
     expect(buttons[2].disabled).toBe(false);
   });
@@ -2954,19 +2956,15 @@ function tooltipTexts(): string[] {
 describe('D11 写入口全部禁用', () => {
   // T022 接上不用填表单的写入口：白名单放行 [切换…][使用][删除…][删除]，悬停只核对仍要填表单、还没接上的那几个
   // （站主按 T022 规划报告 §10 R5、R6 退役）；T024 接上 [新建 profile] 与 profile [编辑]，一并放进白名单（站主按 T024 规划报告 §7.1 退役）
-  it('角色页：要填表单的写入口仍禁用且悬停出「第二阶段接入」；可用按钮只在白名单里（刷新、分段选择段、[查看差异]、T022 与 T024 接上的写入口）', async () => {
+  it('角色页：可用按钮只在白名单里（刷新、分段选择段、[查看差异]、T022/T024/T045/T051/T053 接上的写入口）', async () => {
     set('getRoles', rolesMain());
     set('getProfiles', profilesMain());
     set('getPresets', presetsMain());
     await mountApp('#/roles');
     expect(frame().getAttribute('data-page-state')).toBe('data');
     // 站主按 T044 规划报告 §5 为 T045（七端岗位的改绑定、恢复缺省）放宽（2026-11-15）
-    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑', '改绑定…', '恢复缺省…', '更改…'])).toEqual([]);
+    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑', '改绑定…', '恢复缺省…', '更改…', '保存当前为方案…'])).toEqual([]);
     expect(disabledButtons().length).toBeGreaterThan(0);
-    const later = ['保存当前为方案…'];
-    const tips = tooltipTexts().filter((t) => later.indexOf(t.split('=')[0]) >= 0);
-    expect(tips.length, '要填表单的写入口仍禁用').toBeGreaterThan(0);
-    tips.forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });
 
   it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…] 与 T041 接上的 [手动登记…]', async () => {

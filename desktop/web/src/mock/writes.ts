@@ -68,6 +68,15 @@ function baseArgv(action: WriteAction, args: WriteArgs): string[] {
   const s = args as Record<string, string>;
   if (action === 'preset.use') return ['config', 'preset', 'use', s.name];
   if (action === 'preset.remove') return ['config', 'preset', 'remove', s.name];
+  if (action === 'preset.save') {
+    // 逐字照服务侧 buildWriteArgv：位置 name，有 description 加 --description=，有 roles 加 --roles=（逗号连接），force === 'true' 加 --force。
+    const out = ['config', 'preset', 'save', s.name];
+    if (s.description) out.push('--description=' + s.description);
+    const roles = asStringArray(args.roles);
+    if (roles.length > 0) out.push('--roles=' + roles.join(','));
+    if (s.force === 'true') out.push('--force');
+    return out;
+  }
   if (action === 'profile.remove') return ['config', 'profile', 'remove', s.profile];
   if (action === 'runtime.remove') return ['config', 'runtime', 'remove', s.runtime];
   if (action === 'runtime.add') {
@@ -126,7 +135,7 @@ const opArgs = new Map<string, { action: string; args: WriteArgs }>();
 const opPolls = new Map<string, number>();
 
 // B 片四个删除/回滚加本片两个 profile 写动作与七端岗位两个：opArgs 记下它们的 (action, args)，供写函数核对确认号与参数（第二节）。
-const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset', 'runtime.add', 'role.set']);
+const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset', 'runtime.add', 'role.set', 'preset.save']);
 
 function newOpId(action: string, args: WriteArgs): string {
   opSeq += 1;
@@ -267,6 +276,21 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
     return {
       binding_changes: [],
       resources: asStringArray(args.command).length > 0 ? ['config', 'local'] : ['config'],
+      notes: [],
+      warnings: [],
+      running_attempts: [],
+      needs_yes: false,
+      command,
+      confirmation,
+      hub_changes: [],
+      running_turns: [],
+    };
+  }
+  if (action === 'preset.save') {
+    // 保存方案（本片一个写动作）：binding_changes 恒空（改动靠变化区摘要说明），resources 只涉及方案表。
+    return {
+      binding_changes: [],
+      resources: ['presets'],
       notes: [],
       warnings: [],
       running_attempts: [],
@@ -518,6 +542,17 @@ function confirmWrite(action: WriteAction, args: WriteArgs, confirmation: string
 
 export function mockRemovePreset(name: string, confirmation: string): Promise<HttpReply<null>> {
   return confirmWrite('preset.remove', { name }, confirmation);
+}
+
+// 本片一个写函数：保存方案。args 含 name（与预览时收的那一份逐键相同），整理成 WriteArgs 后走同一套确认号与参数核对。
+export function mockSavePreset(
+  args: { name: string; roles: string[]; description?: string; force?: string },
+  confirmation: string,
+): Promise<HttpReply<null>> {
+  const w: WriteArgs = { name: args.name, roles: args.roles };
+  if (args.description !== undefined) w.description = args.description;
+  if (args.force !== undefined) w.force = args.force;
+  return confirmWrite('preset.save', w, confirmation);
 }
 
 export function mockRemoveProfile(profile: string, confirmation: string): Promise<HttpReply<null>> {

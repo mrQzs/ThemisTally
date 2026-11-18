@@ -2,7 +2,6 @@
 // 不传 isEmpty（?mock=empty 时仍 data）；差异读取经 onDiff 回调（页面持 diffPresets，视图不调 api）。
 import { useEffect, useState } from 'react';
 import { PageFrame } from '../shell/PageFrame';
-import { DisabledAction } from '../shell/DisabledAction';
 import {
   diffPresets,
   getPresets,
@@ -19,7 +18,9 @@ import {
   type RolesData,
 } from '../api';
 import { RolesView, type RolesViewData } from './readonly1/roles-RolesView';
+import { roleName } from './readonly1/roles-logic';
 import { NewProfileAction } from '../writes/ProfileForm';
+import { PresetSaveAction } from '../writes/PresetSaveForm';
 
 // 并行读四个：前三个（roles/profiles/presets）里第一个坏的按 roles→profiles→presets 顺序整页返回那个失败信封；
 // hub 的信封整个放进 data.hub，不参与整页失败判定（hub 读失败只在七端岗位那一组显示）。
@@ -63,7 +64,7 @@ export default function RolesPage() {
       load={loadRoles}
       actions={(reload) => (
         <>
-          <DisabledAction label="保存当前为方案…" />
+          <PresetSaveAction reload={reload} roleLabel={roleName} />
           <NewProfileAction reload={reload} />
         </>
       )}
