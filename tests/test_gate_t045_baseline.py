@@ -122,9 +122,9 @@ REASON_UNSET_DEFAULT = "这个岗位现在用的是内核缺省，没有要恢�
 # 七端岗位的列头：前六个一字不改，第七列是「操作」
 HUB_HEADERS = ("岗位", "运行时", "模型", "思考档位", "来源", "替补", "操作")
 
-# 桩下角色页禁用按钮数（page-app 的口径）：基线 6 + planner 无候选的「改绑定…」1 个 +
-# coordinator/planner/gate/audit 缺省行的「恢复缺省…」4 个 = 11
-ROLES_PAGE_DISABLED = 11
+# 桩下角色页禁用按钮数（page-app 的口径）：页头「保存当前为方案…」与方案条的「切换…」2 个 +
+# planner 无候选的「改绑定…」1 个 + coordinator/planner/gate/audit 缺省行的「恢复缺省…」4 个 = 7
+ROLES_PAGE_DISABLED = 7
 
 # 执行端两个新测试文件的最小覆盖记号（合同第 8 步）
 EXECUTOR_TEST_TOKENS = {
@@ -556,7 +556,7 @@ def test_s07_package_tests_updated():
     if not roles_line:
         problems.append("page-app.test.tsx 的角色页禁用数断言应在位")
     elif roles_line.group(1) != str(ROLES_PAGE_DISABLED):
-        problems.append(f"page-app.test.tsx 的角色页禁用数应是 {ROLES_PAGE_DISABLED}（桩下 6+5）")
+        problems.append(f"page-app.test.tsx 的角色页禁用数应是 {ROLES_PAGE_DISABLED}（桩下 2+1+4）")
     if not re.search(r"it\('角色页 \d+（[^']*）?、运行时页 5、总览 0'", app_text) and "'角色页 11'" not in app_text:
         if "'角色页 11'" not in app_text:
             problems.append("page-app.test.tsx 的 it 标题应跟着改成 11（照新行为改标题）")
@@ -1228,9 +1228,9 @@ describe('桩模式：操作列与两个入口（D05、D11）', () => {
       expect(btnIn(hubRow(post), UNSET).disabled, post + ' 缺省行 → 恢复缺省…禁用').toBe(true);
     }
   });
-  it('角色页禁用按钮数 11（page-app 的口径：6 旧 + planner 改绑定… + 4 个缺省行恢复缺省…）', async () => {
+  it('角色页禁用按钮数 7（page-app 的口径：2 旧 + planner 改绑定… + 4 个缺省行恢复缺省…）', async () => {
     await mountApp('#/roles');
-    expect(qa(frame(), 'button').filter((b: any) => b.disabled).length).toBe(11);
+    expect(qa(frame(), 'button').filter((b: any) => b.disabled).length).toBe(7);
   });
   it('对话框关着时：七端岗位一组只有 12 个入口按钮，没有下拉与候选文字（step-low 不出现）', async () => {
     await mountApp('#/roles');

@@ -40,7 +40,7 @@ describe('RoleCard 四模式', () => {
     expect(text(kv(c)['宿主'])).toBe('claude-code');
     expect(kv(c)['思考档位'].querySelector('.tt-effort')?.getAttribute('data-state')).toBe('none');
     expect(text(c)).toContain('模型由宿主决定，Themis 不切换。');
-    expect(btn(c, '更改…')?.disabled).toBe(true);
+    expect(btn(c, '更改…')?.disabled, '[更改…] 可点（没有候选时仍可切到交互式宿主）').toBe(false);
   });
 
   it('手工：默认、与方案不一致、说明', () => {

@@ -296,7 +296,7 @@ describe('真实模式：确认发岗位写路由与 reload', () => {
 
 // ---- 桩下角色页禁用按钮实测值（page-app 的口径）----
 
-describe('桩下角色页禁用按钮实测 11', () => {
+describe('桩下角色页禁用按钮实测 7', () => {
   beforeEach(() => {
     setLiveClientForTests(undefined);
     setConnectionState('connected');
@@ -308,13 +308,13 @@ describe('桩下角色页禁用按钮实测 11', () => {
     window.location.hash = '';
   });
 
-  it('整页 button[disabled] 是 11（6 旧 + planner 改绑定… 1 + 4 个缺省行恢复缺省…）', async () => {
+  it('整页 button[disabled] 是 7（2 旧 + planner 改绑定… 1 + 4 个缺省行恢复缺省…）', async () => {
     await mountApp('#/roles');
     const disabled = qa(document, 'button[disabled]');
-    // 构成：页头「保存当前为方案…」1 + 4 张角色卡的「更改…」+ 方案条的「切换…」= 6；
+    // 构成：页头「保存当前为方案…」1 + 方案条的「切换…」1 = 2；
     // planner 只许 claude-code、无 profile 候选 → 「改绑定…」1；
-    // coordinator/planner/gate/audit 是缺省行 → 「恢复缺省…」4。合计 11。
-    expect(disabled.length, '桩下角色页禁用按钮实测').toBe(11);
+    // coordinator/planner/gate/audit 是缺省行 → 「恢复缺省…」4。合计 7。
+    expect(disabled.length, '桩下角色页禁用按钮实测').toBe(7);
     const bindDisabled = qa(hubSec(), 'button[disabled]').filter((b: any) => text(b) === BIND).length;
     const unsetDisabled = qa(hubSec(), 'button[disabled]').filter((b: any) => text(b) === UNSET).length;
     expect(bindDisabled, '七端岗位组里禁用的「改绑定…」（planner）').toBe(1);

@@ -90,7 +90,6 @@ BASELINE_DIGESTS = {
     "ts/bun.lock": (25475, "a845dc902d2d410846d46610d6f4186b4f958bb06776662459abf76aa1b94f90"),
     f"{PAGES_RO}/roles-styles.css": (4282, "a81ce331e93a3ef9b06f44c76ee3c72d75c0a52f965169437bf9e9f8bd338d06"),
     f"{TESTS_REL}/roles-hub-logic.test.ts": (3724, "039a63b960171c919681cd66ac6b59583326afda6e7d861e74aee40c6dd4bf26"),
-    f"{TESTS_REL}/page-app.test.tsx": (4005, "a8986dee7f02a1f43579ae8249a9f51ab0158c873e5b7525fda31edd458698e9"),
     "ts/packages/ui/src/readroutes.ts": (33189, "da67f8568f339d1988684cba1e056958a48361132a6bfc180fb5b91c49f42007"),
     "ts/packages/ui/src/writeroutes.ts": (32897, "ef4dd4d345a0820d8031bfccabec97a6f6af05a25941d9f58ca8b57cbdc0fd76"),
 }

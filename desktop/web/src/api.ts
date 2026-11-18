@@ -34,6 +34,7 @@ import {
   mockRemoveProfile,
   mockRemoveRuntime,
   mockRollback,
+  mockSetRoleBinding,
   mockSetHubRole,
   mockSetPluginEnabled,
   mockUnsetHubRole,
@@ -59,7 +60,7 @@ export interface Envelope<T> {
 }
 
 // 写动作：A 片三个（切换方案、启停插件）、B 片四个（删除方案/profile/运行时、回滚）加本片两个（新建/编辑 profile）、
-// 七端岗位两个（hub.set、hub.unset）与本片一个（runtime.add，登记运行时）。
+// 七端岗位两个（hub.set、hub.unset）加本片两个（runtime.add 登记运行时、role.set 改角色绑定）。
 export type WriteAction =
   | 'preset.use'
   | 'plugin.enable'
@@ -72,7 +73,8 @@ export type WriteAction =
   | 'profile.edit'
   | 'hub.set'
   | 'hub.unset'
-  | 'runtime.add';
+  | 'runtime.add'
+  | 'role.set';
 
 // 写操作的参数：值是字符串或字符串数组（T024 新增；数组按顺序原样传给服务，不拼成字符串）。
 export type WriteArgs = Record<string, string | string[]>;
@@ -301,8 +303,8 @@ function asNumber(value: string): string | number {
   return Number.isFinite(n) ? n : value;
 }
 
-// 预览与执行共用的参数整理：值是空串或空数组不传这个键（服务侧都不合法）；number 键转成 JSON 数字
-// （转不成原样传，服务回 400）；其余键值原样传，数组按顺序原样传、不拼成字符串。
+// 预览与执行共用的参数整理：值是空串或空数组不传这个键（服务侧都不合法）；number 与 cadence_seconds
+// 键转成 JSON 数字（转不成原样传，服务回 400）；其余键值原样传，数组按顺序原样传、不拼成字符串。
 // 预览与执行必须用同一份规则，否则服务按确认号记的 argv 与这次的 argv 对不上，回 409「参数不符」。
 function writeArgs(args: WriteArgs): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -312,7 +314,7 @@ function writeArgs(args: WriteArgs): Record<string, unknown> {
       continue;
     }
     if (value === '') continue;
-    out[key] = key === 'number' ? asNumber(value) : value;
+    out[key] = key === 'number' || key === 'cadence_seconds' ? asNumber(value) : value;
   }
   return out;
 }
@@ -694,7 +696,7 @@ export function getPlugin(id: string): Promise<Envelope<PluginShowData>> {
   );
 }
 
-// 写函数：预览、查操作，加 A 片四个、B 片四个、七端岗位两个与本片一个（登记运行时）。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
+// 写函数：预览、查操作，加 A 片四个、B 片四个、七端岗位两个与本片三个（登记运行时、改角色绑定）。演示数据由 mock/writes.ts 按 ?write= 情景生成，不联网。
 // preview 的参数放宽成 WriteArgs：旧调用点传 Record<string,string> 仍然合法，行为不变。
 // 真实模式（liveClient() 非 null）下走服务的写路由：预览 POST /api/v1/preview、执行各走自己的写路由
 // （服务端时限 90 秒）、断线时查 GET /api/v1/operations/<确认号>；拿不到回应时 reject（同桩的 drop-*）。
@@ -869,6 +871,26 @@ export function unsetHubRole(post: string, confirmation: string): Promise<HttpRe
     );
   }
   return mockUnsetHubRole(post, confirmation);
+}
+
+// 角色绑定写函数（本片一个）：role 是路径参数，不重复传进正文；target 之外只带给了才有的 host 与
+// cadence_seconds（内核整条替换绑定，这两个键不传就丢）。确认号与参数核对在 mock 侧。
+export function setRoleBinding(
+  args: { role: string; target: string; host?: string; cadence_seconds?: string },
+  confirmation: string
+): Promise<HttpReply<null>> {
+  const client = liveClient();
+  if (client) {
+    const w: WriteArgs = { target: args.target };
+    if (args.host !== undefined) w.host = args.host;
+    if (args.cadence_seconds !== undefined) w.cadence_seconds = args.cadence_seconds;
+    return client.post<null>(
+      `/api/v1/roles/${encodeURIComponent(args.role)}`,
+      { ...writeArgs(w), confirmation },
+      WRITE_TIMEOUT_SECONDS,
+    );
+  }
+  return mockSetRoleBinding(args, confirmation);
 }
 
 // 本片一个写函数：登记运行时。runtime 是路径参数，不重复传进正文；command 为空数组时不传这个键

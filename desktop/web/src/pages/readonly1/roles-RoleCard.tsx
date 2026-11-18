@@ -1,17 +1,20 @@
 // 角色卡（合同第 5 节）：article 加 data-role 与 aria-labelledby 指 h3；四种模式各自的标签、键值(dl)与说明；
-// 思考档位一律经 EffortPair；底部 [更改…] 禁用。字段已在 roles-logic 归一，这里只渲染。
+// 底部 [更改…] 走「改绑定」表单（src/writes/RoleBindForm.tsx）。字段已在 roles-logic 归一，这里只渲染。
 import { useId } from 'react';
 import { CircleCheckIcon, TriangleAlertIcon } from '../../icons';
 import { EffortPair, Tag } from '../../components';
-import { DisabledAction } from '../../shell/DisabledAction';
-import { modeName, resolvedProfile, roleName, type RoleInfo } from './roles-logic';
+import { RoleBindAction } from '../../writes/RoleBindForm';
+import { allowedModes, modeName, resolvedProfile, roleName, type RoleInfo } from './roles-logic';
 
 export interface RoleCardProps {
   role: RoleInfo;
   activePreset: string;
+  /** 已登记的 profile 候选（入口视图用 profileIds 算好；缺省时无头不可选）。 */
+  candidates?: readonly string[];
+  reload?: () => Promise<void>;
 }
 
-export function RoleCard({ role, activePreset }: RoleCardProps) {
+export function RoleCard({ role, activePreset, candidates, reload }: RoleCardProps) {
   const titleId = useId();
   const mode = role.mode;
   const headless = mode === 'headless';
@@ -76,7 +79,19 @@ export function RoleCard({ role, activePreset }: RoleCardProps) {
       {mode === 'manual' && <p className="rl-card__note">规划端亲自写合同</p>}
       {mode === 'disabled' && <p className="rl-card__note">本轮没有实现</p>}
       <div className="rl-card__foot">
-        <DisabledAction label="更改…" variant="secondary" size="sm" />
+        <RoleBindAction
+          role={role.role}
+          roleLabel={roleName(role.role)}
+          modes={allowedModes(role.role).map((m) => ({ value: m, label: modeName(m) }))}
+          candidates={candidates ?? []}
+          binding={{
+            mode,
+            profile: resolvedProfile(role),
+            host: role.host,
+            cadenceSeconds: role.cadenceSeconds,
+          }}
+          reload={reload}
+        />
       </div>
     </article>
   );

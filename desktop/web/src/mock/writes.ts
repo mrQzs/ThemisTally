@@ -4,6 +4,7 @@
 import type { Envelope, HubChange, HubChangeFallback, HubChangeSide, HubPostRow, HttpReply, OperationView, PreviewData, WriteAction, WriteArgs } from '../api';
 import { HUB_ROLES_POSTS } from './hub-roles';
 import profilesJson from './profiles.json';
+import rolesJson from './roles.json';
 
 export type WriteScenario =
   | 'ok'
@@ -77,6 +78,13 @@ function baseArgv(action: WriteAction, args: WriteArgs): string[] {
     return out;
   }
   if (action === 'config.rollback') return ['config', 'rollback', s.number];
+  if (action === 'role.set') {
+    // 逐字照服务侧 buildWriteArgv：位置 role、位置 target，有 host 才加 --host=，有 cadence_seconds 才加 --cadence-seconds=。
+    const out = ['config', 'role', 'set', s.role, s.target];
+    if (s.host) out.push('--host=' + s.host);
+    if (s.cadence_seconds) out.push('--cadence-seconds=' + s.cadence_seconds);
+    return out;
+  }
   if (action === 'hub.set') {
     const out = ['config', 'hub', 'set', s.post, s.profile];
     if (s.fallback) out.push('--fallback=' + s.fallback);
@@ -118,7 +126,7 @@ const opArgs = new Map<string, { action: string; args: WriteArgs }>();
 const opPolls = new Map<string, number>();
 
 // B 片四个删除/回滚加本片两个 profile 写动作与七端岗位两个：opArgs 记下它们的 (action, args)，供写函数核对确认号与参数（第二节）。
-const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset', 'runtime.add']);
+const NEW_ACTIONS = new Set<string>(['preset.remove', 'profile.remove', 'runtime.remove', 'config.rollback', 'profile.add', 'profile.edit', 'hub.set', 'hub.unset', 'runtime.add', 'role.set']);
 
 function newOpId(action: string, args: WriteArgs): string {
   opSeq += 1;
@@ -259,6 +267,29 @@ function previewData(action: WriteAction, args: WriteArgs, confirmation: string)
     return {
       binding_changes: [],
       resources: asStringArray(args.command).length > 0 ? ['config', 'local'] : ['config'],
+      notes: [],
+      warnings: [],
+      running_attempts: [],
+      needs_yes: false,
+      command,
+      confirmation,
+      hub_changes: [],
+      running_turns: [],
+    };
+  }
+  if (action === 'role.set') {
+    // 角色绑定（本片一个写动作）：from 取夹具里这个角色当前绑定的显示值（无头取 profile，其余取 mode，取不到给占位符），
+    // to 取 target；两者相同（没有变化）就不给这一项，写确认框回落到变化区摘要。
+    const s = args as Record<string, string>;
+    const row = rolesJson.roles.find((r) => r.role === s.role);
+    const binding = row?.binding as { mode?: string; profile?: string } | undefined;
+    const from =
+      binding == null ? '—'
+        : binding.mode === 'headless' ? binding.profile ?? '—'
+        : binding.mode ?? '—';
+    return {
+      binding_changes: from === s.target ? [] : [{ role: s.role, from, to: s.target }],
+      resources: ['roles'],
       notes: [],
       warnings: [],
       running_attempts: [],
@@ -553,6 +584,17 @@ export function mockSetHubRole(
 
 export function mockUnsetHubRole(post: string, confirmation: string): Promise<HttpReply<null>> {
   return confirmWrite('hub.unset', { post }, confirmation);
+}
+
+// 本片一个写函数：把带类型的参数整理成 WriteArgs（host 与 cadence_seconds 传了才带），再走同一套确认号与参数核对。
+export function mockSetRoleBinding(
+  args: { role: string; target: string; host?: string; cadence_seconds?: string },
+  confirmation: string,
+): Promise<HttpReply<null>> {
+  const w: WriteArgs = { role: args.role, target: args.target };
+  if (args.host !== undefined) w.host = args.host;
+  if (args.cadence_seconds !== undefined) w.cadence_seconds = args.cadence_seconds;
+  return confirmWrite('role.set', w, confirmation);
 }
 
 // 操作终态的信封：连接中断后由 getOperation 查到，照当时会跑完的信封给出（WARN/ERROR 照常显示）。

@@ -1085,7 +1085,7 @@ describe('T024 表单对话框与两个入口', () => {
     expect(pageButtons(), '编辑入口关上后页里的按钮集合也与打开前一致').toEqual(before);
   });
 
-  it('两个入口的样式与仍在禁用的入口：页头次序照旧、[新建 profile] secondary/md 可点；4 张角色卡的 [更改…] 仍禁用；角色页禁用数 11', async () => {
+  it('两个入口的样式与仍在禁用的入口：页头次序照旧、[新建 profile] secondary/md 可点；4 张角色卡的 [更改…] 可点；角色页禁用数 7', async () => {
     vi.useFakeTimers();
     await mountApp('#/roles?write=ok');
     const actions = document.querySelector('.tt-page__actions') as HTMLElement;
@@ -1101,9 +1101,9 @@ describe('T024 表单对话框与两个入口', () => {
     expect(await tipOf(save), '仍在禁用的入口悬停「第二阶段接入」').toBe('第二阶段接入');
     const changes = buttons(pageFrame()).filter((b) => textOf(b) === '更改…');
     expect(changes.length, '角色卡应有 4 个 [更改…]').toBe(4);
-    for (const c of changes) expect(c.disabled, '[更改…] 仍禁用（下一片）').toBe(true);
+    for (const c of changes) expect(c.disabled, '[更改…] 可点（T051 接上）').toBe(false);
     const disabledCount = buttons(pageFrame()).filter((b) => b.disabled).length;
-    expect(disabledCount, '角色页禁用按钮 9→6→11（T045 新增 5 个禁用入口；page-app 的口径）').toBe(11);
+    expect(disabledCount, '角色页禁用按钮 9→6→11→7（T051 接上 4 个 [更改…]；page-app 的口径）').toBe(7);
   });
 
   it('offline 下两个入口照旧可点', async () => {

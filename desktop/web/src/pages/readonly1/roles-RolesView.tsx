@@ -6,7 +6,7 @@ import { PresetBar } from './roles-PresetBar';
 import { HubPosts } from './roles-HubPosts';
 import { ProfilesTable } from './roles-ProfilesTable';
 import { PresetsTable } from './roles-PresetsTable';
-import { normalizeRole } from './roles-logic';
+import { normalizeRole, profileIds } from './roles-logic';
 // 样式表接线（终审 B1）：放在组件 import 之后，使本表晚于 common-section.css 载入。
 import './roles-styles.css';
 
@@ -34,7 +34,13 @@ export function RolesView({ data, onDiff, reload, live }: RolesViewProps) {
       <PresetBar presets={data.presets.presets} active={active} reload={reload} />
       <div className="rl-grid tt-grid-2">
         {roleInfos.map((r) => (
-          <RoleCard key={r.role} role={r} activePreset={active} />
+          <RoleCard
+            key={r.role}
+            role={r}
+            activePreset={active}
+            candidates={profileIds(data.profiles.profiles)}
+            reload={reload}
+          />
         ))}
       </div>
       <HubPosts hub={data.hub} profiles={data.profiles.profiles} reload={reload} live={live} />

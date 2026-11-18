@@ -1,7 +1,7 @@
 // 表单底部的实时内核预览（合同第三节）：表单合法才在 300ms 防抖后调 preview；迟到的回应按序号丢弃。
 // 夹具模式下读演示数据，真实模式下走服务的预览。
 import { useEffect, useRef, useState } from 'react';
-import { preview, type HubChange, type HttpReply, type PreviewData, type WriteAction, type WriteArgs } from '../api';
+import { preview, type BindingChange, type HubChange, type HttpReply, type PreviewData, type WriteAction, type WriteArgs } from '../api';
 
 // 防抖：每次取值改动后等 300ms 才发预览，把连续改动合并成一次。
 const DEBOUNCE_MS = 300;
@@ -21,6 +21,8 @@ export interface LivePreview {
   hubChanges: HubChange[];
   /** 在跑的回合（预览 running_turns 原文；缺键按空数组）。 */
   runningTurns: string[];
+  /** 角色绑定前后对比（预览 binding_changes 原文；缺键按空数组）。 */
+  bindingChanges: BindingChange[];
 }
 
 function fromReply(key: string, reply: HttpReply<PreviewData>): LivePreview {
@@ -35,6 +37,7 @@ function fromReply(key: string, reply: HttpReply<PreviewData>): LivePreview {
     error: ok ? null : messages.length > 0 ? messages.join('\n') : '预览失败：服务没有回应',
     hubChanges: data?.hub_changes ?? [],
     runningTurns: data?.running_turns ?? [],
+    bindingChanges: data?.binding_changes ?? [],
   };
 }
 
@@ -62,7 +65,7 @@ export function useLivePreview(
         },
         () => {
           if (my === seqRef.current) {
-            setResult({ key, ok: false, command: [], warnings: [], error: '预览失败：服务没有回应', hubChanges: [], runningTurns: [] });
+            setResult({ key, ok: false, command: [], warnings: [], error: '预览失败：服务没有回应', hubChanges: [], runningTurns: [], bindingChanges: [] });
           }
         },
       );

@@ -8,6 +8,10 @@ export interface PresetSnapshot {
   roles: Array<{ role: string; explicit: boolean; binding: unknown }>;
 }
 
+export interface RoleSnapshot {
+  roles: Array<{ role: string; explicit: boolean; binding: unknown }>;
+}
+
 export interface PluginSnapshot {
   plugins: Array<{ id: string; enabled: string }>;
 }
@@ -152,6 +156,15 @@ export function rollbackSnapshot(
     plugins: (plugins.plugins ?? [])
       .map((p) => ({ id: p.id, enabled: p.enabled }))
       .sort(byKey<{ id: string }>('id')),
+  };
+}
+
+/** role.set 的快照：roles[].{role,explicit,binding}（按 role；与 presetSnapshot 的角色投影同口径）。 */
+export function roleSnapshot(roles: RolesData): RoleSnapshot {
+  return {
+    roles: roles.roles
+      .map((r) => ({ role: r.role, explicit: r.explicit, binding: r.binding }))
+      .sort(byKey<{ role: string }>('role')),
   };
 }
 

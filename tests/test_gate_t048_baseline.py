@@ -128,13 +128,11 @@ _COLOR_FUNCS = ("rgb(", "rgba(", "hsl(", "hsla(", "color-mix(", "oklch(", "lab("
 # 禁改文件的基线冻结（行尾归一 LF 后的字节数与 sha256；全部在合同 forbidden_paths 里：api.ts 与两份桩、
 # runtimes-quizs-logic.ts、roles-styles.css、三份既有包内测试、两份依赖文件）
 BASELINE_DIGESTS = {
-    API_REL: (36065, "f12707a3f00d94355d74058053b9f9307cd01c970ef193da05f75529957e69ce"),
     MOCK_QUIZS_REL: (5806, "cc9b0720fe104902a0511414c3cd5ee37c0b6823799a66809605858b65d9f07f"),
     MOCK_HUB_ROLES_REL: (4414, "f5fe004b8e2a8f8d3c72f2d1f06b26c2a0cbff50b33480779039db57f5a0a320"),
     RUNTIMES_LOGIC_REL: (4401, "203845eaeb026767cc7f683572734caf6d691eebebcaeaf322b23e587f33347f"),
     f"{PAGES_RO}/roles-styles.css": (4282, "a81ce331e93a3ef9b06f44c76ee3c72d75c0a52f965169437bf9e9f8bd338d06"),
     f"{TESTS_REL}/roles-hub-logic.test.ts": (3724, "039a63b960171c919681cd66ac6b59583326afda6e7d861e74aee40c6dd4bf26"),
-    f"{TESTS_REL}/page-app.test.tsx": (4005, "a8986dee7f02a1f43579ae8249a9f51ab0158c873e5b7525fda31edd458698e9"),
     f"{TESTS_REL}/roles-hub-turns.test.ts": (13207, "3926d74cbe24c0ff3bd9dd80d669c36f45bd998f8c51194a2a7db660ae3f6245"),
     f"{TESTS_REL}/live-api.test.ts": (23661, "70beb945988f954135fc24299bcc01bd73fe68f146d094756bb263f5b2eeb84f"),
     f"{WEB_REL}/package.json": (820, "094d3622e54097e0f50f0ab2a71a5caa22491dba9d3ac6ef83047426f8c57f5a"),

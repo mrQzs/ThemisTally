@@ -17,6 +17,7 @@ import {
   removeProfile,
   removeRuntime,
   rollback,
+  setRoleBinding,
   setHubRole,
   setPluginEnabled,
   unsetHubRole,
@@ -36,6 +37,7 @@ import {
   presetSnapshot,
   profileRemoveSnapshot,
   profileSnapshot,
+  roleSnapshot,
   rollbackSnapshot,
   runtimeRemoveSnapshot,
   sameSnapshot,
@@ -63,6 +65,7 @@ type AddProfileArgs = { profile: string; runtime: string; model: string; thinkin
 type EditProfileArgs = { profile: string; runtime?: string; model?: string; thinking?: string; credential_env?: string[] };
 type AddRuntimeArgs = { runtime: string; adapter: string; command?: string[] };
 type HubSetArgs = { post: string; profile: string; fallback?: string };
+type RoleSetArgs = { role: string; target: string; host?: string; cadence_seconds?: string };
 
 // 轮询上限：写路由时限 90 秒再加宽限（D12：119 秒不下结论，120 秒进「结果未知」）。
 const POLL_LIMIT_MS = 120000;
@@ -92,6 +95,7 @@ function titleOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'runtime.add') return `登记运行时 ${args.runtime}？`;
   if (action === 'hub.set') return `改绑定 ${args.post}？`;
   if (action === 'hub.unset') return `恢复缺省 ${args.post}？`;
+  if (action === 'role.set') return `改角色绑定 ${args.role}？`;
   return `确认操作 ${action}？`;
 }
 
@@ -108,6 +112,7 @@ function successTextOf(action: WriteAction, args: WriteArgs): string {
   if (action === 'runtime.add') return `已登记运行时 ${args.runtime}`;
   if (action === 'hub.set') return `已改绑定 ${args.post}`;
   if (action === 'hub.unset') return `已恢复缺省 ${args.post}`;
+  if (action === 'role.set') return `已改角色绑定 ${args.role}`;
   return `已回滚到 #${args.number} 之后`;
 }
 
@@ -119,6 +124,15 @@ function changeSummaryOf(action: WriteAction, args: WriteArgs): string | null {
     return `岗位 ${args.post} 的主绑定改成 ${args.profile}${fallback === '' ? '，没有替补' : `，替补 ${fallback}`}`;
   }
   if (action === 'hub.unset') return `岗位 ${args.post} 回到内核缺省`;
+  if (action === 'role.set') {
+    // 内核整条替换绑定：带上 host/cadence_seconds 时才追加这一句（切到别的模式时不带，也就不说）。
+    const host = typeof args.host === 'string' ? args.host : '';
+    const cadence = typeof args.cadence_seconds === 'string' ? args.cadence_seconds : '';
+    let suffix = '';
+    if (host !== '') suffix += `（宿主 ${host}）`;
+    if (cadence !== '') suffix += `（间隔 ${cadence} 秒）`;
+    return `角色 ${args.role} 的绑定改成 ${args.target}` + suffix;
+  }
   if (action === 'preset.remove') return `方案表里去掉 ${args.name}，角色绑定不变`;
   if (action === 'profile.remove') return `profile 表里去掉 ${args.profile}`;
   if (action === 'runtime.remove') return `已登记表里去掉 ${args.runtime}；本机文件里登记的命令一并删去`;
@@ -184,6 +198,12 @@ async function readSnapshot(action: WriteAction, isReread: boolean): Promise<Sna
       const hub = await getHubRoles();
       if (!hub.ok || !hub.data) return { ok: false };
       return { ok: true, snapshot: hubSnapshot(hub.data) };
+    }
+    if (action === 'role.set') {
+      // 角色绑定只由 roles 说明：预览与重读各读一次，比对 role/explicit/binding。
+      const roles = await getRoles();
+      if (!roles.ok || !roles.data) return { ok: false };
+      return { ok: true, snapshot: roleSnapshot(roles.data) };
     }
     if (action === 'config.rollback') {
       const [roles, presets, profiles, runtimes, plugins] = await Promise.all([
@@ -520,7 +540,9 @@ export function useWriteFlow(reload?: () => Promise<void>): { start: (spec: Writ
                         ? setHubRole(spec.args as unknown as HubSetArgs, confirmRef.current)
                         : spec.action === 'hub.unset'
                           ? unsetHubRole(sargs.post, confirmRef.current)
-                          : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
+                          : spec.action === 'role.set'
+                            ? setRoleBinding(spec.args as unknown as RoleSetArgs, confirmRef.current)
+                            : setPluginEnabled(sargs.id, spec.action === 'plugin.enable', confirmRef.current);
     call.then(
       (reply) => {
         if (isCurrent(my)) proceed(classifyWrite(reply.status, reply.body), reply.body, my);

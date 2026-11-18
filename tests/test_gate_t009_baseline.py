@@ -2362,20 +2362,15 @@ describe('D06 角色卡', () => {
     expect(textOf(kv(sched)['宿主'])).toBe('codex');
   });
 
-  it('[更改…] 是禁用的 secondary sm，悬停出「第二阶段接入」', async () => {
+  it('[更改…] 是可点的 secondary sm', async () => {
     await mountRoles();
     qa(root('roles'), 'article[data-role]').forEach((c) => {
       const b = btn(c, '更改…');
       expect(b, c.getAttribute('data-role') + ' 应有 [更改…]').not.toBeNull();
-      expect(b.disabled).toBe(true);
+      expect(b.disabled).toBe(false);
       expect(b.getAttribute('data-variant')).toBe('secondary');
       expect(b.getAttribute('data-size')).toBe('sm');
     });
-    vi.useFakeTimers();
-    const b = btn(card('execution'), '更改…');
-    fireEvent.mouseEnter(b.parentElement);
-    advance(400);
-    expect(textOf(document.querySelector('[role="tooltip"]'))).toBe('第二阶段接入');
   });
 
   it('页头 actions：[保存当前为方案…]、[新建 profile] 排在刷新钮之前；[保存当前为方案…] 禁用', async () => {
@@ -2966,9 +2961,9 @@ describe('D11 写入口全部禁用', () => {
     await mountApp('#/roles');
     expect(frame().getAttribute('data-page-state')).toBe('data');
     // 站主按 T044 规划报告 §5 为 T045（七端岗位的改绑定、恢复缺省）放宽（2026-11-15）
-    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑', '改绑定…', '恢复缺省…'])).toEqual([]);
+    expect(outsideWhitelist(['切换…', '使用', '删除…', '删除', '新建 profile', '编辑', '改绑定…', '恢复缺省…', '更改…'])).toEqual([]);
     expect(disabledButtons().length).toBeGreaterThan(0);
-    const later = ['更改…', '保存当前为方案…'];
+    const later = ['保存当前为方案…'];
     const tips = tooltipTexts().filter((t) => later.indexOf(t.split('=')[0]) >= 0);
     expect(tips.length, '要填表单的写入口仍禁用').toBeGreaterThan(0);
     tips.forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));

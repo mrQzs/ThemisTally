@@ -24,10 +24,31 @@ export function modeName(mode: string): string {
   return MODE_NAMES[mode] ?? mode;
 }
 
+// 四个派遣角色各自允许的模式（内核硬规则，出自 scripts/kit_roles.py:31-36）：次序照内核，未知角色不在表里。
+const ROLE_MODES: Record<string, readonly string[]> = {
+  planning_review: ['interactive_host', 'headless'],
+  contract: ['manual', 'headless'],
+  execution: ['headless'],
+  scheduler_agent: ['disabled', 'headless'],
+};
+
+/** 这个角色允许的模式（未知角色给空：界面上没有可选的模式，入口禁用）。 */
+export function allowedModes(code: string): string[] {
+  return [...(ROLE_MODES[code] ?? [])];
+}
+
+/** 全部已登记的 profile id：按输入顺序，滤掉以 _ 开头的（内核把它们当未登记）。 */
+export function profileIds(profiles: readonly ProfilesData['profiles'][number][]): string[] {
+  return profiles
+    .map((p) => p as unknown as LooseProfile)
+    .filter((p) => !p.id.startsWith('_'))
+    .map((p) => p.id);
+}
+
 type RawRole = {
   role: string;
   explicit?: boolean;
-  binding?: { mode?: string; host?: string; profile?: string };
+  binding?: { mode?: string; host?: string; profile?: string; cadence_seconds?: unknown };
   differs_from_preset?: boolean;
   profile?: string | null;
   runtime?: string | null;
@@ -54,6 +75,7 @@ export interface RoleInfo {
   thinking: string | null;
   connected: boolean;
   effortEffective: string | null;
+  cadenceSeconds: number | null;
 }
 
 /** 把 api 的角色行（联合类型）归一成固定字段，本地收窄。 */
@@ -75,7 +97,13 @@ export function normalizeRole(raw: RolesData['roles'][number]): RoleInfo {
     thinking: typeof r.thinking === 'string' ? r.thinking : null,
     connected: r.connected === true,
     effortEffective: typeof r.effort_effective === 'string' ? r.effort_effective : null,
+    cadenceSeconds: numberOrInteger(binding.cadence_seconds),
   };
+}
+
+// 调度间隔（cadence_seconds）：只有整数才给数，字符串数字、小数与缺键一律 null（原样交给界面判断）。
+function numberOrInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) ? value : null;
 }
 
 /** 无头角色解析出的 profile：role.profile 否则 binding.profile。 */
