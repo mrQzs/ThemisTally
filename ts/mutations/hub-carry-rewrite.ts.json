@@ -1,0 +1,46 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-exec-scenes.contract.test.ts",
+    "-t",
+    "站主指名|rework_section：每种 why",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "T01 carryBack 不看站主的指名",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "    if (named !== null && purePathName(attempt) === named && !ATTEMPT_CONCLUDED.includes(state) && pyTruthy(written)",
+      "new": "    if (false && named !== null && purePathName(attempt) === named && !ATTEMPT_CONCLUDED.includes(state) && pyTruthy(written)"
+    },
+    {
+      "name": "T02 指名的越界候选照样接",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "&& pyLess(pyIntOf(or(pyGet(meta, \"plan_version\"), 0n)), written) && carryable(attempt, reworkCommits(ts))) return [attempt, \"rewrite\"];",
+      "new": "&& pyLess(pyIntOf(or(pyGet(meta, \"plan_version\"), 0n)), written)) return [attempt, \"rewrite\"];"
+    },
+    {
+      "name": "T03 指名从别的键读",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  const named = pyGet(or(pyGet(ts, \"owner_carry\"), new Map()), \"attempt\");",
+      "new": "  const named = pyGet(or(pyGet(ts, \"owner_carry\"), new Map()), \"name\");"
+    },
+    {
+      "name": "T04 返工节对 rewrite 照旧写“Scope、DoD 不变”",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  if (why === \"rewrite\") {",
+      "new": "  if (why === \"rewrite-x\") {"
+    },
+    {
+      "name": "T05 返工节对 rewrite 用通用的标题",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "  } else if (why === \"rewrite\") {",
+      "new": "  } else if (why === \"rewrite-x\") {"
+    }
+  ]
+}

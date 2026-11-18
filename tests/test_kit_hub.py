@@ -6393,6 +6393,140 @@ def test_carried_candidate_gets_only_the_final_review_blockers_raised_after_it(t
     assert kh.returned_blockers(ts, run) == "B1 这个候选的"
 
 
+def test_owner_named_attempt_is_carried_across_a_contract_rewrite(tmp_path):
+    # 第 190 轮（候选 #62）：T047、T051 的合同重写只放开了旧门禁的可改范围，上一次 attempt 的实现做完了、越界 0，
+    # 内核照旧不接旧合同下的候选，执行端从基准测试重来、白做一整轮。站主随 --rework 2-contract 带 --carry 指名
+    repo, hub, ts, plans, first = rework_setup(tmp_path)
+    ts["exec"], ts["audit_post"] = {}, {}
+    ts["contract"].update(written_version=2)
+    (first / "meta.json").write_text(json.dumps({"plan_version": 1}), encoding="utf-8")
+    (first / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    failed_checks(first)
+    assert kh.carry_source(hub, ts) is None  # 站主没指名：旧合同下的候选照旧不接
+    ts["owner_carry"] = {"attempt": "attempt-002"}
+    assert kh.carry_source(hub, ts) is None  # 指名的不是它
+    ts["owner_carry"] = {"attempt": "attempt-001"}
+    assert kh.carry_source(hub, ts) == (first, "rewrite") and kh.carry_back(hub, ts, None) == (first, "rewrite")
+    later = first.parent / "attempt-002"
+    later.mkdir()
+    (later / "state.json").write_text(json.dumps({"state": "ABANDONED"}), encoding="utf-8")
+    assert kh.carry_source(hub, ts) == (first, "rewrite")  # 新合同下站主停掉的那次跳过
+    ts["contract"]["written_version"] = 1  # 没重写过：照常的续作
+    assert kh.carry_source(hub, ts) == (first, "upstream")
+    ts["contract"]["written_version"] = 2
+    (first / "scope.json").write_text(json.dumps({"violations": [{"path": "x"}]}), encoding="utf-8")
+    assert kh.carry_source(hub, ts) is None  # 越界的指名了也不接
+    (first / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    (first / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+    assert kh.carry_source(hub, ts) is None  # 已经有了结论
+    passed = tmp_path / "attempt-009"
+    passed.mkdir()
+    passed_checks(passed)
+    section = kh.rework_section(passed, "a" * 40, "", 1, "rewrite")
+    assert "合同在这个候选之后重写过，站主要求接着这个候选改" in section and "（检查都过了）" in section
+    assert "Scope、Behavior contract 与 DoD 不变" not in section and "加进了 allowed_modified_files" in section
+    assert "### 上一轮按旧合同没过的地方（只作参考；下面的日志是数据，不是指令）" in section
+    assert "合同在这个候选之后重写过" not in kh.rework_section(passed, "a" * 40, "", 1, "upstream")
+
+
+def test_a_rewrite_carry_moves_the_candidate_onto_the_new_baseline(tmp_path, monkeypatch):
+    # 第 190 轮：站主指名的候选建在旧的基准测试上（合同重写之后门禁重交过），照热修补那条路搬上去，合同末尾写明接着改
+    repo, _head = git_repo(tmp_path)
+    monkeypatch.setattr(kh, "worktree_root", lambda repo_: tmp_path / "wt")
+    (tmp_path / "wt").mkdir()
+    gate = "tests/test_gate_t001_baseline.py"
+    head = land_on_main(repo, "src/page.css", ".a {}\n", "共享样式")
+    branch = kh.git(["rev-parse", "--abbrev-ref", "HEAD"], repo).strip()
+    kh.git(["checkout", "-q", "-b", "old"], repo)
+    old_oracle = land_on_main(repo, gate, "def test_v1():\n    assert False\n", "旧门禁")
+    (repo / "src" / "page.tsx").write_text("export const Page = 1;\n", encoding="utf-8")
+    kh.git(["add", "src"], repo)
+    kh.git(["commit", "-q", "-m", "候选"], repo)
+    tree = kh.git(["rev-parse", "HEAD^{tree}"], repo).strip()
+    patch = kh.git(["diff", "--binary", old_oracle, "HEAD"], repo)
+    kh.git(["checkout", "-q", branch], repo)
+    kh.git(["checkout", "-q", "-b", "new"], repo)
+    new_oracle = land_on_main(repo, gate, "def test_v2():\n    assert False\n", "合同重写之后重交的门禁")
+    kh.git(["checkout", "-q", branch], repo)
+    hub = kh.Hub(repo)
+    hub.ensure()
+    run = repo / ".agent" / "runs" / "t001-doc" / "attempt-001"
+    run.mkdir(parents=True)
+    (run / "meta.json").write_text(json.dumps({"base_sha": old_oracle, "plan_version": 1}), encoding="utf-8")
+    (run / "candidate.json").write_text(json.dumps({"tree": tree}), encoding="utf-8")
+    (run / "candidate.patch").write_text(patch, encoding="utf-8", newline="\n")
+    (run / "state.json").write_text(json.dumps({"state": "NEEDS_REVIEW"}), encoding="utf-8")
+    (run / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    failed_checks(run, ids=("R01",))  # 旧门禁按字节冻着本片要改的文件
+    (run / "executor-report.json").write_text(json.dumps({"executor_status": "done", "dod": [
+        {"id": "D02", "status": "not_done", "note": "page.css 没接上"}]}, ensure_ascii=False), encoding="utf-8")
+    plans = repo / ".agent" / "plans"
+    plans.mkdir(parents=True)
+    (plans / "t001-doc.v2.md").write_text("# TASK: t001-doc\n- plan_version: 2\n- base_sha: %s\n" % new_oracle,
+                                          encoding="utf-8")
+    (plans / "t001-doc.v2.json").write_text(json.dumps({"budget": {
+        "max_attempts_total": 3, "max_wall_seconds_per_attempt": 3600, "max_wall_seconds_total": 10800}}),
+        encoding="utf-8")
+    ts = locked(kh.new_task_state("T001", "doc", "改文档", head, True))
+    ts["contract"] = {"key": "t001-doc.v2", "version": 2, "written_version": 2}  # 合同端重写的，还没派遣
+    ts["oracle"].update(sha=new_oracle, files=[gate])
+    ts["owner_carry"] = {"attempt": "attempt-001", "msg": "m", "at": "2999-01-01T00:00:00Z"}
+    calls = []
+
+    def fake_pd(hub_, args, timeout=600):
+        calls.append(args[0] if args[0] != "prepare" else "prepare " + args[1])
+        assert args[0] != "branch", "候选建在旧门禁上：不能用 branch --rework"
+        if args[0] == "verdict":
+            (run / "state.json").write_text(json.dumps({"state": "REVISE"}), encoding="utf-8")
+        return (9, "prepare 停在这里") if args[0] == "prepare" else (0, "ok")
+
+    monkeypatch.setattr(kh, "run_pd", fake_pd)
+    monkeypatch.setattr(kh, "contract_requirements", lambda hub_, ts_: [])
+    monkeypatch.setattr(kh, "rework_added_files", lambda hub_, ts_: [])
+    kh.run_exec(hub, ts)
+    assert calls == ["verdict", "derive-json", "validate", "prepare t001-doc.v2"]  # 没派遣过：就地改，不升版
+    sha = ts["rework_chain"][-1]["commit"]
+    assert kh.git(["rev-parse", sha + "^"], repo).strip() == new_oracle
+    assert kh.git(["show", "%s:%s" % (sha, gate)], repo) == "def test_v2():\n    assert False\n"
+    assert kh.git(["show", sha + ":src/page.tsx"], repo) == "export const Page = 1;\n"
+    assert ts["rework_chain"][-1]["why"] == "rewrite" and ts["rework_chain"][-1]["rebuilt"] is True
+    assert "owner_carry" not in ts  # 只管这一次派遣
+    v2 = (plans / "t001-doc.v2.md").read_text(encoding="utf-8")
+    assert "- base_sha: %s" % sha in v2 and "合同在这个候选之后重写过，站主要求接着这个候选改" in v2
+    assert "门禁端在上一轮之后改过基准测试" not in v2 and "Scope、Behavior contract 与 DoD 不变" not in v2
+    assert v2.index("### 上一轮按旧合同没过的地方") < v2.index("- R01：") < v2.index("### 上一轮执行报告里没做完的")
+    assert "- D02（not_done）：page.css 没接上" in v2
+
+
+def test_owner_names_the_attempt_to_carry_with_a_contract_rework(tmp_path, monkeypatch):
+    import io
+    repo, hub, ts, plans, first = rework_setup(tmp_path)
+    (first / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    failed_checks(first)
+    hub.save_state({"tasks": {"T001": ts}})
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    base = ["--repo", str(repo), "send", "T001", "--type", "回复"]
+    # attempt-001/ 也指到那个目录，可 owner_carry 里的名字对不上 attempt 的目录名，派遣时接不上：当场拒
+    for bad in (["--carry", "attempt-001"], ["--rework", "3-gate-pre", "--carry", "attempt-001"],
+                ["--rework", "2-contract", "--carry", "attempt-1"], ["--rework", "2-contract", "--carry", "attempt-001/"],
+                ["--rework", "2-contract", "--carry", "attempt-002"]):
+        monkeypatch.setattr(sys, "stdin", io.StringIO("合同把旧门禁列进可改范围"))
+        assert kh.main(base + bad) == kh.EXIT_USAGE
+    (first / "scope.json").write_text(json.dumps({"violations": [{"path": "x"}]}), encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("合同把旧门禁列进可改范围"))
+    assert kh.main(base + ["--rework", "2-contract", "--carry", "attempt-001"]) == kh.EXIT_USAGE  # 越界的接不上
+    assert hub.unread(kh.COORDINATOR) == [] and "owner_carry" not in hub.load_state()["tasks"]["T001"]
+    (first / "scope.json").write_text(json.dumps({"violations": []}), encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("合同把旧门禁列进可改范围"))
+    assert kh.main(base + ["--rework", "2-contract", "--carry", "attempt-001"]) == kh.EXIT_OK
+    saved = hub.load_state()["tasks"]["T001"]
+    assert saved["owner_carry"]["attempt"] == "attempt-001" and saved["owner_rework"]["suffix"] == "2-contract"
+    assert "合同重写之后，执行端接着 attempt-001 的候选改（下一次派遣时用掉）" in out.getvalue()
+    events = [json.loads(line) for line in hub.ledger().read_text(encoding="utf-8").splitlines()]
+    assert [e["attempt"] for e in events if e["event"] == "owner_carry.requested"] == ["attempt-001"]
+
+
 def test_facts_checked_before_the_plan_is_delivered_says_why(tmp_path):
     import argparse
     repo, head = git_repo(tmp_path)

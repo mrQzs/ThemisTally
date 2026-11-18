@@ -23,6 +23,7 @@ const valueOf = (result: ProbeResult | undefined): PyValue => fromTagged(result?
 const TESTS = [
   "test_a_cut_off_attempt_is_continued_instead_of_restarted", "test_a_failed_attempt_claiming_gate_defects_waits_for_the_owner",
   "test_a_finished_attempt_whose_checks_failed_is_continued_instead_of_restarted", "test_a_gate_hotfix_moves_the_candidate_onto_the_new_baseline",
+  "test_a_rewrite_carry_moves_the_candidate_onto_the_new_baseline",
   "test_a_kernel_revise_without_an_audit_says_so", "test_a_rework_commit_that_cannot_land_takes_the_oracle_back_off_too",
   "test_a_timed_out_attempt_is_continued_instead_of_restarted", "test_a_timed_out_attempt_that_changed_nothing_waits_for_the_owner",
   "test_an_attempt_whose_candidate_was_not_collected_waits_for_the_owner", "test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base",

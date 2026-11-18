@@ -135,7 +135,7 @@
   {
    "name": "R21 剩余工作只给 failed",
    "file": "ts/packages/hub/src/runexec.ts",
-   "old": "why === \"failed\" || why === \"upstream\" ? reportLeftovers",
+   "old": "why === \"failed\" || why === \"upstream\" || why === \"rewrite\" ? reportLeftovers",
    "new": "why === \"failed\" ? reportLeftovers"
   },
   {

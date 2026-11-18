@@ -3121,6 +3121,27 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 门禁端交差前用一份最小的正确实现草稿真跑一遍探针：大多数片的正确实现就是本片的活，门禁端写不出来；按路径回数据这条已经针对 T052 的那个坑。
   - 一审的“规划依赖的仓库外事实”之外再加一类“探针依赖的仓库内机制”核对：一审这次已经按代码逐行查出来了，现有规矩够用。
 
+### 第 190 轮：合同重写之后，站主可以指名接着哪次 attempt 的候选改（候选 #62）
+
+- **起因**：
+  - T047（11-17）、T051（11-18）两次都是同一种情形：上一次 attempt 的实现做完了、越界 0，检查只红在旧门禁的字节冻结上；站主让合同出新版本，只把那两份旧门禁列进可改范围、逐字写明删哪几行。合同端重写之后 written_version 变了，carry_back 见到 attempt 的合同版本低于它就不接，执行端从基准测试重来：T047 的 attempt-003 用了 5222/5400 秒、输出 11.3 万 token 把片一从头重写；T051 的 attempt-002 从头做了 57 分钟，之后的内核检查、战后门禁、终审照样全走。
+  - 内核分不出一次重写是只动了范围，还是改了行为，所以不自动续作，由站主指名。
+- **改法**（Python 与 TS 同改）：
+  - 站主的 send 加 `--carry attempt-NNN`：只能随 `--rework 2-contract` 发，名字要是 attempt 的目录名（`attempt-` 加三位数字，末尾带斜杠这类指到同一个目录、派遣时却对不上名字的当场拒）。发的时候就核对这个 attempt 接不接得上（carryable：没有结论、越界 0、候选里有活），接不上不投信。记进主任务的 owner_carry（attempt、信号、时间），账本记 owner_carry.requested，终端回一句“合同重写之后，执行端接着 attempt-NNN 的候选改（下一次派遣时用掉）”。
+  - carry_back：照旧从最近的 attempt 往前找（站主停掉的跳过）；碰到的那一次就是站主指名的、还没有结论、按旧版本合同做的、而且接得上时，返回它，why 是 rewrite。别的情形一个字不变。
+  - 接上之后走现有的续作路：记 REVISE，门禁重交过就由 rebase_candidate 把候选搬到当前基准测试上，建返工提交，合同的 base_sha 指过去；阻塞项一节放上一轮没过的检查（failure_lines），执行报告里没做完的一并带上（report_leftovers）。
+  - rework_section 的 rewrite：写明合同在这个候选之后重写过、站主要求接着改，以重写后的 Scope、Behavior contract 与 DoD 为准，做对的保留、不一致的照本合同改；下面列的是按旧合同跑的检查没过的地方，只作参考。不再写“Scope、DoD 不变，阻塞项以外不动”（对旧合同下的候选不成立），标题是“上一轮按旧合同没过的地方（只作参考；…）”。
+  - run_exec：派遣之前清掉 owner_carry，接没接上都只管这一次。
+- **测试**：
+  - test_kit_hub 新增三条：`test_owner_named_attempt_is_carried_across_a_contract_rewrite`（没指名、指名别的、新合同下站主停掉的跳过、没重写照常续作、越界、已有结论；rewrite 的返工节文字）；`test_a_rewrite_carry_moves_the_candidate_onto_the_new_baseline`（门禁重交过的候选搬到新基准测试上、why 与 rebuilt、owner_carry 用掉、合同末尾的三段次序）；`test_owner_names_the_attempt_to_carry_with_a_contract_rework`（五种拒法、越界的当场拒且不投信、记进状态、账本与终端那句）。
+  - 三边契约：前两条进 hub-exec 的采样重放，第二条进 hub-runexec，第三条进 hub-commands；hub-exec-scenes 手写 carry_back 带指名的十一种（越界、两种 why、指名的被跳过、没重写、名字不是字符串、空的与不是字典的 owner_carry、written_version 是字符串时同型报错），rework_section 的逐种 why 加上 rewrite。
+- **变异**：新写 hub-carry-rewrite（py 10、ts 5、ts-cmd 4、ts-run 2）：不看指名、越界照接、读错键、返工节与标题照旧、不带剩余工作、派遣时不清指名、不随合同返工也收、当场不核对、记不进状态、名字带斜杠也收。三条旧变异的锚点跟着挪：hub-g2 的 R21（剩余工作那一行多了 rewrite）、rework-upstream-note 的 V03（改锚在 rewrite 分支之前）；hub-g1 的 E46 本来要出现两次（TS 的 rewrite 分支照抄了那一行），改成元组写法，清单不动。新写的 21 条全部抓住；挪过锚的 R21、V03 与 E46 单独各跑一遍，都抓住。
+- **检查**：类型检查 0 错；内核测试 429 passed；手写场景（hub-exec-scenes、hub-commands-scenes、hub-runexec-scenes）49 条，hub-exec、hub-commands、hub-runexec 的采样重放 5 条（Python、Node、Bun 三边一致）；四份新变异 21/21。第一遍元测试红了 1 条（上面三条旧锚），改完复检：类型检查、元测试 5 条、hub-exec-scenes 15 条、hub-exec 1 条、TS 新变异 5/5、三条旧变异各 1/1。
+- **没做**：
+  - 指名比最近一次更早的 attempt：carry_back 碰到最近一次有了去处就停，send 只核对 carryable。T047、T051 指名的都是最近一次，先不为更早的开口子。
+  - 规划端返工（1-plan）之后的续作、撤回一次指名：用得上再加；指名只活到下一次派遣。
+  - 只动了范围的重写自动续作：内核分不出重写改没改行为，由站主决定。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

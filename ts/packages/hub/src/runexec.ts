@@ -174,6 +174,7 @@ export async function runExec(hub: Hub, ts: PyDict, deps: ExecDeps = REAL_EXEC_D
         return notStarted("合同的执行模型没有对上名册，执行端没有开始", problem, pyItem(pyItem(ts, "contract"), "md"));
       }
     }
+    ts.delete("owner_carry"); // 第 190 轮：站主的续作指名只管这一次派遣，接没接上都用掉
     return dispatchAttempt(hub, ts, deps);
   }, deps);
 }
@@ -240,8 +241,8 @@ export async function startRework(hub: Hub, ts: PyDict, previous: string, why: P
   } else {
     blockers = failureLines(previous);
   }
-  // 第 120 轮：执行端写进报告的剩余工作。failed 这条路不经终审；upstream 接上的候选，终审未必看过这份报告
-  const leftovers = why === "failed" || why === "upstream" ? reportLeftovers(previous) : "";
+  // 第 120 轮：执行端写进报告的剩余工作。failed 这条路不经终审；upstream、rewrite 接上的候选，终审未必看过这份报告
+  const leftovers = why === "failed" || why === "upstream" || why === "rewrite" ? reportLeftovers(previous) : "";
   const number = BigInt(pyLenValue(or(pyGet(ts, "rework_chain"), []))) + 1n;
   // 终审返工照旧一律升版（prepare 失败过的返工版本也不就地改）；超时、热修补之后的版本没派遣过就就地改
   let problems = pyTruthy(pyGet(pyItem(ts, "contract"), "dispatched")) || why === "audit" ? await bumpContractVersion(hub, ts) : [];

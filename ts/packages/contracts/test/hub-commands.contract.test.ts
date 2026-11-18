@@ -24,6 +24,7 @@ const TESTS = [
   "test_facts_checked_before_the_plan_is_delivered_says_why", "test_finished_tasks_remove_their_stage_worktrees",
   "test_ledger_session_and_decision_records_with_u2028_are_read_back", "test_metrics_reports_per_turn_costs_and_converts_legacy_session_totals",
   "test_owner_adds_a_dependency_found_in_planning", "test_owner_can_order_a_rework_before_the_first_review",
+  "test_owner_names_the_attempt_to_carry_with_a_contract_rework",
   "test_owner_raises_the_attempt_budget", "test_owner_rebases_a_task_before_its_contract_starts",
   "test_owner_reply_piped_on_a_non_utf8_console_keeps_its_text", "test_owner_rework_records_the_letter_text",
   "test_owner_takeover_closes_the_task", "test_owner_unsticks_a_stage_nobody_is_working_on",

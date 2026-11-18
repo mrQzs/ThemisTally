@@ -1,0 +1,40 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-commands.contract.test.ts",
+    "-t",
+    "站主命令",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T06 --carry 不随 --rework 2-contract 也收",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "  if (carry !== null && (rework !== \"2-contract\" || !CARRY_NAME_RE.test(carry))) {",
+      "new": "  if (carry !== null && !CARRY_NAME_RE.test(carry)) {"
+    },
+    {
+      "name": "T07 指名的 attempt 当场不核对接不接得上",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "    if (carry !== null && !carryable(",
+      "new": "    if (false && carry !== null && !carryable("
+    },
+    {
+      "name": "T08 目录名末尾带斜杠也收",
+      "file": "ts/packages/hub/src/exec.ts",
+      "old": "export const CARRY_NAME_RE = /^attempt-[0-9]{3}$/u;",
+      "new": "export const CARRY_NAME_RE = /^attempt-[0-9]{3}\\/?$/u;"
+    },
+    {
+      "name": "T09 指名记不进主任务状态",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "      (ts as PyDict).set(\"owner_carry\", new Map",
+      "new": "      (ts as PyDict).set(\"owner_carry_x\", new Map"
+    }
+  ]
+}

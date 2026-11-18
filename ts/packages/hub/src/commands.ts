@@ -25,7 +25,7 @@ import {
 import { answersQuestion, contractPaths } from "./contract.ts";
 import { Engine, type EngineDeps, REAL_ENGINE_DEPS, releaseDependents } from "./engine.ts";
 import { HubError } from "./errors.ts";
-import { ATTEMPT_IN_FLIGHT, attemptsLeft } from "./exec.ts";
+import { ATTEMPT_IN_FLIGHT, CARRY_NAME_RE, attemptsLeft, carryable, reworkCommits } from "./exec.ts";
 import { heavyHolder, laneQueue } from "./heavy.ts";
 import { git } from "./kernel.ts";
 import { landingBlockers } from "./land.ts";
@@ -543,6 +543,10 @@ export async function cmdSend(args: CommandArgs, out: CommandOut = new PyOut(), 
     }
     fields.set("需协调人决定", `站主要求 ${task}-${rework} 返工：给它发“返工”，brief 写清站主要改的地方`);
   }
+  const carry = optional(args, "carry");
+  if (carry !== null && (rework !== "2-contract" || !CARRY_NAME_RE.test(carry))) {
+    throw new HubError("--carry 只能随 --rework 2-contract 发，写 attempt 的目录名（例如 attempt-001）", EXIT_USAGE);
+  }
   if (factsChecked) {
     if (kind !== "回复") throw new HubError("--facts-checked 只能随“回复”发", EXIT_USAGE);
     fields.set("需协调人决定", "站主已核实规划依赖的仓库外事实（结果见摘要）：开工合同端时把核实结果写进 brief");
@@ -560,6 +564,9 @@ export async function cmdSend(args: CommandArgs, out: CommandOut = new PyOut(), 
     decision = decision || (!noDecision && ts !== null && kind === "回复" && !rework
       && !pyTruthy(getOf(orMap(getOf(ts, "contract")), "version")) && answersQuestion(hub, replyTo));
     if (rework && ts === null) throw new HubError(`没有登记主任务 ${task}`, EXIT_USAGE);
+    if (carry !== null && !carryable(purePathStr(hub.repo, ".agent", "runs", pyStrValue(pyItem(ts as PyDict, "contract_task")), carry), reworkCommits(ts as PyDict))) {
+      throw new HubError(`${carry} 接不上：要有这个 attempt、还没有结论（TIMEOUT 或 NEEDS_REVIEW）、越界 0 条、候选里有活`, EXIT_USAGE);
+    }
     if (factsChecked && !pyTruthy(getOf(orMap(getOf(ts ?? new Map(), "external_facts")), "pending"))) {
       const early = ts !== null && !pyEq(pyItem(pyItem(pyItem(ts, "stages"), "1-plan"), "status"), "delivered");
       throw new HubError(`${task} 没有待核实的仓库外事实${early
@@ -573,6 +580,11 @@ export async function cmdSend(args: CommandArgs, out: CommandOut = new PyOut(), 
         ["suffix", rework], ["msg", delivered], ["requested_at", utcNow()], ["text", fields.get("摘要") as string],
       ]));
       await hub.appendEvent("owner_rework.requested", [["task", task], ["suffix", rework], ["msg", delivered]]);
+    }
+    if (carry !== null) {
+      // 第 190 轮（候选 #62）：合同重写之后接着这个 attempt 的候选改，下一次派遣时用掉（carryBack）
+      (ts as PyDict).set("owner_carry", new Map<string, PyValue>([["attempt", carry], ["msg", delivered], ["at", utcNow()]]));
+      await hub.appendEvent("owner_carry.requested", [["task", task], ["attempt", carry], ["msg", delivered]]);
     }
     if (factsChecked) {
       const record = pyItem(ts as PyDict, "external_facts") as PyDict;
@@ -593,6 +605,7 @@ export async function cmdSend(args: CommandArgs, out: CommandOut = new PyOut(), 
   });
   out.print(`已投递 ${msg}`);
   if (decision) out.print("已记为站主决定：之后合同端交的合同末尾会附上这封信的原文（不想附就带 --no-decision）");
+  if (carry !== null) out.print(`合同重写之后，执行端接着 ${carry} 的候选改（下一次派遣时用掉）`);
   return EXIT_OK;
 }
 

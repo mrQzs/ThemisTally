@@ -1,0 +1,78 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "carried_across_a_contract_rewrite or rewrite_carry_moves or names_the_attempt_to_carry"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 carry_back 不看站主的指名",
+      "file": "scripts/kit_hub.py",
+      "old": "        if (named is not None and attempt.name == named and state not in ATTEMPT_CONCLUDED and written",
+      "new": "        if (False and named is not None and attempt.name == named and state not in ATTEMPT_CONCLUDED and written"
+    },
+    {
+      "name": "P02 指名的越界候选照样接",
+      "file": "scripts/kit_hub.py",
+      "old": "                and int(meta.get(\"plan_version\") or 0) < written and carryable(attempt, rework_commits(ts))):",
+      "new": "                and int(meta.get(\"plan_version\") or 0) < written):"
+    },
+    {
+      "name": "P03 返工节对 rewrite 照旧写“Scope、DoD 不变”",
+      "file": "scripts/kit_hub.py",
+      "old": "    if why == \"rewrite\":\n        # 第 190 轮（候选 #62）",
+      "new": "    if why == \"rewrite-x\":\n        # 第 190 轮（候选 #62）"
+    },
+    {
+      "name": "P04 返工节对 rewrite 用通用的标题",
+      "file": "scripts/kit_hub.py",
+      "old": "    elif why == \"rewrite\":\n        title = ",
+      "new": "    elif why == \"rewrite-x\":\n        title = "
+    },
+    {
+      "name": "P05 rewrite 不带上一轮报告里没做完的",
+      "file": "scripts/kit_hub.py",
+      "old": "    leftovers = report_leftovers(previous) if why in (\"failed\", \"upstream\", \"rewrite\") else \"\"",
+      "new": "    leftovers = report_leftovers(previous) if why in (\"failed\", \"upstream\") else \"\""
+    },
+    {
+      "name": "P06 派遣时不清站主的指名",
+      "file": "scripts/kit_hub.py",
+      "old": "        ts.pop(\"owner_carry\", None)  # 第 190 轮",
+      "new": "        ts.get(\"owner_carry\", None)  # 第 190 轮"
+    },
+    {
+      "name": "P07 --carry 不随 --rework 2-contract 也收",
+      "file": "scripts/kit_hub.py",
+      "old": "    if carry is not None and (args.rework != \"2-contract\" or not CARRY_NAME_RE.fullmatch(carry)):",
+      "new": "    if carry is not None and not CARRY_NAME_RE.fullmatch(carry):"
+    },
+    {
+      "name": "P08 指名的 attempt 当场不核对接不接得上",
+      "file": "scripts/kit_hub.py",
+      "old": "        if carry is not None and not carryable(hub.repo",
+      "new": "        if False and carry is not None and not carryable(hub.repo"
+    },
+    {
+      "name": "P09 指名记不进主任务状态",
+      "file": "scripts/kit_hub.py",
+      "old": "            ts[\"owner_carry\"] = {\"attempt\": carry, \"msg\": msg, \"at\": utc_now()}",
+      "new": "            ts[\"owner_carry_x\"] = {\"attempt\": carry, \"msg\": msg, \"at\": utc_now()}"
+    },
+    {
+      "name": "P10 目录名末尾带斜杠也收",
+      "file": "scripts/kit_hub.py",
+      "old": "CARRY_NAME_RE = re.compile(r\"attempt-[0-9]{3}\")",
+      "new": "CARRY_NAME_RE = re.compile(r\"attempt-[0-9]{3}/?\")"
+    }
+  ]
+}

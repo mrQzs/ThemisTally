@@ -1,0 +1,28 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-runexec.contract.test.ts",
+    "-t",
+    "改状态的五个函数",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T10 rewrite 不带上一轮报告里没做完的",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "  const leftovers = why === \"failed\" || why === \"upstream\" || why === \"rewrite\" ? reportLeftovers(previous) : \"\";",
+      "new": "  const leftovers = why === \"failed\" || why === \"upstream\" ? reportLeftovers(previous) : \"\";"
+    },
+    {
+      "name": "T11 派遣时不清站主的指名",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "    ts.delete(\"owner_carry\"); // 第 190 轮",
+      "new": "    ts.get(\"owner_carry\"); // 第 190 轮"
+    }
+  ]
+}
