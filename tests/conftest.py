@@ -10,13 +10,17 @@
 - 设了环境变量 ``TT_FRONTEND_TESTS=1``。
 
 全量回归一次点名几十份门禁时，同一棵树上它们的流水线各自重装依赖、重跑整套 Vitest，结果都一样：``memo_gate_runs`` 让这两样在一个会话里只真跑一次（第 186 轮）。
+
+门禁基准交给 ``re.*`` 的正则字面量，收集时先各编译一遍，编译不过的那份门禁收集失败（``GateModule``，第 193 轮）。
 """
 
+import ast
 import hashlib
 import inspect
 import os
 import re
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -180,3 +184,141 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
     for item in items:
         if SLOW_FIXTURE in getattr(item, "fixturenames", ()) and Path(str(item.path)).resolve() not in named:
             item.add_marker(skip)
+
+
+#: 第 193 轮（候选 #72）：T054 的门禁把 r"\bxit\(" 写成了 r"\xit\("，编译不过。被扫的新文件在基线上还不存在，那条分支
+#: 走不到，基线检查照样算“在断言上失败”；执行端跑完 50 分钟才红在这一处，又搭进一轮热修补。内核收门禁时跑的
+#: pytest --collect-only（accept_gate_pre）会把收集失败当场挡回门禁端。认的是 re.* 的第一个参数：字符串常量；名字，
+#: 由外层 for、推导式从字面量元组、列表里取出（拆包也认，被遍历的也可以是模块级的字面量），或是模块级的字符串。
+#: 名字在所在函数里另有绑定（参数、赋值）的不认；flags 认不得的不编（re.X 改变写法的含义）；f-string、拼接不管。
+_RE_FLAG_AT = {"compile": 1, "search": 2, "match": 2, "fullmatch": 2, "findall": 2, "finditer": 2, "split": 3,
+               "sub": 4, "subn": 4}
+_RE_FLAGS = {"A", "ASCII", "I", "IGNORECASE", "M", "MULTILINE", "S", "DOTALL", "U", "UNICODE", "X", "VERBOSE"}
+
+
+def regex_literal_problems(source: str) -> list:
+    """源码里交给 re.* 却编译不过的正则字面量，按行号排，每处一行：行号、照源码的写法、re 的报错。
+    只用 ASCII：内核与调度器起的 pytest 输出是 cp1252，报错里有一个字编不了码，pytest 就把整段转成 \\uXXXX
+    （换行、反斜杠一起转），门禁读到的 r"\\xit\\(" 会变成两个反斜杠。"""
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    module = _module_values(tree)
+    problems = {}
+    for call in ast.walk(tree):
+        flags = _re_call_flags(call)
+        if flags is None:
+            continue
+        first = call.args[0]
+        if isinstance(first, ast.Name):
+            literals = _bound_literals(first.id, call, parents, module)
+        else:
+            literals = [first] if _is_string(first) else []
+        for literal in literals:
+            error = _compile_error(literal.value, flags)
+            if error:
+                written = ast.get_source_segment(source, literal) or repr(literal.value)
+                problems[(literal.lineno, literal.col_offset)] = "line %d %s: %s" % (literal.lineno, written, error)
+    return [problems[key] for key in sorted(problems)]
+
+
+def _re_call_flags(node):
+    """node 是 re.<函数>(模式, …) 时给 flags 的值；不是这样的调用，或 flags 认不得，给 None。"""
+    if not (isinstance(node, ast.Call) and node.args and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name) and node.func.value.id == "re" and node.func.attr in _RE_FLAG_AT):
+        return None
+    at = _RE_FLAG_AT[node.func.attr]
+    given = [keyword.value for keyword in node.keywords if keyword.arg == "flags"] + node.args[at:at + 1]
+    return _flag_value(given[0]) if given else 0
+
+
+def _flag_value(node):
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "re" \
+            and node.attr in _RE_FLAGS:
+        return int(getattr(re, node.attr))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left, right = _flag_value(node.left), _flag_value(node.right)
+        return None if left is None or right is None else left | right
+    return None
+
+
+def _strings(node, index=None):
+    """字面量元组、列表里的字符串常量；给了 index 就取每个内层元组、列表的第 index 项。"""
+    items = node.elts if isinstance(node, (ast.Tuple, ast.List)) else []
+    if index is not None:
+        items = [item.elts[index] for item in items if isinstance(item, (ast.Tuple, ast.List)) and len(item.elts) > index]
+    return [item for item in items if _is_string(item)]
+
+
+def _is_string(node):
+    return isinstance(node, ast.Constant) and isinstance(node.value, str)
+
+
+def _module_values(tree):
+    """模块级的“名字 = 值”。同名的取最后一次：用例跑起来时模块早已导入完。"""
+    return {stmt.targets[0].id: stmt.value for stmt in tree.body
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name)}
+
+
+def _bound_literals(name, call, parents, module):
+    """名字 name 在 call 处取得到的字符串常量；认不出给空。"""
+    node = call
+    while node in parents:
+        node = parents[node]
+        for loop in [node] if isinstance(node, ast.For) else getattr(node, "generators", []):
+            found = _loop_literals(name, loop, module)
+            if found is not None:
+                return found
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and _binds(node, name):
+            return []
+    value = module.get(name)
+    return [value] if _is_string(value) else []
+
+
+def _loop_literals(name, loop, module):
+    """for 或推导式的一层把 name 当循环变量（或拆包的一项）时，它从字面量里取到的字符串常量；不是循环变量给 None。"""
+    iterable = module.get(loop.iter.id) if isinstance(loop.iter, ast.Name) else loop.iter
+    if isinstance(loop.target, ast.Name):
+        return _strings(iterable) if loop.target.id == name else None
+    parts = loop.target.elts if isinstance(loop.target, ast.Tuple) else []
+    for index, part in enumerate(parts):
+        if isinstance(part, ast.Name) and part.id == name:
+            return _strings(iterable, index)
+    return None
+
+
+def _binds(function, name):
+    """name 是 function 的参数，或在 function 里被赋值过。"""
+    args = function.args
+    params = args.posonlyargs + args.args + args.kwonlyargs + [arg for arg in (args.vararg, args.kwarg) if arg]
+    return any(arg.arg == name for arg in params) or any(
+        isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == name for node in ast.walk(function))
+
+
+def _compile_error(pattern, flags):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # “可能是嵌套集合”之类的 FutureWarning 不算编译不过
+        try:
+            re.compile(pattern, flags)
+        except re.error as exc:
+            return str(exc)
+    return None
+
+
+class GateModule(pytest.Module):
+    """门禁基准模块：导入之前先把交给 re.* 的正则字面量各编译一遍。"""
+
+    def collect(self):
+        try:
+            problems = regex_literal_problems(self.path.read_text(encoding="utf-8"))
+        except (SyntaxError, ValueError):
+            problems = []  # 照常导入，语法、编码错误由 pytest 自己报
+        if problems:
+            raise self.CollectError("regex literal handed to re.* does not compile (tests/conftest.py compiles them "
+                                    "at collection, round 193):\n" + "\n".join(problems))
+        return super().collect()
+
+
+def pytest_pycollect_makemodule(module_path, parent):
+    if _GATE_FILE.search(module_path.name):
+        return GateModule.from_parent(parent, path=module_path)
+    return None

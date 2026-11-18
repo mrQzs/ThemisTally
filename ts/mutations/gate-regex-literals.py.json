@@ -1,0 +1,124 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_gate_regex_literals.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "X01 收集时不核对",
+      "file": "tests/conftest.py",
+      "old": "if problems:\n            raise self.CollectError(",
+      "new": "if False:\n            raise self.CollectError("
+    },
+    {
+      "name": "X02 门禁基准不换成 GateModule",
+      "file": "tests/conftest.py",
+      "old": "return GateModule.from_parent(parent, path=module_path)",
+      "new": "return None"
+    },
+    {
+      "name": "X03 for 的循环变量不认",
+      "file": "tests/conftest.py",
+      "old": "for loop in [node] if isinstance(node, ast.For) else getattr(node, \"generators\", []):",
+      "new": "for loop in getattr(node, \"generators\", []):"
+    },
+    {
+      "name": "X04 推导式的循环变量不认",
+      "file": "tests/conftest.py",
+      "old": "for loop in [node] if isinstance(node, ast.For) else getattr(node, \"generators\", []):",
+      "new": "for loop in [node] if isinstance(node, ast.For) else []:"
+    },
+    {
+      "name": "X05 拆包不认",
+      "file": "tests/conftest.py",
+      "old": "parts = loop.target.elts if isinstance(loop.target, ast.Tuple) else []",
+      "new": "parts = []"
+    },
+    {
+      "name": "X06 模块级的字符串不认",
+      "file": "tests/conftest.py",
+      "old": "value = module.get(name)\n    return [value] if _is_string(value) else []",
+      "new": "return []"
+    },
+    {
+      "name": "X07 被遍历的模块级名字不认",
+      "file": "tests/conftest.py",
+      "old": "iterable = module.get(loop.iter.id) if isinstance(loop.iter, ast.Name) else loop.iter",
+      "new": "iterable = loop.iter"
+    },
+    {
+      "name": "X08 不看 flags",
+      "file": "tests/conftest.py",
+      "old": "return _flag_value(given[0]) if given else 0",
+      "new": "return 0"
+    },
+    {
+      "name": "X09 认不得的 flags 当 0",
+      "file": "tests/conftest.py",
+      "old": "        return None if left is None or right is None else left | right\n    return None",
+      "new": "        return None if left is None or right is None else left | right\n    return 0"
+    },
+    {
+      "name": "X10 flags 关键字不认",
+      "file": "tests/conftest.py",
+      "old": "given = [keyword.value for keyword in node.keywords if keyword.arg == \"flags\"] + node.args[at:at + 1]",
+      "new": "given = node.args[at:at + 1]"
+    },
+    {
+      "name": "X11 search 的 flags 位置错一位",
+      "file": "tests/conftest.py",
+      "old": "\"compile\": 1, \"search\": 2,",
+      "new": "\"compile\": 1, \"search\": 1,"
+    },
+    {
+      "name": "X12 findall 不认",
+      "file": "tests/conftest.py",
+      "old": "\"fullmatch\": 2, \"findall\": 2,",
+      "new": "\"fullmatch\": 2,"
+    },
+    {
+      "name": "X13 函数里另有绑定的名字照模块级猜",
+      "file": "tests/conftest.py",
+      "old": "and _binds(node, name):",
+      "new": "and False:"
+    },
+    {
+      "name": "X14 参数不算绑定",
+      "file": "tests/conftest.py",
+      "old": "return any(arg.arg == name for arg in params) or any(",
+      "new": "return any("
+    },
+    {
+      "name": "X15 不按行号排",
+      "file": "tests/conftest.py",
+      "old": "return [problems[key] for key in sorted(problems)]",
+      "new": "return list(problems.values())"
+    },
+    {
+      "name": "X16 FutureWarning 当成异常",
+      "file": "tests/conftest.py",
+      "old": "warnings.simplefilter(\"ignore\")",
+      "new": "warnings.simplefilter(\"error\")"
+    },
+    {
+      "name": "X17 语法错误从核对里抛出来",
+      "file": "tests/conftest.py",
+      "old": "except (SyntaxError, ValueError):",
+      "new": "except ValueError:"
+    },
+    {
+      "name": "X18 报错不写源码里的写法",
+      "file": "tests/conftest.py",
+      "old": "written = ast.get_source_segment(source, literal) or repr(literal.value)",
+      "new": "written = repr(literal.value)"
+    }
+  ]
+}
