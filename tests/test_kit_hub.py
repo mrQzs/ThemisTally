@@ -697,6 +697,15 @@ def test_gate_writes_a_long_test_file_in_steps():
     assert "先用 write 建骨架" not in kh.role_prompt("contract-glm")
 
 
+def test_worker_rules_from_t051_and_t052():
+    # 第 189 轮：T051、T052 的合同都要执行端动手前再跑一遍整套测试（内核的基线检查早跑过）；T052 的战前探针给假服务的
+    # 读接口一律回空，正确的实现也红，被一审退回一次；T052 的终审把战后白盒文件当成留在仓库里的回归测试提了意见
+    contract, gate, audit = (kh.role_prompt(agent) for agent in ("contract-glm", "gate-sonnet", "audit-sonnet"))
+    assert "执行端不必再跑" in contract and "执行端不必再跑" not in gate + audit
+    assert "按路径返回数据" in gate and "按路径返回数据" not in contract + audit
+    assert "只用于本次核验，不进仓库" in audit and "只用于本次核验，不进仓库" not in contract + gate
+
+
 def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
     _repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
     problems = kh.dod_coverage_problems(hub, ts, "| D01 | test_a | assert x |\n| D11 | 只能人工审阅 |")

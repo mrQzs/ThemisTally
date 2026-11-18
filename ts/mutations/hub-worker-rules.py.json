@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "worker_rules_from_t051_and_t052"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "W01 合同端没有“执行端不必再跑基线”的规矩",
+      "file": "scripts/hub/worker.md",
+      "old": "合同检查在基线上的结果由内核在执行之前跑过（基线检查记录），执行端不必再跑：",
+      "new": "合同检查在基线上的结果由内核在执行之前跑过（基线检查记录）："
+    },
+    {
+      "name": "W02 门禁端没有“假服务按路径返回数据”的规矩",
+      "file": "scripts/hub/worker.md",
+      "old": "照仓库里已绿的包内测试，按路径返回数据。",
+      "new": "照仓库里已绿的包内测试写。"
+    },
+    {
+      "name": "W03 审核端没有“战后白盒不进仓库”的规矩",
+      "file": "scripts/hub/worker.md",
+      "old": "战后门禁的白盒测试文件与变异清单只用于本次核验，不进仓库：",
+      "new": "战后门禁的白盒测试文件与变异清单："
+    }
+  ]
+}
