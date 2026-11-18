@@ -1,0 +1,40 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "-t",
+    "记下的 TurnRunner.run",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "Q01 quizs 回合不给预览上限（照 Quizs 默认只放 4 KiB）",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "    cmd.push(...QUIZS_TOOL_PREVIEW); // 第 187 轮：工具结果整页进对话（见 QUIZS_TOOL_PREVIEW）",
+      "new": ""
+    },
+    {
+      "name": "Q02 预览上限写成 Quizs 的默认 4096",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "export const QUIZS_TOOL_PREVIEW: readonly [string, string] = [\"--tool-preview-bytes\", \"65536\"];",
+      "new": "export const QUIZS_TOOL_PREVIEW: readonly [string, string] = [\"--tool-preview-bytes\", \"4096\"];"
+    },
+    {
+      "name": "Q03 撑满单次请求的输入上限当接口错误",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "  CONTEXT_BUDGET_EXCEEDED: \"这一回合读进对话的内容",
+      "new": "  CONTEXT_BUDGET_EXCEEDED_: \"这一回合读进对话的内容"
+    },
+    {
+      "name": "Q04 预览上限放在 live 文件之后（与 Python 的参数次序不同）",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "    for (const [flag, path] of live ?? []) cmd.push(flag, path);",
+      "new": "    for (const [flag, path] of live ?? []) cmd.push(flag, path);\n    cmd.splice(cmd.indexOf(QUIZS_TOOL_PREVIEW[0]), 2); cmd.push(...QUIZS_TOOL_PREVIEW);"
+    }
+  ]
+}

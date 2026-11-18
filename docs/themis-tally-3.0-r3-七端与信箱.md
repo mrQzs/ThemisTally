@@ -3065,6 +3065,26 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
 - **检查**：元测试 5 条（新清单的锚点）；内核测试与新测试 428 passed；变异 11/11。
 - **没做**：`npm run build`（24 份各一遍，每遍约 5 秒，会重写 dist，后面的门禁可能读 dist）；三个参数的 `run_capture`（9 份，环境在函数里自己拼）；把门禁的探针并成一次 Vitest（每个探针各起一次 Vitest，约 3–5 秒；要改门禁文件）。
 
+### 第 187 轮：Quizs 回合的工具结果整页进对话，不再只给模型看前 4 KiB（候选 #69）
+
+- **起因**：
+  - Quizs 把超过 `tool_preview_bytes` 的工具结果换成预览信封放进对话：前这么多字节，外加模型取不回的对象引用（Quizs 的 core/src/turn.ts）。这个值默认 4096，内核从第 137 轮起没传过 `--tool-preview-bytes`。只读工具自己按 64 KiB 分页（与 pi 的 read 一页相同，带 next_offset），4 KiB 把这一页截在中间；read 的结果键按字母排、content 在前，next_offset、total_lines 跟着被截掉，模型不知道从哪一行接着读。
+  - 候选 #46 的对照重放（11-17 晚）查出来的：T047 的合同回合在 Quizs 上 grep 66–82 次，其中 41–60 次被截成预览，工具产出 0.76–1.22 MB，模型只看到 0.22–0.29 MB；read 35–51 次里 15–22 次被截。同一份合同 pi 上 grep 23 次、read 31 次，结果全看到（pi 的上限 50 KB）。多搜三倍、上下文涨得快、每步更慢，原因在这里，不在思考档位与提示。
+  - 生产上同样中招：审核端（11-16 切到 Quizs）11-17 的六个回合 read 15–60 次里 7–22 次被截；协调人（Quizs + DeepSeek）11-17 09:16 那一回合 read 11 次里 10 次被截（产出 119 KB、看到 43 KB）。候选 #64（审核端按 14 行一段切读门禁文件，一回合 80 次在读同一个文件）也是它：第 183 轮补的提示“整份读、没读完按 next_offset 接着读”在 Quizs 上做不到，整份读只看得到前 4 KiB，next_offset 被截掉。
+- **改法**（Python 与 TS 同改）：
+  - 新常量 QUIZS_TOOL_PREVIEW（`--tool-preview-bytes 65536`，与只读工具自己的一页相同），每个 quizs 回合（协调人与读仓库的岗位）都接在预算后面传，一页整页进对话。不并进 QUIZS_TURN_BUDGETS、QUIZS_VIEW_BUDGETS：那两份还抄在 kit_roles 与配置中心里给界面显示，旧门禁钉着界面放行的路径条数。
+  - QUIZS_BEHAVIOR_ERRORS 加 CONTEXT_BUDGET_EXCEEDED：结果整页进对话之后，读得太多会先撑满单次请求的输入上限（live plan 的 max_input_bytes，2 MiB），Quizs 按退出码 5 结束回合。原来不在这张表里，会当接口错误整回合重来；现在记成交差不合格，带“先用 grep、find 定位，只读要用的段落，同一处不重复读”重交一次。
+- **测试**：
+  - test_kit_hub 的 `test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block`：协调人的命令带 `--tool-preview-bytes 65536`；模型做法类错误的那一组加 CONTEXT_BUDGET_EXCEEDED（不当接口错误，说明进 output_error）。
+  - `test_quizs_repository_view_for_reading_posts`：合同端的命令同样带这一项，只出现一次。
+  - 两条都在 hub-turn 契约的 TurnRunner 名单里，Python、Node、Bun 三边重放。
+- **变异**：新写 hub-quizs-preview（py 3、ts 4）：不传这一项、写成 4096、CONTEXT_BUDGET_EXCEEDED 不认、TS 把这一项挪到 live 文件之后（参数次序与 Python 不同）。7 条全部抓住；TS 的四条靠 hub-turn 契约的三边重放抓住（ts 一边改坏，对不上 Python 记下的结果）。旧变异的锚点一条没坏（TS 那边新加一行 push，保住了 hub-k2t 钉着的预算那一行原文）。
+- **检查**：类型检查 0 错；元测试（mutation-specs、source-hygiene）5 条；内核测试 424 passed；hub-turn 契约 10 条（Python、Node、Bun 三边一致）；两份变异 7/7。
+- **没做**：
+  - Quizs 那边的两处另做：被截成预览时告诉模型怎么接着读（现在只有 truncated 与对象引用）；grep 的 context 上限 20 只写在 schema 里，T047 中档第一遍 9 次因 context 30、40、28、25 被拒、猜着重发，说明里写明上限、拒绝时说出上限。
+  - 单次请求的输入上限照旧 2 MiB（Quizs live plan 的上限）。T047 在 Quizs 上最多的一遍工具产出 1.43 MB，照原来的搜法整页进对话会逼近上限；按 pi 上同一份合同的用量（63 次调用、0.53 MB）远在上限之内。合入后先看审核端、协调人的真回合。
+  - 合同端还在 pi 上（11-17 的结论），要不要切 Quizs 等这一轮在真回合上见效，再用一遍重放核对。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

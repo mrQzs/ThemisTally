@@ -254,6 +254,10 @@ export const QUIZS_TURN_BUDGETS: readonly (readonly [string, string])[] = [
   // 第 152 轮：单次回应与单个对象放到 8 MiB（Quizs 的上限）：认证的单次输出上限从 8192 放到 16384 个 token，写满约 5.1 MB 的流（每个 token 约 313 字节）
   ["--max-requests", "32"], ["--max-tool-calls", "48"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "8388608"], ["--max-object-bytes", "8388608"],
 ];
+/** 第 187 轮：每个 quizs 回合里单个工具结果放进对话的上限。Quizs 默认 4096 字节，超过的只放前 4 KiB 的预览（外加模型取不回的
+ *  对象引用）；只读工具自己按 64 KiB 分页（与 pi 的 read 一页相同），4 KiB 把这一页截在中间，读文件时连 next_offset 也截掉了
+ *  （键按字母排，content 在前）。放到与工具自己的上限相同，一页整页进对话 */
+export const QUIZS_TOOL_PREVIEW: readonly [string, string] = ["--tool-preview-bytes", "65536"];
 /** 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次。 */
 export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
   BUDGET_EXHAUSTED: "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
@@ -265,6 +269,8 @@ export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
   FINAL_OUTPUT_FORMAT: "最后的回答不是恰好一个 json 代码块，Quizs 让改过一次还是不对。重交时最后的回答只写一个 json 代码块，前后不加别的文字",
   // 第 152 轮：P2c 30 个回合里有协调人把单次输出上限全用在思考上（finish_reason 是 length），Quizs 报成 UPSTREAM 加 provider_code；这是模型这一次的做法，不是接口坏了
   OUTPUT_TOKEN_LIMIT: "这一次的回应写到单次输出的上限被截断了（思考也算在里面），回合被结束。重交时少想多写：要用的文件读完就直接写 json 代码块，任务书只写下一阶段要用的内容",
+  // 第 187 轮：工具结果整页进对话之后，读得太多会先撑满单次请求的输入上限（live plan 的 max_input_bytes）
+  CONTEXT_BUDGET_EXCEEDED: "这一回合读进对话的内容撑满了单次请求的输入上限，回合被结束。重交时先用 grep、find 定位，只读要用的文件与段落，同一处不重复读，读够了就直接写 json 代码块",
 };
 /** 第 152 轮：Quizs 把“写到单次输出上限被截断”报成 UPSTREAM，error_details 的 provider_code 是这个字面量。 */
 export const QUIZS_OUTPUT_CUT = "OUTPUT_TOKEN_LIMIT";

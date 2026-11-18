@@ -6851,6 +6851,7 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
         [init, result(exit_code=4, error_class="PROVIDER_FORMAT", error_details={"format_reason": "ARGUMENT_SCHEMA", "tool_name": "read"})],
         [init, result(exit_code=4, error_class="FINAL_OUTPUT_FORMAT")],
         [init, result(exit_code=4, error_class="UPSTREAM", error_details={"provider_code": "OUTPUT_TOKEN_LIMIT"})],
+        [init, result(exit_code=5, error_class="CONTEXT_BUDGET_EXCEEDED")],
         [init, result(exit_code=3, error_class="RATE_LIMIT")],
         [init, result(exit_code=3, error_class="RATE_LIMIT")],
     ]
@@ -6867,6 +6868,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert cmd[cmd.index("--max-requests") + 1] == "32"
     # 第 152 轮：单次回应与单个对象放到 8 MiB（认证的单次输出上限放到 16384 个 token，写满约 5.1 MB 的流）
     assert cmd[cmd.index("--max-response-bytes") + 1] == "8388608" and cmd[cmd.index("--max-object-bytes") + 1] == "8388608"
+    # 第 187 轮：单个工具结果放进对话的上限与只读工具自己的一页（64 KiB）相同；Quizs 默认 4096，超过的只给前 4 KiB 的预览
+    assert cmd[cmd.index("--tool-preview-bytes") + 1] == "65536"
     record = json.loads((Path(ok["turn_dir"]) / "result.json").read_text(encoding="utf-8"))
     assert record["delivery"] == "final_json" and record["effort_effective"] == "high"
     assert record["usage"] == {"input": 300, "cacheRead": 600, "cacheWrite": 100, "output": 50}
@@ -6901,7 +6904,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     # 第 149 轮：Quizs 不认模型的回应（P2b 30 个回合里 1 个）、最后的回答改过一次还不是代码块，也一样
     # 第 152 轮：写到单次输出上限被截断（Quizs 报 UPSTREAM 加 provider_code）也是模型这一次的做法，一样当场重交；
     # Quizs 写明了哪一项检查没过的，原因接在错误类别后面带给重交的回合
-    for kind in ("BUDGET_EXHAUSTED", "POLICY", "PROVIDER_FORMAT", "FINAL_OUTPUT_FORMAT", "OUTPUT_TOKEN_LIMIT"):
+    # 第 187 轮：读进对话的内容撑满单次请求的输入上限（退出码 5，与排队超时同一个码）也是这一回合的做法，不当接口错误
+    for kind in ("BUDGET_EXHAUSTED", "POLICY", "PROVIDER_FORMAT", "FINAL_OUTPUT_FORMAT", "OUTPUT_TOKEN_LIMIT", "CONTEXT_BUDGET_EXCEEDED"):
         spent = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
         assert spent["api_error"] is None and spent["output"] is None and kh.QUIZS_BEHAVIOR_ERRORS[kind] in spent["output_error"]
         assert ("（PROVIDER_FORMAT，ARGUMENT_SCHEMA，工具 read）" in spent["output_error"]) == (kind == "PROVIDER_FORMAT")
@@ -6913,8 +6917,8 @@ def test_a_quizs_turn_reads_a_frozen_snapshot_and_hands_in_a_json_block(tmp_path
     assert second["session_id"] != first["session_id"]  # 还是每回合一个新会话
     monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(fake), "snapfail"]))
     frozen = runner.run(kh.COORDINATOR, "T001", tmp_path, "角色", "输入", inputs=inputs)
-    assert "冻结不了" in frozen["api_error"] and len(seen) == 12  # 快照冻不了就不起回合
-    assert len(used_plans) == 11  # 设了 live plan 之后起的 11 个回合，各用各的 plan
+    assert "冻结不了" in frozen["api_error"] and len(seen) == 13  # 快照冻不了就不起回合
+    assert len(used_plans) == 12  # 设了 live plan 之后起的 12 个回合，各用各的 plan
     assert kh.fenced_json(newline.join(["```json", "[1]", "```"])) is None  # 不是对象
     assert kh.fenced_json(newline.join(["```json", "{}", "```", "```json", "{}", "```"])) is None  # 两个代码块
 
@@ -7117,6 +7121,8 @@ def test_quizs_repository_view_for_reading_posts(tmp_path, monkeypatch):
     assert cmd[cmd.index("--provider") + 1] == "minimax"
     assert cmd[cmd.index("--read-snapshot") + 1] == hashlib.sha256(json.dumps(capture).encode()).hexdigest()
     assert cmd[cmd.index("--max-requests") + 1] == "128" and cmd[cmd.index("--max-tool-calls") + 1] == "128"
+    # 第 187 轮：读仓库的岗位同样一页整页进对话（Quizs 默认只放 4 KiB 的预览）
+    assert cmd[cmd.index("--tool-preview-bytes") + 1] == "65536" and cmd.count("--tool-preview-bytes") == 1
     assert cmd[cmd.index("--provider-profile") + 1] == str(live / "profile.json")
     plan = json.loads(Path(cmd[cmd.index("--live-plan") + 1]).read_text(encoding="utf-8"))
     assert plan["plan_id"].startswith("tt-minimax-1.") and turn["output"] is None

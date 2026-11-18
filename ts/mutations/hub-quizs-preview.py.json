@@ -1,0 +1,36 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "quizs_turn_reads or quizs_repository_view"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 quizs 回合不给预览上限（照 Quizs 默认只放 4 KiB）",
+      "file": "scripts/kit_hub.py",
+      "old": "cmd += [part for pair in budgets for part in pair] + list(QUIZS_TOOL_PREVIEW)",
+      "new": "cmd += [part for pair in budgets for part in pair]"
+    },
+    {
+      "name": "P02 预览上限写成 Quizs 的默认 4096",
+      "file": "scripts/kit_hub.py",
+      "old": "QUIZS_TOOL_PREVIEW = (\"--tool-preview-bytes\", \"65536\")",
+      "new": "QUIZS_TOOL_PREVIEW = (\"--tool-preview-bytes\", \"4096\")"
+    },
+    {
+      "name": "P03 撑满单次请求的输入上限当接口错误",
+      "file": "scripts/kit_hub.py",
+      "old": "    \"CONTEXT_BUDGET_EXCEEDED\": \"这一回合读进对话的内容",
+      "new": "    \"CONTEXT_BUDGET_EXCEEDED_\": \"这一回合读进对话的内容"
+    }
+  ]
+}
