@@ -8213,6 +8213,8 @@ def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
     assert "rowOf 只收一个参数" in prompt and "先断言夹具本身取到了想要的值" in prompt
     assert "command 按空格连接" in prompt
     assert "只断言合同写明的内容" in prompt and "少点了一下" in prompt
+    # 第 192 轮：T048 的 S05、T053 的 S01 静态记号与合同钉死的写法对不上（候选 #71）
+    assert "拿合同“写法钉死”的那一行原样试一遍" in prompt and "T053 的 S01" in prompt
     post = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], hub.repo)
     assert "## 门禁测试撞过的坑" in post and "热修补：执行端说" not in post
     del ts["hotfix"]

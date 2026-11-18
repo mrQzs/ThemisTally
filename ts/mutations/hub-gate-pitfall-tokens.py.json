@@ -1,0 +1,24 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "gate_hotfix_turn_carries"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 门禁端拿不到“静态记号先拿合同写法试一遍”",
+      "file": "scripts/kit_hub.py",
+      "old": "    \"静态记号检查（源码里有没有某段写法）的正则或子串，交付前拿合同“写法钉死”的那一行原样试一遍，要匹配得上：原始字符串里\"\n",
+      "new": "    \"静态记号检查（源码里有没有某段写法）的正则或子串，交付前看一眼就行：原始字符串里\"\n"
+    }
+  ]
+}

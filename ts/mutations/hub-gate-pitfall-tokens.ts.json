@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T01 TS 的门禁坑少了“静态记号先拿合同写法试一遍”",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "交付前拿合同“写法钉死”的那一行原样试一遍，要匹配得上：原始字符串里点号前只写一个反斜杠",
+      "new": "交付前看一眼就行：原始字符串里点号前只写一个反斜杠"
+    }
+  ]
+}
