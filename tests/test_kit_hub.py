@@ -8215,6 +8215,8 @@ def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
     assert "只断言合同写明的内容" in prompt and "少点了一下" in prompt
     # 第 192 轮：T048 的 S05、T053 的 S01 静态记号与合同钉死的写法对不上（候选 #71）
     assert "拿合同“写法钉死”的那一行原样试一遍" in prompt and "T053 的 S01" in prompt
+    # 第 194 轮：T055 的门禁探针取文档里第一个提示，读到的是对话框关闭钮的（候选 #75）
+    assert "按触发元素自己的 aria-describedby 取" in prompt and "T055 的 hoverTip" in prompt
     post = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], hub.repo)
     assert "## 门禁测试撞过的坑" in post and "热修补：执行端说" not in post
     del ts["hotfix"]

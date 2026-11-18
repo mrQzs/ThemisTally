@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T01 TS 的门禁坑少了“悬停提示按触发元素的 aria-describedby 取”",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "悬停提示按触发元素自己的 aria-describedby 取（照 t023 门禁的 tipOf",
+      "new": "悬停提示取文档里出现的那个就行（照 t023 门禁的 tipOf"
+    }
+  ]
+}
