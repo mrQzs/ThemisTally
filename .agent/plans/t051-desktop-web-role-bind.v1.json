@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "task_id": "t051-desktop-web-role-bind",
+  "plan_version": 1,
+  "title": "角色卡的 [更改…]：在界面里给四个派遣角色换绑定",
+  "repository": "ThemisTally",
+  "base_sha": "7d568441b05a780de319567f2a94e96645d08dd6",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/pages/readonly1/roles-logic.ts",
+      "desktop/web/src/pages/readonly1/roles-RoleCard.tsx",
+      "desktop/web/src/pages/readonly1/roles-RolesView.tsx",
+      "desktop/web/tests/page-roles.test.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/writes-hub-bind.test.tsx",
+      "tests/test_gate_t009_baseline.py",
+      "tests/test_gate_t024_baseline.py",
+      "tests/test_gate_t045_baseline.py"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/RoleBindForm.tsx",
+      "desktop/web/tests/writes-role-bind.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t051_*.py",
+      "tests/test_gate_t001_baseline.py",
+      "tests/test_gate_t002_baseline.py",
+      "tests/test_gate_t003_baseline.py",
+      "tests/test_gate_t004_baseline.py",
+      "tests/test_gate_t005_baseline.py",
+      "tests/test_gate_t006_baseline.py",
+      "tests/test_gate_t007_baseline.py",
+      "tests/test_gate_t008_baseline.py",
+      "tests/test_gate_t010_baseline.py",
+      "tests/test_gate_t011_baseline.py",
+      "tests/test_gate_t012_baseline.py",
+      "tests/test_gate_t013_baseline.py",
+      "tests/test_gate_t014_baseline.py",
+      "tests/test_gate_t015_baseline.py",
+      "tests/test_gate_t016_baseline.py",
+      "tests/test_gate_t017_baseline.py",
+      "tests/test_gate_t018_baseline.py",
+      "tests/test_gate_t019_baseline.py",
+      "tests/test_gate_t020_baseline.py",
+      "tests/test_gate_t021_baseline.py",
+      "tests/test_gate_t022_baseline.py",
+      "tests/test_gate_t023_baseline.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t027_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t029_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "tests/test_gate_t031_baseline.py",
+      "tests/test_gate_t032_baseline.py",
+      "tests/test_gate_t033_baseline.py",
+      "tests/test_gate_t034_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t036_baseline.py",
+      "tests/test_gate_t037_baseline.py",
+      "tests/test_gate_t038_baseline.py",
+      "tests/test_gate_t039_baseline.py",
+      "tests/test_gate_t040_baseline.py",
+      "tests/test_gate_t041_baseline.py",
+      "tests/test_gate_t042_baseline.py",
+      "tests/test_gate_t043_baseline.py",
+      "tests/test_gate_t044_baseline.py",
+      "tests/test_gate_t046_baseline.py",
+      "tests/test_gate_t047_baseline.py",
+      "tests/test_gate_t048_baseline.py",
+      "tests/test_gate_t049_baseline.py",
+      "tests/test_gate_t050_baseline.py",
+      "ts/packages/ui/**",
+      "scripts/**",
+      "desktop/web/src/pages/readonly1/roles-styles.css",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/readonly1/roles-HubPosts.tsx",
+      "desktop/web/src/pages/readonly1/roles-ProfilesTable.tsx",
+      "desktop/web/src/pages/readonly1/roles-PresetBar.tsx",
+      "desktop/web/src/writes/HubBindForm.tsx",
+      "desktop/web/src/writes/hub-bind-form.css",
+      "desktop/web/src/writes/hubChangeLines.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/writeOutcome.ts",
+      "desktop/web/src/mock/profiles.json",
+      "desktop/web/src/mock/roles.json",
+      "desktop/web/src/mock/hub-roles.ts",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/shellpages/**",
+      "desktop/web/src/live/**",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t051_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2940,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`api.ts` 有 `role.set` 这个写动作与 `setRoleBinding` 写函数（真实模式 `POST /api/v1/roles/<role>`，正文 `target` + 可选 `host` + 可选 `cadence_seconds` + `confirmation`；`cadence_seconds` 是 JSON 数字）；`writeArgs` 把 `cadence_seconds` 与 `number` 同一条规则转数字；既有 12 个 `WriteAction` 成员与既有导出一个不丢",
+      "evidence": [
+        "V01",
+        "V02",
+        "R01",
+        "scope"
+      ],
+      "intent": "预览与执行必须用同一份参数规则，否则服务按确认号记的 argv 对不上、回 409"
+    },
+    {
+      "id": "D02",
+      "text": "`mock/writes.ts` 认 `role.set`（`baseArgv`、`NEW_ACTIONS`、`previewData`、`mockSetRoleBinding` 四处），桩里能走完预览 → 确认 → 执行；**`WriteScenario` 一个值都不加**",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "桩模式的角色页也要能演示这条写入口（T044 S07 把情景数钉死在 27）"
+    },
+    {
+      "id": "D03",
+      "text": "`useLivePreview` 只多 `bindingChanges` 一个字段，既有七个字段与开头两行注释、`DEBOUNCE_MS` 一个不动；`snapshots.ts` 只多 `roleSnapshot` 一个导出",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "表单底部要显示这个角色的绑定前后，但不能碰既有预览的时序与快照口径"
+    },
+    {
+      "id": "D04",
+      "text": "`useWriteFlow` 认 `role.set`：三条文字（`改角色绑定 <role>？` / `已改角色绑定 <role>` / `角色 <role> 的绑定改成 <target>`）、快照读 `getRoles()` + `roleSnapshot`、执行分派到 `setRoleBinding`；既有动作的文字与分支不变；`role.set` 不是危险动作",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "写流程的语义一个字都不许另造"
+    },
+    {
+      "id": "D05",
+      "text": "`roles-logic.ts` 新增 `allowedModes`（四个角色各自的允许模式、未知角色给 `[]`）与 `profileIds`（按输入顺序、滤掉以 `_` 开头的 id），`RoleInfo` 加 `cadenceSeconds`（整数才给数，其余 `null`）；既有导出与既有字段语义不变；只 `import type`",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "模式与候选是内核的硬规则，界面上先按同一份规则算出来"
+    },
+    {
+      "id": "D06",
+      "text": "四张角色卡的 [更改…] 是可点的 secondary/sm 按钮，点开「改绑定：<角色中文名>」：模式只列该角色允许的模式，无头时再选已登记的 profile；底部实时预览显示命令、**本角色**的绑定前后、warnings 原文、错误原文；`[确认…]` 门控是「取值合法 + 预览对应当前取值 + 预览 ok」，点它先关表单再 `start`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "这是本页唯一接上的角色写入口，预览与门控照 HubBindForm 的既有形状"
+    },
+    {
+      "id": "D07",
+      "text": "换绑定不悄悄丢字段：模式预填现有模式（不在可选里就取第一个）、profile 预填现有 profile（不在候选里就取第一个）；仍选交互式宿主时照原样传回 `host`，仍选无头（scheduler_agent）时照原样传回 `cadence_seconds`，切到别的模式就不带这两个键",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "内核是整条替换绑定，不传就丢"
+    },
+    {
+      "id": "D08",
+      "text": "没有已登记的 profile 时：execution 的入口禁用并悬停出原因句，其余三个角色的模式下拉里没有「无头」且原因句在 `Select` 的 help 里；原因句只写在 `src/writes/RoleBindForm.tsx` 里，与 `HubBindForm.tsx` 那句逐字不同",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "没有 profile 时无头这条路本来就走不通，界面要先说清楚"
+    },
+    {
+      "id": "D09",
+      "text": "写完重读整页（`getRoles` 的次数增加，`reload` 传下去，roles 与 profiles 一起刷新），成功轻提示在重读兑现之后才说",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "卡片上要看到新的 profile 与模型"
+    },
+    {
+      "id": "D10",
+      "text": "六处旧断言照新行为改（t009 四处、t024 四处、t045 三处、page-roles 一处、page-app 三处、writes-hub-bind 五处；逐字新文见 Steps 第 10 步），两个 describe 标题（「写入口个数（过渡）」与「桩下角色页禁用按钮实测」）照旧只改数字不改标题结构，既有断言没被删、跳过或弱化",
+      "evidence": [
+        "R01",
+        "scope",
+        "review"
+      ],
+      "intent": "本片必然把角色页禁用数从 11 变成 7、把 [更改…] 变成可点，不改这些断言任何合规实现都过不了 R01"
+    },
+    {
+      "id": "D11",
+      "text": "新增 `desktop/web/tests/writes-role-bind.test.tsx`，覆盖 D06–D09 点名的每一项（四个角色的模式、profile 候选、预览的前后、正文的键与数字类型、host/cadence 的原样传回、重读、没有 profile 时的两种形态、对话框关着不渲染）；不用 `skip`/`only`/`todo`；测真实实现",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D12",
+      "text": "所有修改都在允许集合内（可改 14 个文件、可新增 2 个文件），没有碰 forbidden_paths（`tests/test_gate_t051_*.py`、其余 47 份门禁基准、`ts/packages/ui/**`、`scripts/**`、`roles-styles.css`、`mock/profiles.json`、`mock/roles.json`、`hubChangeLines.ts`、`HubBindForm.tsx`、`hub-bind-form.css`、`components/**`、`shell/**`、`live/**`、`package.json` 与锁文件）；`package.json` 与锁文件不变",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D13",
+      "text": "新代码守既有源码规矩：`RoleBindForm.tsx` 从 `../api` 只 `import type`、不碰 DOM 与时钟、不出现网络词与危险写入类词、不写死颜色、不出现 `role=\"status\"`；复用 `hub-bind-form.css` 的 `.hb-*` 类，不新建 CSS 文件、不改 `roles-styles.css`；`desktop/web/src/mock` 仍恰 14 份 JSON、`desktop/web/src/pages` 顶层仍恰 9 个 `*Page.tsx`",
+      "evidence": [
+        "V01",
+        "V03",
+        "R01",
+        "review"
+      ],
+      "intent": "不破 T006/T009/T013/T038/T044/T045 的长期门禁"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 5400,
+    "max_wall_seconds_total": 16200,
+    "cost_budget": null
+  }
+}
