@@ -1,10 +1,13 @@
-// CLI 运行时视图（合同第 6 节）：已登记表（七列）、就绪检查区与 Quizs 一块；版本一律「—」；操作全部禁用。
-// 只收数据，不调 api。
+// CLI 运行时视图（合同第 6 节）：已登记表（七列）、就绪检查区与 Quizs 一块；版本一律「—」。
+// [探测] 与 [模型] 走 src/writes 下的作业入口（同类作业同时只一个，忙时禁用并写明正在忙谁），[删除…] 走既有写流程，
+// [运行就绪检查] 仍禁用。视图只收数据，不调 api。
 import type { ReactNode } from 'react';
 import type { Envelope, QuizsLiveData, QuizsProvidersData, RuntimesData } from '../../api';
 import { Button, Table, Tag, type TableColumn } from '../../components';
 import { CircleXIcon, PlayIcon } from '../../icons';
 import { DisabledAction } from '../../shell/DisabledAction';
+import { ModelsRuntimeAction } from '../../writes/RuntimeModels';
+import { ProbeRuntimeAction } from '../../writes/RuntimeProbe';
 import { Section } from './common-Section';
 import { QuizsBlock } from './runtimes-QuizsBlock';
 import { useWriteFlow } from '../../writes/useWriteFlow';
@@ -72,8 +75,8 @@ export function RuntimesView({ runtimes, quizs, reload }: RuntimesViewProps) {
       版本: '—',
       操作: (
         <>
-          {canProbe(rt.source) && <DisabledAction label="探测" variant="ghost" size="sm" />}
-          {canModels(rt.adapter, rt.source) && <DisabledAction label="模型" variant="ghost" size="sm" />}
+          {canProbe(rt.source) && <ProbeRuntimeAction runtime={rt.id} />}
+          {canModels(rt.adapter, rt.source) && <ModelsRuntimeAction runtime={rt.id} />}
           <Button
             variant="ghost"
             size="sm"

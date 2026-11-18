@@ -150,8 +150,8 @@ export interface OperationView {
   envelope: Envelope<null> | null;
 }
 
-// 作业类型（本片只接 runtime-scan 一类；服务还有五类，前端本片不接）。
-export type JobKind = 'runtime-scan';
+// 作业类型（runtime-scan 扫 PATH、runtime-probe 探测一个 runtime、models 列 pi 的模型；服务还有三类，前端本片不接）。
+export type JobKind = 'runtime-scan' | 'runtime-probe' | 'models';
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 
@@ -767,21 +767,23 @@ export function getOperation(id: string): Promise<HttpReply<OperationView>> {
   return mockGetOperation(id);
 }
 
-// 作业接口（本片三个）：创建 runtime-scan 作业、查作业终态、取消作业。作业对象不是信封（八键），
+// 作业接口（本片三个）：创建作业、查作业终态、取消作业。作业对象不是信封（八键），
 // 不能归成信封：创建与取消走 postRaw（正文原样交回），查询走 getRaw。桩分支转 src/mock/jobs.ts。
 // 时限 15/15/30 秒是客户端等回应的时限（服务端内核命令时限另见 JOB_TIMEOUTS，取消要等服务端等子进程树结束故宽些）。
-export function startJob(kind: JobKind): Promise<HttpReply<JobView>> {
+export function startJob(kind: JobKind, runtime?: string): Promise<HttpReply<JobView>> {
   const client = liveClient();
   if (client) {
+    // 服务要扁平正文、键恰好（多一个键回 400）：扫描那一支只有 kind，两类新作业再带上这一行的 runtime id。
+    const body = kind === 'runtime-scan' || runtime == null || runtime === '' ? { kind } : { kind, runtime };
     return client
-      .postRaw<unknown>('/api/v1/jobs', { kind }, 15)
+      .postRaw<unknown>('/api/v1/jobs', body, 15)
       .then((reply) =>
         reply.status === 201
           ? { status: 201, body: okEnvelope<JobView>([], toJobView(reply.body)) }
           : { status: reply.status, body: reply.body as Envelope<JobView> },
       );
   }
-  return mockStartJob(kind);
+  return mockStartJob(kind, runtime);
 }
 
 export function getJob(id: string): Promise<HttpReply<JobView>> {

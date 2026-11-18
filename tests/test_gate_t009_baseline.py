@@ -2851,14 +2851,14 @@ describe('D10 CLI 运行时表', () => {
   });
 
   // [删除…] 不再断言禁用：T022 的 B 片接上运行时删除（站主按 T022 规划报告 §16.3 R13 退役）
-  it('操作：[探测]（来源不是 missing）、[模型]（adapter 是 pi 且来源不是 missing）、[删除…]（总有）；[探测]、[模型] 禁用', async () => {
+  it('操作：[探测]（来源不是 missing）、[模型]（adapter 是 pi 且来源不是 missing）、[删除…]（总有）；[探测]、[模型] 可点', async () => {
     await mountRuntimes();
     const rows = tableRows(runtimeTable());
     const want = [['探测', '模型', '删除…'], ['探测', '删除…'], ['探测', '删除…'], ['删除…'], ['探测', '删除…']];
     rows.forEach((x, i) => {
       const ops = qa(x['操作'], 'button');
       expect(ops.map(textOf), '第 ' + (i + 1) + ' 行的操作').toEqual(want[i]);
-      ops.filter((b) => textOf(b) !== '删除…').forEach((b) => expect(b.disabled, textOf(b) + ' 应禁用').toBe(true));
+      ops.filter((b) => textOf(b) !== '删除…').forEach((b) => expect(b.disabled, textOf(b) + ' 应可点').toBe(false));
     });
     await (async () => {
       cleanup();
@@ -2967,11 +2967,11 @@ describe('D11 写入口全部禁用', () => {
     expect(disabledButtons().length).toBeGreaterThan(0);
   });
 
-  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…] 与 T041 接上的 [手动登记…]', async () => {
+  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…]、T041 接上的 [手动登记…] 与 T055 接上的 [探测]、[模型]', async () => {
     set('getRuntimes', runtimesMain());
     await mountApp('#/runtimes');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist(['删除…', '手动登记…', '扫描 PATH'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）
+    expect(outsideWhitelist(['删除…', '手动登记…', '扫描 PATH', '探测', '模型'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）；T055 接上 [探测] 与 [模型]（2026-11-16）
     expect(disabledButtons().length).toBeGreaterThan(0);
     tooltipTexts().forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });

@@ -714,8 +714,8 @@ def test_s04_transport_mode_api_jobs():
     need_file(API_REL)
     api = read_rel(API_REL)
     code = strip_ts_comments(api)
-    if "export type JobKind = 'runtime-scan';" not in code:
-        problems.append("api.ts 应有 export type JobKind = 'runtime-scan';（本片只登记这一类）")
+    if "export type JobKind = 'runtime-scan' | 'runtime-probe' | 'models';" not in code:
+        problems.append("api.ts 的 JobKind 应登记三类（runtime-scan / runtime-probe / models）")
     sm = re.search(r"export type JobState = ([^;]+);", code)
     if sm is None:
         problems.append("api.ts 应有 export type JobState = …")

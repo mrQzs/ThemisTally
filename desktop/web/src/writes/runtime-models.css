@@ -1,0 +1,39 @@
+/* 列模型对话框的样式（T055）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色（照 runtime-scan.css 的写法）。 */
+.rm-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-2);
+}
+
+.rm-note {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.rm-empty {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-3);
+}
+
+.rm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rm-table th {
+  padding: var(--tt-space-1) var(--tt-space-3);
+  border-bottom: 1px solid var(--tt-border);
+  font: var(--tt-title-sm);
+  color: var(--tt-text-2);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rm-table td {
+  padding: var(--tt-space-2) var(--tt-space-3);
+  border-bottom: 1px solid var(--tt-border);
+  font: var(--tt-text-sm);
+  color: var(--tt-text-1);
+}

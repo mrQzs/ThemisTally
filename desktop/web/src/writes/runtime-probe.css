@@ -1,0 +1,39 @@
+/* 探测对话框的样式（T055）：只用 tokens.css 里已有的 --tt-* 令牌，不声明令牌、不写死颜色（照 runtime-scan.css 的写法）。 */
+.rp-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--tt-space-1) var(--tt-space-3);
+  margin: 0;
+}
+
+.rp-row {
+  display: contents;
+}
+
+.rp-result dt {
+  font: var(--tt-text-sm);
+  color: var(--tt-text-2);
+}
+
+.rp-result dd {
+  margin: 0;
+  font: var(--tt-text-sm);
+  color: var(--tt-text-1);
+}
+
+.rp-mono {
+  font: var(--tt-mono-sm);
+  color: var(--tt-text-2);
+  overflow-wrap: anywhere;
+}
+
+.rp-failed {
+  margin: var(--tt-space-2) 0 0;
+  padding-left: var(--tt-space-4);
+  font: var(--tt-text-sm);
+  color: var(--tt-tone-attention-fg);
+}
+
+.rp-failed li {
+  margin: 0;
+}

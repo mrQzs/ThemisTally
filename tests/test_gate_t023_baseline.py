@@ -294,8 +294,8 @@ def test_s08_runtimesview_delete_wired():
     text = read_rel(RUNTIMESVIEW_REL)
     assert "'runtime.remove'" in text, "运行时 [删除…] 应走 runtime.remove"
     assert re.search(r"args:\s*\{\s*runtime", text), "runtime.remove 的 args 键应是 {runtime}"
-    assert re.search(r'<DisabledAction label="探测"', text), "[探测] 照旧是 DisabledAction"
-    assert re.search(r'<DisabledAction label="模型"', text), "[模型] 照旧是 DisabledAction"
+    assert not re.search(r'<DisabledAction label="探测"', text), "[探测] 不应再是 DisabledAction"
+    assert not re.search(r'<DisabledAction label="模型"', text), "[模型] 不应再是 DisabledAction"
     assert not re.search(r'<DisabledAction label="删除…"', text), "[删除…] 不应再是 DisabledAction"
     assert re.search(r"reload\?:", text), "RuntimesViewProps 应加 reload? prop"
     assert re.search(r'useWriteFlow\(', text), "RuntimesView 应自调 useWriteFlow"
@@ -780,7 +780,7 @@ describe('T023 四个写入口', () => {
     w3bCheck('profile [删除] 打开的确认框');
   });
 
-  it('运行时 [删除…] 三行都可点（ghost sm），行内其余按钮禁用；标题与摘要', async () => {
+  it('运行时 [删除…] 三行都可点（ghost sm），行内其余按钮也可点；标题与摘要', async () => {
     await mountApp('#/runtimes?write=ok');
     const rows = runtimeRows();
     expect(rows.length).toBe(3);
@@ -790,7 +790,7 @@ describe('T023 四个写入口', () => {
       expect(del.getAttribute('data-variant')).toBe('ghost');
       expect(del.getAttribute('data-size')).toBe('sm');
       for (const b of buttons(row)) {
-        if (textOf(b) !== '删除…') expect(b.disabled, '非 [删除…] 的行内按钮仍禁用（' + textOf(b) + '）').toBe(true);
+        if (textOf(b) !== '删除…') expect(b.disabled, '非 [删除…] 的行内按钮也可点（' + textOf(b) + '）').toBe(false);
       }
     }
     fireEvent.click(buttonByText(rows[2], '删除…'));
