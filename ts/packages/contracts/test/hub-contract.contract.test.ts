@@ -71,6 +71,7 @@ const TESTS = [
   "test_an_attempt_whose_candidate_was_not_collected_waits_for_the_owner", "test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base",
   "test_an_unsent_contract_gets_the_rostered_executor_before_dispatch", "test_background_sweeps_hold_off_other_landings_while_they_run",
   "test_bold_item_ids_in_the_contract_are_normalized", "test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt",
+  "test_contract_names_the_earlier_gate_that_freezes_a_file_it_may_change", // 第 188 轮
   "test_contract_requirements", "test_contract_runs_the_earlier_gates_as_regression_checks", "test_contract_title_is_the_registered_task_title",
   "test_contract_with_pending_marks_is_rejected", "test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer",
   "test_each_turn_reads_its_own_copy_and_the_copy_is_gone_afterwards", "test_exec_letter_counts_the_candidate_and_names_the_failed_checks",
@@ -107,7 +108,7 @@ const DRIFTED: string[] = [
   "test_a_timed_out_attempt_whose_checks_passed_is_not_told_to_rerun_them",
 ];
 const FUNCTIONS = ["tail", "tail_file", "normalize_identity", "normalize_markup", "strip_decisions", "decisions_section", "unparsed_check_ids",
-  "external_fact_problems", "unverified_facts", "pytest_outcomes"];
+  "external_fact_problems", "unverified_facts", "pytest_outcomes", "frozen_paths"];
 
 interface Sample {
   readonly test: string;
@@ -200,6 +201,32 @@ describe("第 ⑤e1a 片：手写的对照", () => {
     ];
     const results = agree([...logs.map(([name, content]) => call("pytest_outcomes", [file(name, content)])), call("pytest_outcomes", [join(ROOT, "gone.log")])], 0.6);
     expect(results.slice(-2).map((result) => result["error"])).toEqual(["ValueError", "FileNotFoundError"]);
+  });
+
+  it("frozen_paths（第 188 轮）：一项“键: (字节数, sha256)”，键是路径字符串或路径常量；常量最多展开五层，展不开的不算；只认空格、制表符、ASCII 数字与小写十六进制；^ 只认换行符之后；不是字符串时报的异常同型", () => {
+    const H = "0123456789abcdef".repeat(4);
+    const forms = [
+      `WEB_REL = "desktop/web"`, `SRC_REL = f"{WEB_REL}/src"`, `API_REL = f"{SRC_REL}/api.ts"`, `TESTS_REL = f"{WEB_REL}/tests"`, "BASELINE_DIGESTS = {",
+      `    API_REL: (36065, "${H}"),`, `    f"{TESTS_REL}/page-app.test.tsx": (4005, "${H}"),`, `${TAB}"ts/bun.lock" :( 12 ,"${H}" ),`,
+      `    f"{NOWHERE}/x.ts": (1, "${H}"),`, `    UNKNOWN_REL: (2, "${H}"),`, `    f"{web}/y.ts": (3, "${H}"),`, `    'single/quoted.ts': (4, "${H}"),`,
+      `    "upper/hex.ts": (5, "${H.toUpperCase()}"),`, `    "short/hex.ts": (6, "${H.slice(1)}"),`, `    "long/hex.ts": (7, "${H}0"),`,
+      `    "arabic/digits.ts": (${C(0x661, 0x662)}, "${H}"),`, `${C(0xa0, 0xa0)}"nbsp/indent.ts": (8, "${H}"),`, `    "路径/文件 ${C(0x1f600)}.ts": (9, "${H}"),`,
+      `    "after/sep.ts": (10, "${H}"),${C(0x2028)}    "same/line.ts": (11, "${H}"),`, "}", `ICONS_BASELINE = (400, "${H}")`,
+    ].join(LF);
+    const chain = (levels: number): string =>
+      [...Array.from({ length: levels }, (_, n) => `C${n} = "{C${n + 1}}"`), `C${levels} = "end"`, "X = {", `    f"{C0}/a": (1, "${H}"),`, "}"].join(LF);
+    const table = [`ROOT = "x"`, "TABLE = {", `    f"{ROOT}/y": (3, "${H}"),`, "}"];
+    const results = agree([
+      call("frozen_paths", [forms]), ...[0, 3, 4, 5, 6].map((levels) => call("frozen_paths", [chain(levels)])),
+      call("frozen_paths", [table.join(CR + LF)]), call("frozen_paths", [table.join(CR)]), call("frozen_paths", [""]),
+      call("frozen_paths", [[`R = "first"`, `R = "second"`, "T = {", `    f"{R}/z": (1, "${H}"),`, "}"].join(LF)]),
+      call("frozen_paths", [null]), call("frozen_paths", [5]), call("frozen_paths", [["a"]]),
+    ], 0.6);
+    expect(valueOf(results[0])).toEqual([["desktop/web/src/api.ts", 6n], ["desktop/web/tests/page-app.test.tsx", 7n], ["ts/bun.lock", 8n],
+      [`路径/文件 ${C(0x1f600)}.ts`, 18n], ["after/sep.ts", 19n]]);
+    expect(results.slice(1, 6).map((result) => (valueOf(result) as PyValue[]).length), "常量链 0、3、4 层展得开，5、6 层展不开").toEqual([1, 1, 1, 0, 0]);
+    expect(results.slice(6, 10).map(valueOf)).toEqual([[["x/y", 3n]], [], [], [["second/z", 4n]]]);
+    expect(results.slice(-3).map((result) => result["error"])).toEqual(["TypeError", "TypeError", "TypeError"]);
   });
 
   it("站主决定：附录的原文逐行引用（行尾空白去掉）；去掉附录（文末、中间、两份、标题后有空白、标题不在行首、CRLF）；崩溃同型", () => {

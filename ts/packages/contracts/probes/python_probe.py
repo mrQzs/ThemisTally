@@ -1455,6 +1455,8 @@ def op_hub_contract(request):
     try:
         if fn in ("tail", "strip_decisions", "decisions_section", "unparsed_check_ids", "external_fact_problems", "unverified_facts"):
             value = getattr(kit_hub, fn)(*args)
+        elif fn == "frozen_paths":  # 第 188 轮：（路径, 行号）的元组成列表
+            value = [list(item) for item in kit_hub.frozen_paths(*args)]
         elif fn == "resumed_session":  # ⑤i1：交回会话号或 None
             value = kit_hub.resumed_session(kit_hub.Hub(Path(args[0])), args[1], args[2], Path(args[3]))
         elif fn == "Engine.output_problem":  # ⑤i1：参数前两个是仓库与 only_task
@@ -1796,7 +1798,7 @@ def _recorded_value(name, value):
         value = sorted(value)
     elif name == "contract_paths":  # ⑤e1b：Path 记成字符串，照 op_hub_contract
         value = [str(path) for path in value]
-    elif name == "workspace_status":  # ⑤e2a：（状态，路径）的元组成列表，照 op_hub_contract
+    elif name in ("workspace_status", "frozen_paths"):  # ⑤e2a、第 188 轮：元组成列表，照 op_hub_contract
         value = [list(item) for item in value]
     elif name == "kernel_files":  # ⑤j2：Path 的列表记成字符串，照 op_hub_contract
         value = [str(path) for path in value]

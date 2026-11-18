@@ -1538,6 +1538,55 @@ def test_contract_runs_the_earlier_gates_as_regression_checks(tmp_path, monkeypa
     assert "VG1" not in prompt and "VR1" not in prompt  # 调度器只认一个大写字母加两位数字（第 43 轮）
 
 
+def test_contract_names_the_earlier_gate_that_freezes_a_file_it_may_change(tmp_path, monkeypatch):
+    # 第 188 轮（候选 #61）：T051 的合同允许改 api.ts、page-app.test.tsx，T047、T048 的门禁按字节冻结了它们；执行端做完、越界 0，
+    # 检查只红在 R01 这两条，合同出新版本，门禁、一审、执行全部重走（T047、T048 之前各撞过一次）。合同交付时就点名退回
+    repo, _head, hub, ts, plans, _calls = gate_setup(tmp_path, monkeypatch)
+    digest = "0123456789abcdef" * 4
+    old = ('WEB_REL = "desktop/web"\nSRC_REL = f"{WEB_REL}/src"\nAPI_REL = f"{SRC_REL}/api.ts"\nTESTS_REL = f"{WEB_REL}/tests"\n'
+           "BASELINE_DIGESTS = {\n"
+           '    API_REL: (36065, "%s"),\n'
+           '    f"{TESTS_REL}/page-app.test.tsx": (4005, "%s"),\n'
+           '\t"ts/bun.lock" :( 12 ,"%s" ),\n'
+           '    f"{NOWHERE}/x.ts": (1, "%s"),\n'
+           '    UNKNOWN_REL: (2, "%s"),\n'
+           "}\n"
+           'ICONS_BASELINE = (400, "%s")\n') % ((digest,) * 6)
+    assert kh.frozen_paths(old) == [("desktop/web/src/api.ts", 6), ("desktop/web/tests/page-app.test.tsx", 7), ("ts/bun.lock", 8)]
+    # 常量套常量最多展开五层；CRLF 的常量行照认
+    deep = "".join('C%d = "{C%d}"\n' % (n, n + 1) for n in range(5)) + 'C5 = "end"\nFROZEN = {\n    f"{C0}/a": (1, "%s"),\n}\n' % digest
+    assert kh.frozen_paths(deep) == [] and kh.frozen_paths(deep.replace('C4 = "{C5}"', 'C4 = "end"')) == [("end/a", 8)]
+    assert kh.frozen_paths('ROOT = "x"\r\nTABLE = {\r\n    f"{ROOT}/y": (3, "%s"),\r\n}\r\n' % digest) == [("x/y", 3)]
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_gate_t000_baseline.py").write_text(old, encoding="utf-8")
+    (repo / "tests" / "test_gate_t002_baseline.py").write_text('FROZEN = {\n    "desktop/web/src/api.ts": (36065, "%s"),\n}\n' % digest,
+                                                                encoding="utf-8")
+    kh.git(["add", "tests"], repo)
+    kh.git(["commit", "-q", "-m", "先前各片"], repo)
+    ts["base_head"] = kh.git(["rev-parse", "HEAD"], repo).strip()
+    contract = json.loads((plans / "t001-doc.v1.json").read_text(encoding="utf-8"))
+    contract["checks"].append({"id": "R01", "argv": ["python", "-m", "pytest", "tests/test_gate_t000_baseline.py",
+                                                     "tests/test_gate_t002_baseline.py", "-q"], "expect_on_base": "pass", "required": True})
+
+    def problems(modified, deleted=()):
+        contract["scope"].update(allowed_modified_files=list(modified), allowed_deleted_files=list(deleted))
+        (plans / "t001-doc.v1.json").write_text(json.dumps(contract), encoding="utf-8")
+        return kh.contract_requirements(hub, ts)
+
+    tail = ("。真要改：把那份门禁也列进 allowed_modified_files（从 forbidden_paths 拿掉），在 Steps 与 DoD 里逐字写明只删冻结这个文件的那一项"
+            "（原文从门禁里抄）；用不着改：从 allowed_modified_files、allowed_deleted_files 拿掉")
+    head = "这几个文件本片允许改或删，可先前的门禁按字节冻结了它们（文件 ← 门禁:行号），执行端一改 R01 必红："
+    assert problems(["desktop/web/src/api.ts", "desktop/web/tests/*.tsx", "README.md"], ["ts/bun.lock"]) == [
+        head + "desktop/web/src/api.ts ← tests/test_gate_t000_baseline.py:6；desktop/web/tests/page-app.test.tsx ← "
+        "tests/test_gate_t000_baseline.py:7；ts/bun.lock ← tests/test_gate_t000_baseline.py:8；desktop/web/src/api.ts ← "
+        "tests/test_gate_t002_baseline.py:2" + tail]
+    # 冻住它的门禁也列进了可改范围：改哪一项由合同写明，不再点名；冻住的文件本片不改：不点名
+    assert problems(["desktop/web/src/api.ts", "tests/test_gate_t000_baseline.py"]) == [
+        head + "desktop/web/src/api.ts ← tests/test_gate_t002_baseline.py:2" + tail]
+    assert problems(["desktop/web/src/api.ts", "tests/test_gate_t000_baseline.py", "tests/test_gate_t002_baseline.py"]) == []
+    assert problems(["desktop/web/src/App.tsx", "desktop/web/tests/page-roles.test.tsx"], ["ts/package.json"]) == []
+
+
 def test_the_regression_check_timeout_follows_the_gate_count(tmp_path, monkeypatch):
     # 第 177 轮：合同的全量回归原来一律写 1800 秒；T045 的 45 份门禁基准在基线上跑了 1575 秒，attempt-002 两次都在 97% 处被掐断，
     # 没有一条红用例。改成每份 60 秒、不少于 1800 秒。门禁基准是真文件（hub-prompt 的契约采样这一条，TS 照样算）

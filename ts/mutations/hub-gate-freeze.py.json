@@ -1,0 +1,60 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "freezes_a_file_it_may_change"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "F01 合同要求不查旧门禁的字节冻结",
+      "file": "scripts/kit_hub.py",
+      "old": "    frozen = frozen_by_gates(hub, ts, data)\n",
+      "new": "    frozen = []\n"
+    },
+    {
+      "name": "F02 本片也能改的那份门禁照样点名",
+      "file": "scripts/kit_hub.py",
+      "old": "        if pd.matches(changing, gate):\n            continue  # 这份门禁本片也能改",
+      "new": "        if False:\n            continue  # 这份门禁本片也能改"
+    },
+    {
+      "name": "F03 键是路径常量名时不展开",
+      "file": "scripts/kit_hub.py",
+      "old": "        raw = key[key.index('\"') + 1:-1] if key.endswith('\"') else consts.get(key)",
+      "new": "        raw = key[key.index('\"') + 1:-1] if key.endswith('\"') else None"
+    },
+    {
+      "name": "F04 常量套常量只展开一层",
+      "file": "scripts/kit_hub.py",
+      "old": "        if depth >= PLACEHOLDER_DEPTH:",
+      "new": "        if depth >= 1:"
+    },
+    {
+      "name": "F05 不看 allowed_deleted_files",
+      "file": "scripts/kit_hub.py",
+      "old": "    changing = pd.compile_patterns([str(entry) for key in (\"allowed_modified_files\", \"allowed_deleted_files\")",
+      "new": "    changing = pd.compile_patterns([str(entry) for key in (\"allowed_modified_files\",)"
+    },
+    {
+      "name": "F06 行号少一",
+      "file": "scripts/kit_hub.py",
+      "old": "            found.append((path, text.count(\"\\n\", 0, match.start()) + 1))",
+      "new": "            found.append((path, text.count(\"\\n\", 0, match.start())))"
+    },
+    {
+      "name": "F07 CRLF 的路径常量行认不出",
+      "file": "scripts/kit_hub.py",
+      "old": "PATH_CONST_RE = re.compile(r'^([A-Z][A-Z0-9_]*)[ \\t]*=[ \\t]*f?\"([^\"\\n]*)\"[ \\t]*\\r?$', re.M)",
+      "new": "PATH_CONST_RE = re.compile(r'^([A-Z][A-Z0-9_]*)[ \\t]*=[ \\t]*f?\"([^\"\\n]*)\"[ \\t]*$', re.M)"
+    }
+  ]
+}

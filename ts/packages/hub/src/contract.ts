@@ -12,7 +12,7 @@ import { D, S, W, cmpCodePoints, pyIntParse, pyRegex, pyRstrip, pySplitlines, py
 import { compilePy } from "@themis/base/pyregex";
 import { pyEq } from "@themis/base/pyvalue";
 import { CHECK_LINE_RE, mdSection } from "@themis/dispatcher/contract";
-import { reEscape } from "@themis/dispatcher/patterns";
+import { compilePatterns, matches, reEscape } from "@themis/dispatcher/patterns";
 import { executorLine, hubBindings } from "./bindings.ts";
 import { MIN_ATTEMPTS_LEFT, OWNER } from "./constants.ts";
 import { HubError } from "./errors.ts";
@@ -288,6 +288,47 @@ export function scopeMissingPrefix(hub: Hub, data: PyValue): string[] {
   return out;
 }
 
+/**
+ * 第 188 轮（候选 #61）：先前各片门禁“按字节冻结”一个文件的写法，字典里的一项 `键: (字节数, "sha256")`，键是路径字符串（可带 {常量}）
+ * 或模块级的路径常量名。只认空格与制表符、ASCII 数字，照 Python 的写法逐字抄；^、$ 照 re.M（见 LINE_START、LINE_END）。
+ */
+const FREEZE_ENTRY = new RegExp(`${LINE_START}[ \\t]*(f?"[^"${LF}]*"|[A-Z][A-Z0-9_]*)[ \\t]*:[ \\t]*\\([ \\t]*[0-9]+[ \\t]*,[ \\t]*"[0-9a-f]{64}"[ \\t]*\\)`, "gu");
+const PATH_CONST = new RegExp(`${LINE_START}([A-Z][A-Z0-9_]*)[ \\t]*=[ \\t]*f?"([^"${LF}]*)"[ \\t]*\\r?${LINE_END}`, "gu");
+const PLACEHOLDER = /\{([A-Z][A-Z0-9_]*)\}/gu;
+/** 路径常量套路径常量最多展开几层（门禁里最深三层：WEB_REL → SRC_REL → COMP_REL）。 */
+export const PLACEHOLDER_DEPTH = 5;
+
+/** 一份门禁按字节冻结的文件：[仓库相对路径, 行号]。键里的 {常量} 照文件里的路径常量展开，展不开的不算。 */
+export function frozenPaths(value: PyValue): [string, bigint][] {
+  const source = text(value, "re");
+  const consts = new Map<string, string>();
+  for (const match of source.matchAll(PATH_CONST)) consts.set(match[1] as string, match[2] as string);
+  const resolve = (raw: string, depth = 0): string => depth >= PLACEHOLDER_DEPTH ? raw
+    : raw.replace(PLACEHOLDER, (whole: string, name: string) => consts.has(name) ? resolve(consts.get(name) as string, depth + 1) : whole);
+  const found: [string, bigint][] = [];
+  for (const match of source.matchAll(FREEZE_ENTRY)) {
+    const key = match[1] as string;
+    const raw = key.endsWith('"') ? key.slice(key.indexOf('"') + 1, -1) : consts.get(key);
+    const path = raw === undefined ? undefined : resolve(raw);
+    if (path !== undefined && !path.includes("{")) found.push([path, BigInt(source.slice(0, match.index).split(LF).length)]);
+  }
+  return found;
+}
+
+/** 本片允许改、删的文件里，被先前某片门禁按字节冻结、而那份门禁本片不许改的：“文件 ← 门禁:行号”（第 188 轮，候选 #61）。 */
+export function frozenByGates(hub: Hub, ts: PyDict, data: PyValue): string[] {
+  const scope = or(pyGet(data, "scope"), new Map());
+  const changing = compilePatterns(["allowed_modified_files", "allowed_deleted_files"].flatMap((name) => pyIter(or(pyGet(scope, name), [])).map(pyStrValue)));
+  const out: string[] = [];
+  for (const gate of regressionGates(hub, ts)) {
+    if (matches(changing, gate)) continue; // 这份门禁本片也能改：改哪一项由合同写明
+    for (const [path, line] of frozenPaths(git(["show", `${pyStrValue(pyItem(ts, "base_head"))}:${gate}`], hub.repo))) {
+      if (matches(changing, path)) out.push(`${path} ← ${gate}:${line}`);
+    }
+  }
+  return out;
+}
+
 /** 合同里的未决标注：T001 的合同端把待站主确认的问题写成 13 处标注留在正文里。 */
 export const PENDING_MARK_RE = pyRegex("待(?:站主|协调人)?(?:确认|拍板|决定)", true);
 
@@ -326,6 +367,12 @@ export function contractRequirements(hub: Hub, ts: PyDict): string[] {
   const guarded = regressionGates(hub, ts).filter((path) => !checks().some((check) =>
     pyIn(path, or(pyGet(check, "argv"), [])) && pyEq(pyGet(check, "expect_on_base"), "pass") && pyTruthy(pyGet(check, "required", true))));
   if (guarded.length) problems.push(`Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：${guarded.join("、")}`);
+  const frozen = frozenByGates(hub, ts, data);
+  if (frozen.length) {
+    problems.push(`这几个文件本片允许改或删，可先前的门禁按字节冻结了它们（文件 ← 门禁:行号），执行端一改 R01 必红：${frozen.join("；")}。`
+      + "真要改：把那份门禁也列进 allowed_modified_files（从 forbidden_paths 拿掉），在 Steps 与 DoD 里逐字写明只删冻结"
+      + "这个文件的那一项（原文从门禁里抄）；用不着改：从 allowed_modified_files、allowed_deleted_files 拿掉");
+  }
   const executor = or(pyGet(data, "executor"), new Map());
   const declared = [pyGet(executor, "provider"), pyGet(executor, "model"), pyGet(executor, "thinking")];
   const [wanted, wantedLine] = executorLine(hubBindings(hub.repo));

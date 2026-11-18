@@ -1,0 +1,52 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract.contract.test.ts",
+    "-t",
+    "frozen_paths",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "G03 键是路径常量名时不展开",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "    const raw = key.endsWith('\"') ? key.slice(key.indexOf('\"') + 1, -1) : consts.get(key);",
+      "new": "    const raw = key.endsWith('\"') ? key.slice(key.indexOf('\"') + 1, -1) : undefined;"
+    },
+    {
+      "name": "G04 CRLF 的路径常量行认不出",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "f?\"([^\"${LF}]*)\"[ \\\\t]*\\\\r?${LINE_END}`, \"gu\");",
+      "new": "f?\"([^\"${LF}]*)\"[ \\\\t]*${LINE_END}`, \"gu\");"
+    },
+    {
+      "name": "G05 ^ 用 JS 的 m 标志（回车、U+2028 也算行首）",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const FREEZE_ENTRY = new RegExp(`${LINE_START}[ \\\\t]*(f?\"",
+      "new": "const FREEZE_ENTRY = new RegExp(`(?<=^|[\\\\n\\\\r\\\\u2028\\\\u2029])[ \\\\t]*(f?\""
+    },
+    {
+      "name": "G06 行首的空白用 \\s（不间断空格也算缩进）",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "const FREEZE_ENTRY = new RegExp(`${LINE_START}[ \\\\t]*(f?\"",
+      "new": "const FREEZE_ENTRY = new RegExp(`${LINE_START}\\\\s*(f?\""
+    },
+    {
+      "name": "G07 常量链多展开一层",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "  const resolve = (raw: string, depth = 0): string => depth >= PLACEHOLDER_DEPTH ? raw",
+      "new": "  const resolve = (raw: string, depth = 0): string => depth > PLACEHOLDER_DEPTH ? raw"
+    },
+    {
+      "name": "G08 行号少一",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "BigInt(source.slice(0, match.index).split(LF).length)",
+      "new": "BigInt(source.slice(0, match.index).split(LF).length - 1)"
+    }
+  ]
+}

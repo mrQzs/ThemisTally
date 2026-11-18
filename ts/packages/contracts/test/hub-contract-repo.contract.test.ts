@@ -65,6 +65,7 @@ const TESTS = [
   "test_an_owner_reply_releases_the_gate_claim_and_long_letters_are_refused", "test_an_unchanged_timed_out_attempt_keeps_the_same_rework_base",
   "test_an_unsent_contract_gets_the_rostered_executor_before_dispatch", "test_contract_budget_counts_attempts_of_earlier_versions",
   "test_contract_delivery_is_refused_when_the_budget_leaves_one_attempt", "test_contract_requirements",
+  "test_contract_names_the_earlier_gate_that_freezes_a_file_it_may_change", // 第 188 轮
   "test_contract_runs_the_earlier_gates_as_regression_checks", "test_contract_title_is_the_registered_task_title",
   "test_contract_with_pending_marks_is_rejected", "test_decisions_are_attached_to_the_contract_and_shown_to_the_contract_writer",
   "test_dispatched_contract_is_bumped_not_edited", "test_exec_letter_counts_the_candidate_and_names_the_failed_checks",

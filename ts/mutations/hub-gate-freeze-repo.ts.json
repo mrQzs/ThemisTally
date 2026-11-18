@@ -1,0 +1,28 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-contract-repo.contract.test.ts",
+    "-t",
+    "记到的顶层调用放回调用当时的快照",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "G01 合同要求不查旧门禁的字节冻结",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "  const frozen = frozenByGates(hub, ts, data);",
+      "new": "  const frozen: string[] = [];"
+    },
+    {
+      "name": "G02 本片也能改的那份门禁照样点名",
+      "file": "ts/packages/hub/src/contract.ts",
+      "old": "    if (matches(changing, gate)) continue; // 这份门禁本片也能改：改哪一项由合同写明",
+      "new": ""
+    }
+  ]
+}

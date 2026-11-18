@@ -61,7 +61,7 @@ import { quizsLiveFiles, quizsUnready } from "@themis/hub/quizs";
 import * as constants from "@themis/hub/constants";
 import {
   answersQuestion, budgetProblems, contractDigest, contractPaths, contractRequirements, decisionsSection, dodCoverageProblems, externalFactProblems,
-  hollowBaselineProblems, normalizeIdentity, normalizeMarkup, pytestOutcomes, scopeMissingPrefix, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
+  frozenPaths, hollowBaselineProblems, normalizeIdentity, normalizeMarkup, pytestOutcomes, scopeMissingPrefix, stripDecisions, tail, tailFile, unparsedCheckIds, unverifiedFacts,
 } from "@themis/hub/contract";
 import {
   CONFIG_ACTION_FAMILIES, TS_CONFIG_COMMANDS, TS_DISPATCHER_COMMANDS, TS_ONLY_COMMANDS, TS_READONLY_COMMANDS, argvImpl, readKernelImpl,
@@ -609,6 +609,9 @@ export async function hubContract(request: Record<string, unknown>, fromTagged: 
         break;
       case "unparsed_check_ids":
         value = unparsedCheckIds(a);
+        break;
+      case "frozen_paths": // 第 188 轮
+        value = frozenPaths(a);
         break;
       case "external_fact_problems":
         value = externalFactProblems(a);

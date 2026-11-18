@@ -2907,6 +2907,51 @@ def regression_gates(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     return sorted(path for path in listing.splitlines() if GATE_BASELINE_RE.match(path) and path != own)
 
 
+#: 第 188 轮（候选 #61）：先前各片门禁“按字节冻结”一个文件的写法，字典里的一项 `键: (字节数, "sha256")`，键是路径字符串（可带
+#: {常量}）或模块级的路径常量名。整份 (字节数, "sha256") 赋给一个常量、只冻前缀的那几种看不出是哪个文件，不管。
+#: 只认空格与制表符、ASCII 数字：Python 的 \s、\d 认 Unicode，TS 那边照抄写法就行
+FREEZE_ENTRY_RE = re.compile(r'^[ \t]*(f?"[^"\n]*"|[A-Z][A-Z0-9_]*)[ \t]*:[ \t]*\([ \t]*[0-9]+[ \t]*,[ \t]*"[0-9a-f]{64}"[ \t]*\)', re.M)
+PATH_CONST_RE = re.compile(r'^([A-Z][A-Z0-9_]*)[ \t]*=[ \t]*f?"([^"\n]*)"[ \t]*\r?$', re.M)
+PLACEHOLDER_RE = re.compile(r"\{([A-Z][A-Z0-9_]*)\}")
+#: 路径常量套路径常量最多展开几层（门禁里最深三层：WEB_REL → SRC_REL → COMP_REL）
+PLACEHOLDER_DEPTH = 5
+
+
+def frozen_paths(text: str) -> List[Tuple[str, int]]:
+    """一份门禁按字节冻结的文件：（仓库相对路径, 行号）。键里的 {常量} 照文件里的路径常量展开，展不开的不算。"""
+    consts = {match.group(1): match.group(2) for match in PATH_CONST_RE.finditer(text)}
+
+    def resolve(value: str, depth: int = 0) -> str:
+        if depth >= PLACEHOLDER_DEPTH:
+            return value
+        return PLACEHOLDER_RE.sub(lambda m: resolve(consts[m.group(1)], depth + 1) if m.group(1) in consts else m.group(0), value)
+
+    found = []
+    for match in FREEZE_ENTRY_RE.finditer(text):
+        key = match.group(1)
+        raw = key[key.index('"') + 1:-1] if key.endswith('"') else consts.get(key)
+        path = None if raw is None else resolve(raw)
+        if path is not None and "{" not in path:
+            found.append((path, text.count("\n", 0, match.start()) + 1))
+    return found
+
+
+def frozen_by_gates(hub: Hub, ts: Dict[str, Any], data: Dict[str, Any]) -> List[str]:
+    """本片允许改、删的文件里，被先前某片门禁按字节冻结、而那份门禁本片不许改的：“文件 ← 门禁:行号”（第 188 轮，候选 #61）。
+    T047、T048、T051 三次：合同允许改的文件被旧门禁冻着，执行端做完、越界 0，检查只红在 R01，合同出新版本、执行重来。"""
+    scope = data.get("scope") or {}
+    changing = pd.compile_patterns([str(entry) for key in ("allowed_modified_files", "allowed_deleted_files")
+                                    for entry in scope.get(key) or []])
+    out = []
+    for gate in regression_gates(hub, ts):
+        if pd.matches(changing, gate):
+            continue  # 这份门禁本片也能改：改哪一项由合同写明
+        for path, line in frozen_paths(git(["show", "%s:%s" % (ts["base_head"], gate)], hub.repo)):
+            if pd.matches(changing, path):
+                out.append("%s ← %s:%d" % (path, gate, line))
+    return out
+
+
 #: 全量回归里每份门禁基准给的时限（第 177 轮）：每份各跑一遍整套前端测试与几次探针，11-16 实测一份 35–41 秒
 REGRESSION_SECONDS_PER_GATE = 60
 
@@ -2987,6 +3032,11 @@ def contract_requirements(hub: Hub, ts: Dict[str, Any]) -> List[str]:
     if guarded:
         problems.append("Validation commands 要有一条必要、基线应通过的回归检查，跑先前各片的门禁基准测试：%s"
                         % "、".join(guarded))
+    frozen = frozen_by_gates(hub, ts, data)
+    if frozen:
+        problems.append("这几个文件本片允许改或删，可先前的门禁按字节冻结了它们（文件 ← 门禁:行号），执行端一改 R01 必红：%s。"
+                        "真要改：把那份门禁也列进 allowed_modified_files（从 forbidden_paths 拿掉），在 Steps 与 DoD 里逐字写明只删冻结"
+                        "这个文件的那一项（原文从门禁里抄）；用不着改：从 allowed_modified_files、allowed_deleted_files 拿掉" % "；".join(frozen))
     executor = data.get("executor") or {}
     wanted, wanted_line = executor_line(hub_bindings(hub))
     if (executor.get("provider"), executor.get("model"), executor.get("thinking")) != wanted:
