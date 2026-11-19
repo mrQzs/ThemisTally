@@ -1,0 +1,24 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "gate_hotfix_turn_carries"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 门禁端拿不到“会接着扩的东西只核对含这几项”",
+      "file": "scripts/kit_hub.py",
+      "old": "    \"后面的片还会接着扩的东西（联合类型的成员、KINDS 这类数组、白名单、“还剩几个禁用入口”这类计数），门禁只核对「含这几项」\"\n",
+      "new": "    \"后面的片还会接着扩的东西（联合类型的成员、KINDS 这类数组、白名单、“还剩几个禁用入口”这类计数），门禁照样逐字钉死\"\n"
+    }
+  ]
+}

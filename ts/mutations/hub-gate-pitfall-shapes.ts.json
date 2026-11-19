@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T01 TS 的门禁坑少了“会接着扩的东西只核对含这几项”",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "门禁只核对「含这几项」或「旧值已经不在」",
+      "new": "门禁照样逐字钉死或「旧值已经不在」"
+    }
+  ]
+}
