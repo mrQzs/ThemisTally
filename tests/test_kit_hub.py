@@ -8276,6 +8276,9 @@ def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
     assert "按触发元素自己的 aria-describedby 取" in prompt and "T055 的 hoverTip" in prompt
     # 第 195 轮：门禁逐字钉 JobKind 那一行与禁用入口计数，后面的片只好连带改旧门禁（候选 #76）
     assert "门禁只核对「含这几项」" in prompt and "T056 加第四类作业" in prompt
+    # 第 197 轮：T057 的门禁探针重挂载后没重新输入就点按钮，期望发出上一次的值，与合同“不记住上次的值”打架（候选 #79）
+    assert "重挂载之后要操作就先重新输入" in prompt and "T057 的 (h)" in prompt
+    assert "放在触发请求的那次点击之前" in prompt and "换值再点之后才改成 failed" in prompt
     post = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], hub.repo)
     assert "## 门禁测试撞过的坑" in post and "热修补：执行端说" not in post
     del ts["hotfix"]

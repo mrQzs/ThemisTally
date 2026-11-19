@@ -1,0 +1,26 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T01 TS 的门禁坑少了“重挂载之后先重新输入”",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "重挂载之后要操作就先重新输入",
+      "new": "重挂载之后照样直接点"
+    },
+    {
+      "name": "T02 TS 的门禁坑少了“假服务的答案放在点击之前”",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "放在触发请求的那次点击之前",
+      "new": "放在点击之后也行"
+    }
+  ]
+}

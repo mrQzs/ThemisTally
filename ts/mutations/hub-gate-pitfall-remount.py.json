@@ -1,0 +1,30 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "gate_hotfix_turn_carries"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 门禁端拿不到“重挂载之后先重新输入”",
+      "file": "scripts/kit_hub.py",
+      "old": "重挂载之后要操作就先重新输入",
+      "new": "重挂载之后照样直接点"
+    },
+    {
+      "name": "P02 门禁端拿不到“假服务的答案放在点击之前”",
+      "file": "scripts/kit_hub.py",
+      "old": "放在触发请求的那次点击之前",
+      "new": "放在点击之后也行"
+    }
+  ]
+}
