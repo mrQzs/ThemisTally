@@ -15,8 +15,8 @@
   {
    "name": "T01 读仓库的岗位不用自己的预算",
    "file": "ts/packages/hub/src/turn.ts",
-   "old": "      ...(QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS).flat()];",
-   "new": "      ...QUIZS_TURN_BUDGETS.flat()];"
+   "old": "QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS",
+   "new": "QUIZS_TURN_BUDGETS"
   },
   {
    "name": "T02 合同端只冻输入",

@@ -1,0 +1,60 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "gate_on_quizs or gate_prompt_on_quizs"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "P01 门禁不走工作区模式",
+      "file": "scripts/kit_hub.py",
+      "old": "QUIZS_WORKTREE_ROLES = (\"gate\",)",
+      "new": "QUIZS_WORKTREE_ROLES = ()"
+    },
+    {
+      "name": "P02 拿掉被拒命令的上限",
+      "file": "scripts/kit_hub.py",
+      "old": "(\"--max-format-recoveries\", \"2\"), (\"--max-command-denials\", \"5\"))",
+      "new": "(\"--max-format-recoveries\", \"2\"),)"
+    },
+    {
+      "name": "P03 工作区模式照样冻快照",
+      "file": "scripts/kit_hub.py",
+      "old": "(None, None) if inputs is None or worktree_mode else quizs_snapshot(",
+      "new": "(None, None) if inputs is None else quizs_snapshot("
+    },
+    {
+      "name": "P04 命令档案不开 python 脚本",
+      "file": "scripts/kit_hub.py",
+      "old": "\"pythonScripts\": True, \"node\": node,",
+      "new": "\"pythonScripts\": False, \"node\": node,"
+    },
+    {
+      "name": "P05 输入清单的标题照快照写",
+      "file": "scripts/kit_hub.py",
+      "old": "\"## 只读输入目录里的文件（内核）\"",
+      "new": "\"## 快照里的文件（内核）\""
+    },
+    {
+      "name": "P06 交差那一句照只读岗位写",
+      "file": "scripts/kit_hub.py",
+      "old": "\"这一回合能用的工具见上面“这一回合的工具”一节。\" if live_tree else",
+      "new": "\"这一回合能调用的工具只有角色说明里列的只读工具。\" if live_tree else"
+    },
+    {
+      "name": "P07 原生组件找不到也不换替补",
+      "file": "scripts/kit_hub.py",
+      "old": "or (quizs_worktree_unready() if listed.get(\"role\") in QUIZS_WORKTREE_ROLES else None))",
+      "new": "or None)"
+    }
+  ]
+}

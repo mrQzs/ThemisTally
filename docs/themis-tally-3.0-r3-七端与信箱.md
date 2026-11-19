@@ -3271,6 +3271,59 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 候选 #79 的后一半先量：执行报告缺失（截断、超时）而摘要里的矛盾提及指向门禁时，返工执行端之前先交门禁端核实。要量的是截断、超时的 attempt 里这种情形有多少、后来是不是都走了门禁热修补，多了再进内核。
   - T057 的门禁本身由门禁端热修补（站主 --rework 3-gate-pre 两封），不在本轮改。
 
+### 第 198 轮：门禁端走 Quizs 的内核接线（七端走 Quizs 二期）：工作区模式、命令档案、输入按 root 读
+
+- **起因**：
+  - 用户 11-16 说“七端都走 quizs”，11-19 又说“尽量确保角色的特长利用最大化”。
+  - 门禁端（GLM-5.3）的长处是写测试、跑测试。它在 pi 上的 290 个回合里调了 bash 四千多次（pytest、内联 python、node、head、grep），edit 四千五百次。要在 Quizs 上发挥这些长处，只读快照不够，要活的 worktree 与能跑测试的 bash。
+  - Quizs M11（11-19 合进主检出，c541306）带来了工作区模式要的放宽：
+    - 被拒的命令回反馈；
+    - 放行 python 脚本与 node；
+    - PATH 上加工具链，缓存跨回合保留；
+    - read、grep、find、ls 可以加 root "inputs"。
+  - 11-19 实测三：T047 门禁在 Quizs 执行域里 15 条全过，51 秒。前提是 ts/node_modules 先在 Medium 装好，低完整性令牌建不了 symlink。
+- **改法**（Python 与 TS 两份）：
+  - QUIZS_WORKTREE_ROLES 是 gate：门禁绑到 quizs 时走工作区模式，不冻快照。命令行加这些：
+    - --worktree；
+    - runner 与文件后端的路径：取 QUIZS_NATIVE，没设时从 QUIZS_CMD 的源码入口推出 dist/native；
+    - 命令档案，输出与作业上限；
+    - --max-format-recoveries 2、--max-command-denials 5；
+    - 预算 160 个请求、128 次工具调用（pi 上门禁回合的工具调用中位 32、九成在 69 以内）。
+  - 命令档案的内容：
+    - 开 pythonScripts 与 node；
+    - node、bun、git 所在目录进 PATH；
+    - cacheRoot 是信箱下的 quizs-cache/gate，第一次用时由 icacls 打上 Low 标签，并留一个标记；
+    - git 照工作目录实际的 core.autocrlf 钉住。
+  - 开回合之前在 Medium 预装 ts/node_modules（bun install --frozen-lockfile，限时 300 秒）。装不好、缓存根打不上标签，都写进回合记录的 warnings，照常开回合。
+  - 找不到原生组件，或命令档案要的程序不在 PATH 上：名册写了替补的岗位，这一回合换成 pi（effective_spec）。
+  - 提示：
+    - 门禁在 quizs 上，输入那一行写 root "inputs"；
+    - 清单换成“只读输入目录里的文件”，后面附“这一回合的工具”一节：没有 shell，收哪几种命令，临时文件用 python -c 删，被拒到第 6 次回合结束；
+    - 交差那一句不再说“只有只读工具”。
+  - POLICY 的重交说明补上“被拒的命令超过每回合的上限”。
+  - QUIZS_PROFILE_IDS 加 glm（glm-coding-plan）。配置中心的两份（kit_roles.py、roles-probe.ts）一起加，它们与 kit_hub 的有核对。
+- **测试**：
+  - test_kit_hub 两条：
+    - 门禁在 quizs 上的命令行、回合目录里的三份文件、缓存根的标记；原生组件不见时换替补；
+    - 门禁提示的输入清单、工具说明与交差那一句；协调人照旧读快照。
+  - hub-turn 契约把前一条加进采样名单，三边重放后逐字节比产物。
+  - hub-prompt 契约加第 198 轮的手写对照，三边比清单与整份提示：改了名册的提示不进采样名单，因为重放时只带函数与参数、不带名册。TS 探针的 snapshot_manifest 转交第三个参数。
+  - 常量逐项对照照旧过：新常量两边同名同值，TS 常量表里是数字，写 JSON 时再换成整数。
+- **变异**：
+  - 新写 hub-gate-quizs（py 7）、hub-gate-quizs-turn（ts 3，hub-turn 契约）、hub-gate-quizs-prompt（ts 1，hub-prompt 契约），11 条都抓住。
+  - 四条旧变异的锚点随改动的行同步：hub-d1 的 D41（改成锚整行，新清单里有一句相近的话）、D43，hub-k2 的 P02，hub-k2t 的 T01。这四条单独重跑，都抓住。
+- **检查**：
+  - 变异清单 242 份，锚点无失效；类型检查 0 错；元测试 5 条。
+  - test_kit_hub 与 test_kit_roles 一起 537 passed（第一遍漏了 kit_roles 那份 QUIZS_PROFILE_IDS，补上后复检）。
+  - hub-turn 10 条、hub-prompt 21 条、hub-state 14 条、roles-probe 19 条（Python、Node、Bun 一致）。
+- **没做**：
+  - 不改绑定，门禁照旧 pi。之后依次做：
+    - 重签 GLM 证书，收尾预留从 60 秒调大；
+    - 续签计划任务；
+    - 在配置中心登记 quizs-glm 与 pi-glm；
+    - 拿三个门禁回合做重放比对，过了再 config hub set gate。
+  - 删除工具不做：python -c 在执行域里就能删门禁自己的临时文件。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

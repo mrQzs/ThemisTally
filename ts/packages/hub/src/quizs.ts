@@ -1,23 +1,32 @@
 // quizs 载体（第 137 轮，P1：名册没换，协调人照旧走 pi；换载体要站主同意）：kit_hub.py 的 resolve_quizs_command、fenced_json、
 // quizs_snapshot、audit_quizs_stream。交付是最后回答里的一个 json 代码块（Quizs 的 v1 交付：result 的 final_text 就是这段回答），
 // 内核再按岗位 schema 核验；输入目录交 quizs snapshot capture 冻成只读快照，建 git 树的事在 Quizs 里做一次。
+import { utcNow } from "@themis/base/clock";
+import { findBunOnPath } from "@themis/base/native";
 import { pyGet, pyStrValue, pyTruthy } from "@themis/base/pyfmt";
 import { PyJsonError, type PyDict, type PyValue, loads } from "@themis/base/pyjson";
 import { jsonlLines } from "@themis/base/jsonl";
-import { pyStrip } from "@themis/base/pyre";
+import { osPathJoin, purePathParent, purePathStr } from "@themis/base/pypath";
+import { pyLower, pyStrip } from "@themis/base/pyre";
 import { pyWhich } from "@themis/base/pyshutil";
+import { type SuperviseResult, runSupervised } from "@themis/base/supervise";
+import { writeJson } from "@themis/dispatcher/evidence";
 import { runCapture } from "@themis/dispatcher/pi-cli";
-import { copyFileSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import {
   EXIT_BLOCKED, QUIZS_BEHAVIOR_ERRORS, QUIZS_CERT_MARGIN, QUIZS_DOWN_FILE, QUIZS_FENCE_CLOSE, QUIZS_FENCE_OPEN, QUIZS_LIVE_FILES, QUIZS_OUTPUT_CUT, QUIZS_OVERLOADED, QUIZS_PERMIT_HELD,
   QUIZS_FORMAT_NOTE, QUIZS_LIVE_NAMES, QUIZS_LIVE_ROOT, QUIZS_PROFILE_IDS, QUIZS_SCHEMA_NOTES, QUIZS_STATE_DIR,
+  QUIZS_CACHE_DIR, QUIZS_CACHE_MARK, QUIZS_JOB_FILE, QUIZS_JOB_LIMITS, QUIZS_MAIN_TAIL, QUIZS_NATIVE_ENV, QUIZS_NATIVE_FILES, QUIZS_OUTPUT_FILE,
+  QUIZS_OUTPUT_LIMITS, QUIZS_PREPARE_TIMEOUT, QUIZS_PROFILE_FILE, QUIZS_WORKTREE_LIMITS, QUIZS_WORKTREE_ROLES,
   ROSTER, THROTTLE_RESET_MARGIN,
   type RosterSpec,
 } from "./constants.ts";
 import { type HubBindings, boundSpec } from "./bindings.ts";
 import { streamEvents } from "./audit.ts";
 import { HubError } from "./errors.ts";
+import { kernelEnv } from "./runpd.ts";
 
 const LF = String.fromCharCode(10);
 const CR = String.fromCharCode(13);
@@ -28,7 +37,11 @@ const CR = String.fromCharCode(13);
 export function effectiveSpec(agent: string, now: number, hubRoot: string | null = null, bindings: HubBindings | null = null): [RosterSpec, string | null] {
   const { fallback: substitute, ...listed } = boundSpec(agent, bindings?.get(String((ROSTER[agent] as RosterSpec).role)));
   const stateDir = hubRoot === null ? null : join(hubRoot, QUIZS_STATE_DIR);
-  const reason = listed.adapter === "quizs" && substitute ? quizsUnready(now, listed.timeout ?? 1800, stateDir, pyStrValue(listed.provider ?? null)) : null;
+  // 第 198 轮：工作区模式的岗位另要原生组件与命令档案的程序
+  const reason = listed.adapter === "quizs" && substitute
+    ? (quizsUnready(now, listed.timeout ?? 1800, stateDir, pyStrValue(listed.provider ?? null))
+      ?? (QUIZS_WORKTREE_ROLES.includes(String(listed.role)) ? quizsWorktreeUnready() : null))
+    : null;
   return [reason === null ? listed : { ...listed, ...substitute }, reason];
 }
 
@@ -110,6 +123,106 @@ export function quizsUnready(now: number, timeout: number, stateDir: string | nu
   if (typeof expires !== "bigint") return "资格证书里没有到期时刻";
   if (expires < BigInt((now + timeout + QUIZS_CERT_MARGIN) * 1000)) return `资格证书撑不完这一回合（${expires} 毫秒时到期）`;
   return quizsLivePlan(files.get("--live-plan") as string)[1] ?? quizsDown(now, stateDir, provider);
+}
+
+/** 第 198 轮：kit_hub.ICACLS_EXE（给缓存根打 Low 标签；用绝对路径起，同 codekit.secrets）。 */
+const ICACLS_EXE = osPathJoin(process.env["SystemRoot"] || "C:\\Windows", "System32", "icacls.exe");
+const BS = String.fromCharCode(92);
+
+/** 第 198 轮：kit_hub.quizs_native_dir：Quizs 原生组件所在的目录（QUIZS_NATIVE_FILES 都在才算），找不到是 null。 */
+export function quizsNativeDir(): string | null {
+  const raw = process.env[QUIZS_NATIVE_ENV];
+  let candidates: string[];
+  if (raw) {
+    candidates = [raw];
+  } else {
+    let command: string[] = [];
+    try {
+      command = resolveQuizsCommand();
+    } catch (error) {
+      if (!(error instanceof HubError) && !(error instanceof PyJsonError)) throw error;
+    }
+    candidates = command.filter((part) => part.split(BS).join("/").endsWith(QUIZS_MAIN_TAIL)).map((part) => {
+      let root = part;
+      for (let step = 0; step < 6; step++) root = purePathParent(root);
+      return purePathStr(root, "dist", "native");
+    });
+  }
+  return candidates.find((folder) => QUIZS_NATIVE_FILES.every((name) => isFile(purePathStr(folder, name)))) ?? null;
+}
+
+/** 第 198 轮：kit_hub.quizs_worktree_unready：工作区模式起不了的原因（原生组件找不到，命令档案要的程序不在 PATH 上）；起得了是 null。 */
+export function quizsWorktreeUnready(): string | null {
+  if (quizsNativeDir() === null) {
+    return `找不到 Quizs 的原生组件（${QUIZS_NATIVE_FILES.join("、")}）：设 ${QUIZS_NATIVE_ENV} 指向放它们的目录，或让 QUIZS_CMD 指向 Quizs 源码入口`;
+  }
+  const missing = ["python", "git", "node"].filter((name) => !pyWhich(name));
+  return missing.length > 0 ? `门禁的命令档案缺程序：${missing.join("、")} 不在 PATH 上` : null;
+}
+
+/** 第 198 轮：kit_hub.quizs_cache_root：门禁的 npm、bun 缓存根（信箱下 quizs-cache/gate，跨回合保留）。第一次用时建好、用 icacls 打上
+ *  Low 标签（执行域的低完整性子进程才写得进），打好了留个标记；打不上照常开回合，问题写进回合记录。 */
+export async function quizsCacheRoot(hubRoot: string): Promise<[string, string | null]> {
+  const root = purePathStr(hubRoot, QUIZS_CACHE_DIR, "gate");
+  if (isFile(purePathStr(root, QUIZS_CACHE_MARK))) return [root, null];
+  mkdirSync(root, { recursive: true });
+  const [code] = await runCapture([ICACLS_EXE, root, "/setintegritylevel", "(OI)(CI)low"], { timeout: 60 });
+  if (code !== 0) return [root, `门禁的缓存根打不上 Low 标签（icacls 退出码 ${code === null ? "None" : code}）：执行域里 npm、bun 写不了缓存`];
+  writeFileSync(purePathStr(root, QUIZS_CACHE_MARK), utcNow() + LF, "utf-8");
+  return [root, null];
+}
+
+/** 第 198 轮：kit_hub.quizs_command_profile：门禁在 quizs 上的命令档案（Quizs M11）：python 脚本与 node，node、bun、git 的目录进 PATH，
+ *  npm、bun 的缓存指到缓存根；git 照工作目录实际的 core.autocrlf 钉住（Quizs 藏起了系统与全局的 git 配置）。 */
+export async function quizsCommandProfile(workspace: string, cacheRoot: string): Promise<PyDict> {
+  const [python, git, node] = ["python", "git", "node"].map((name) => pyStrValue(pyWhich(name))) as [string, string, string];
+  const bun = findBunOnPath(Object.fromEntries(kernelEnv()));
+  const [code, out] = await runCapture([git, "-C", workspace, "config", "--get", "core.autocrlf"], { timeout: 60 });
+  const autocrlf = pyLower(pyStrip(out));
+  const folders = [node, ...(bun !== null ? [bun] : []), git].map((path) => purePathParent(path));
+  const gitConfig: PyDict = code === 0 && ["true", "false", "input"].includes(autocrlf) ? new Map([["core.autocrlf", autocrlf]]) : new Map();
+  return new Map<string, PyValue>([["python", python], ["git", git], ["gitConfig", gitConfig], ["pythonScripts", true], ["node", node],
+    ["pathEntries", [...new Set(folders)]], ["cacheRoot", cacheRoot]]);
+}
+
+/** 第 198 轮：kit_hub.quizs_gate_prepare：开 quizs 上的门禁回合之前在 Medium 预装 ts/node_modules（11-19 实测三：执行域的低完整性令牌建不了
+ *  symlink，门禁流水线里的 bun install 只在已经装好时才是空操作）。没有 ts/package.json 就不装；装不好只写进回合记录，照常开回合。 */
+export async function quizsGatePrepare(workspace: string): Promise<string | null> {
+  if (!isFile(purePathStr(workspace, "ts", "package.json"))) return null;
+  const bun = findBunOnPath(Object.fromEntries(kernelEnv()));
+  if (bun === null) return "找不到 Bun，门禁工作目录的 ts 依赖没有预装：执行域里门禁流水线的 bun install 会失败";
+  const dir = mkdtempSync(join(tmpdir(), "themis-gate-prepare-"));
+  let result: SuperviseResult;
+  try {
+    result = await runSupervised([bun, "install", "--frozen-lockfile"], {
+      cwd: purePathStr(workspace, "ts"), env: [...kernelEnv()], stdout: { path: join(dir, "output"), how: "create-new" }, stderr: "stdout",
+      timeout: QUIZS_PREPARE_TIMEOUT,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (result.exit_code === 0 && !result.timed_out) return null;
+  return `门禁工作目录的 ts 依赖没装好（bun install 退出码 ${result.exit_code === null ? "None" : result.exit_code}${result.timed_out ? "，超时" : ""}）：`
+    + "执行域里门禁流水线的 bun install 会失败";
+}
+
+/** 第 198 轮：kit_hub.quizs_worktree_args：工作区模式的参数（Quizs M11），交回 [参数, 起不了的原因]：写命令档案与两份上限进回合目录、
+ *  备好缓存根、预装 ts 依赖；备不好的写进 notes（回合记录的 warnings），照常开回合。 */
+export async function quizsWorktreeArgs(hubRoot: string, workspace: string, turnDir: string, notes: string[]): Promise<[string[], string | null]> {
+  const native = quizsNativeDir();
+  if (native === null) return [[], quizsWorktreeUnready()];
+  const [cache, problem] = await quizsCacheRoot(hubRoot);
+  writeJson(purePathStr(turnDir, QUIZS_PROFILE_FILE), await quizsCommandProfile(workspace, cache));
+  // 整数照 Python 写成整数（PyValue 的整数是 bigint；常量表里是数字，常量对照用 JSON.stringify 取它）
+  const asPy = (table: Readonly<Record<string, number | string>>): PyDict =>
+    new Map<string, PyValue>(Object.entries(table).map(([key, value]) => [key, typeof value === "number" ? BigInt(value) : value]));
+  writeJson(purePathStr(turnDir, QUIZS_OUTPUT_FILE), asPy(QUIZS_OUTPUT_LIMITS));
+  writeJson(purePathStr(turnDir, QUIZS_JOB_FILE), asPy(QUIZS_JOB_LIMITS));
+  const prepared = await quizsGatePrepare(workspace);
+  notes.push(...[problem, prepared].filter((note): note is string => note !== null && note !== ""));
+  return [["--worktree", "--worktree-runner", purePathStr(native, QUIZS_NATIVE_FILES[0]), "--worktree-fs", purePathStr(native, QUIZS_NATIVE_FILES[1]),
+    "--command-profile", purePathStr(turnDir, QUIZS_PROFILE_FILE), "--output-limits", purePathStr(turnDir, QUIZS_OUTPUT_FILE),
+    "--job-limits", purePathStr(turnDir, QUIZS_JOB_FILE), ...QUIZS_WORKTREE_LIMITS.flat()], null];
 }
 
 /** quizs 的命令：QUIZS_CMD 是 JSON 的字符串列表（测试与开发时指向源码入口），缺省是 PATH 里的 quizs。 */

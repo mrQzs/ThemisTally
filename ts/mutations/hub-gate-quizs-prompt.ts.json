@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "T04 TS 的输入清单标题照快照写",
+      "file": "ts/packages/hub/src/prompt.ts",
+      "old": "\"## 只读输入目录里的文件（内核）\"",
+      "new": "\"## 快照里的文件（内核）\""
+    }
+  ]
+}

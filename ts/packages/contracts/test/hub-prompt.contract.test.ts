@@ -430,6 +430,26 @@ describe("第 ⑤d1 片：按种子生成的回合输入", () => {
     expect(prompts.some((prompt) => prompt.includes("# 协调人的断点"))).toBe(true);
   });
 
+  it("第 198 轮：门禁在 quizs 上走工作区模式：输入清单写 root \"inputs\"、附工具说明，交差那一句换说法（改了名册，不进采样名单）", () => {
+    const dir = join(ROOT, "manifest198");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "INPUTS.json"), JSON.stringify({ files: [{ path: ".agent/plans/t001.v1.md", bytes: 12 }], skipped: [{ path: "big.bin", bytes: 9 }] }));
+    const [live] = agree([call("snapshot_manifest", [dir, false, true])], 1).map((result) => valueOf(result) as string[]);
+    expect(live?.slice(0, 2)).toEqual(["", "## 只读输入目录里的文件（内核）"]);
+    expect(live).toContain("- .agent/plans/t001.v1.md（12 字节）");
+    expect(live).toContain("- 另有 1 个文件太大、没有复制进来，名单在 SKIPPED.md（也在只读输入目录里）。");
+    expect(live).toContain("## 这一回合的工具（Quizs 的工作区模式）");
+    const kit = promptKit(198, where);
+    const ts = kit.state();
+    const roster = { "gate-sonnet": { ...(ROSTER["gate-sonnet"] as object), adapter: "quizs", provider: "glm" } };
+    const [prompt] = agree([call("turn_prompt", [where.repo, ts, "gate-sonnet", `${String(ts.get("task"))}-3-gate-pre`, [], where.workspace, null, dir, null, null],
+      { roster })], 1).map((result) => String(valueOf(result)));
+    expect(prompt).toContain("read、grep、find、ls 加 `root: \"inputs\"`");
+    expect(prompt).toContain("## 只读输入目录里的文件（内核）");
+    expect(prompt).toContain("这一回合能用的工具见上面“这一回合的工具”一节。");
+    expect(prompt).not.toContain("- 只读快照：");
+  });
+
   it("第 156 轮：读仓库的岗位用仓库视图（清单只列叠上去的输入、提示换一句）；live 文件按提供方找，“没起来”的标记按提供方分", () => {
     const dirs = ["v-few", "v-many"].map((name) => join(ROOT, "manifest", name));
     for (const dir of dirs) mkdirSync(dir, { recursive: true });

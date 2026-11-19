@@ -1382,7 +1382,7 @@ def _hub_unset(args: Any) -> int:
 QUIZS_LIVE_ROOT = "quizs-live"
 QUIZS_LIVE_NAMES = ("plan.json", "profile.json", "qualification.json")
 QUIZS_LIVE_ENV = ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION")
-QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan"}
+QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan", "glm": "glm-coding-plan"}
 #: Quizs 两条只读命令（Quizs 的 M2，54f3438）输出的 schema_version、live status 的五种 state，每次的时限（秒）
 QUIZS_PROVIDERS_SCHEMA, QUIZS_LIVE_SCHEMA, QUIZS_TIMEOUT = "quizs.providers.v1", "quizs.live-status.v1", 30
 QUIZS_LIVE_STATES = ("ready", "expired", "build_mismatch", "invalid", "missing")

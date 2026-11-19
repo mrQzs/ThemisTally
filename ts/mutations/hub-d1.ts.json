@@ -253,8 +253,8 @@
     {
       "name": "D41 快照清单不提没复制进来的文件（第 151 轮）",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "if (pyTruthy(skipped)) lines.push(",
-      "new": "if (false) lines.push("
+      "old": "if (pyTruthy(skipped)) lines.push(`- 另有 ${pyLenValue(skipped)} 个文件太大、没有复制进来，名单在 SKIPPED.md。`);",
+      "new": "if (false) lines.push(`- 另有 ${pyLenValue(skipped)} 个文件太大、没有复制进来，名单在 SKIPPED.md。`);"
     },
     {
       "name": "D42 输入目录没有清单时照样去解析（第 151 轮）",
@@ -265,7 +265,7 @@
     {
       "name": "D43 quizs 回合的提示不附快照清单（第 151 轮）",
       "file": "ts/packages/hub/src/prompt.ts",
-      "old": "if (snapshot && inputs !== null) parts.push(...snapshotManifest(inputs, view));",
+      "old": "if ((snapshot || liveTree) && inputs !== null) parts.push(...snapshotManifest(inputs, view, liveTree));",
       "new": ""
     },
     {

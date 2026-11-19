@@ -362,7 +362,7 @@ async function doctor(env: RolesEnv): Promise<number> {
 const QUIZS_LIVE_ROOT = "quizs-live";
 const QUIZS_LIVE_NAMES = ["plan.json", "profile.json", "qualification.json"];
 const QUIZS_LIVE_ENV = ["QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"];
-const QUIZS_PROFILE_IDS: readonly (readonly [string, string])[] = [["deepseek", "deepseek-api"], ["minimax", "minimax-m-plan"], ["stepfun", "stepfun-cn-step-plan"]];
+const QUIZS_PROFILE_IDS: readonly (readonly [string, string])[] = [["deepseek", "deepseek-api"], ["minimax", "minimax-m-plan"], ["stepfun", "stepfun-cn-step-plan"], ["glm", "glm-coding-plan"]];
 const QUIZS_PROVIDERS_SCHEMA = "quizs.providers.v1";
 const QUIZS_LIVE_SCHEMA = "quizs.live-status.v1";
 const QUIZS_TIMEOUT = 30;

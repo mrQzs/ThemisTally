@@ -27,6 +27,7 @@ import {
 } from "./audit.ts";
 import {
   CLAUDE_SETTINGS, CLAUDE_WORKER_ENV, DELIVER_TOOL, DEPENDENCY_DIRS, INPUTS_INDEX, MAX_INLINE_PROMPT, ROSTER, type RosterSpec, STRUCTURED_TOOL,
+  QUIZS_WORKTREE_BUDGETS, QUIZS_WORKTREE_ROLES,
   EXIT_BLOCKED, QUIZS_DOWN_FILE, QUIZS_DOWN_SECONDS, QUIZS_REPO_VIEW_ROLES, QUIZS_STATE_DIR, QUIZS_TURN_BUDGETS, QUIZS_TURN_PLAN, QUIZS_FENCED_POLICY, QUIZS_FINAL_SCHEMA, QUIZS_TOOL_PREVIEW, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_INDEX, THROTTLE_BACKOFF_MAX, THROTTLE_BACKOFF_SECONDS, THROTTLE_MAX_HOLDS, TRANSIENT_HOLD_REASON, TRANSIENT_MAX_HOLDS, OVERLOAD_HOLD_REASON, OVERLOAD_MAX_HOLDS, QUIZS_OVERLOADED, THROTTLE_RESET_HORIZON, THROTTLE_RESET_MARGIN, THROTTLE_RESET_OFFSET, TOOL_SCHEMA_FILE,
 } from "./constants.ts";
 import { boundSpec, hubBindings } from "./bindings.ts";
@@ -34,7 +35,7 @@ import { DELIVERY_SHA256, deliveredOutput, deliveryProblem, interfaceProblem, to
 import { HubError } from "./errors.ts";
 import { DELIVER_EXTENSION, GUARD_EXTENSION, HUB_SHA256, hubImpl } from "./kernel.ts";
 import type { Hub } from "./mailbox.ts";
-import { auditQuizsStream, effectiveSpec, quizsLiveFiles, quizsLivePlan, quizsSnapshot, resolveQuizsCommand } from "./quizs.ts";
+import { auditQuizsStream, effectiveSpec, quizsLiveFiles, quizsLivePlan, quizsSnapshot, quizsWorktreeArgs, resolveQuizsCommand } from "./quizs.ts";
 
 const BS = String.fromCharCode(92);
 const LF = String.fromCharCode(10);
@@ -146,6 +147,9 @@ export class TurnRunner {
     const [spec, fallback] = effectiveSpec(agent, this.sources.seconds(), this.hub.root, bindings);
     const claude = spec.adapter === "claude";
     const quizs = spec.adapter === "quizs";
+    // 第 198 轮：门禁在 quizs 上走工作区模式（活的 worktree，不冻快照）；备不好的写进回合记录的 warnings
+    const worktreeMode = quizs && QUIZS_WORKTREE_ROLES.includes(spec.role) && inputs !== null;
+    const notes: string[] = [];
     // 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema，CLI 自己加上 StructuredOutput 工具；quizs 用代码块（第 137 轮）
     const tools = [...(spec.tools ?? []), ...(quizs ? [] : [claude ? STRUCTURED_TOOL : DELIVER_TOOL])];
     const turnId = `${this.sources.compact()}-${this.sources.random2()}`;
@@ -200,9 +204,9 @@ export class TurnRunner {
     }
     if (inputs !== null && statOrNull(join(inputs, INPUTS_INDEX))?.isFile()) copyFileSync(join(inputs, INPUTS_INDEX), join(turnDir, "inputs.json"));
     const inline = pyLen(prompt) <= MAX_INLINE_PROMPT ? prompt : `本回合的输入很长，已写在文件里，先完整读它再开始：${longPrompt}`;
-    const [cmd, piCmd, quizsCmd, sessionsDir] = claude ? [this.claudeCommand(spec, rolePath, inputs, first, id, inline), null, [], ""]
-      : quizs ? this.quizsCommand(spec, agent, tools, rolePath, turnDir, id, inputs, where)
-      : [...this.piCommand(spec, agent, tools, rolePath, turnDir, id), [], ""];
+    const [cmd, piCmd, quizsCmd, sessionsDir, worktreeProblem] = claude ? [this.claudeCommand(spec, rolePath, inputs, first, id, inline), null, [], "", null]
+      : quizs ? await this.quizsCommand(spec, agent, tools, rolePath, turnDir, id, inputs, where, worktreeMode, notes)
+      : [...this.piCommand(spec, agent, tools, rolePath, turnDir, id), [], "", null];
     const started = utcNow();
     const env = workerEnv(this.config());
     if (claude) for (const [name, value] of Object.entries(CLAUDE_WORKER_ENV)) env.set(name, value);
@@ -213,8 +217,9 @@ export class TurnRunner {
     let blocked: string | null;
     if (quizs) {
       const view = QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? where : null; // 第 156 轮：读仓库的岗位冻工作目录的整棵树，输入叠在上面
-      const [ref, problem] = inputs === null ? [null, null] : await quizsSnapshot(quizsCmd, sessionsDir, inputs, env, view, join(turnDir, QUIZS_VIEW_INDEX));
-      blocked = deliveryProblem(spec.role) || problem;
+      const [ref, problem] = inputs === null || worktreeMode ? [null, null]
+        : await quizsSnapshot(quizsCmd, sessionsDir, inputs, env, view, join(turnDir, QUIZS_VIEW_INDEX));
+      blocked = deliveryProblem(spec.role) || worktreeProblem || problem;
       if (ref !== null) cmd.push("--read-snapshot", ref);
     } else {
       blocked = claude ? deliveryProblem(spec.role)
@@ -232,6 +237,10 @@ export class TurnRunner {
     const lines = jsonlLines(readText(out));
     const audit = claude ? auditClaudeStream(lines, specDict(spec, tools), where, this.hub.repo)
       : quizs ? auditQuizsStream(lines, specDict(spec, tools)) : auditPiStream(lines, specDict(spec, tools), where, this.hub.repo);
+    if (notes.length > 0) {
+      const existing = audit.get("warnings");
+      audit.set("warnings", [...notes, ...(Array.isArray(existing) ? existing : [])]);
+    }
     if (blocked) audit.set("api_error", blocked); // 按接口报错走：不重试，阶段标为 failed，直接交给站主
     else if (!pyTruthy(pyGet(audit, "api_error"))) audit.set("api_error", interfaceProblem(specDict(spec), audit, result));
     if (claude) {
@@ -354,9 +363,10 @@ export class TurnRunner {
     return cmd;
   }
 
-  /** 第 137 轮：quizs 回合的命令（不含 --read-snapshot：快照冻好了才知道），交回（命令, quizs 命令, 会话目录）。 */
-  private quizsCommand(spec: RosterSpec, agent: string, tools: readonly string[], rolePath: string, turnDir: string, id: string,
-    inputs: string | null, where: string): [string[], null, string[], string] {
+  /** 第 137 轮：quizs 回合的命令（不含 --read-snapshot：快照冻好了才知道），交回（命令, quizs 命令, 会话目录）。
+   *  第 198 轮：工作区模式另交回起不了的原因；备不好的写进 notes。 */
+  private async quizsCommand(spec: RosterSpec, agent: string, tools: readonly string[], rolePath: string, turnDir: string, id: string,
+    inputs: string | null, where: string, worktreeMode: boolean, notes: string[]): Promise<[string[], null, string[], string, string | null]> {
     const sessionsDir = join(this.hub.root, "sessions", agent);
     const stateDir = join(this.hub.root, QUIZS_STATE_DIR);
     for (const folder of [sessionsDir, stateDir]) mkdirSync(folder, { recursive: true });
@@ -368,9 +378,15 @@ export class TurnRunner {
       "--cwd", where, "--readonly-root", inputs ?? where,
       "--system-append", rolePath, "--prompt", `@${join(turnDir, "prompt.md")}`,
       "--session-dir", sessionsDir, "--session-id", id, "--deadline", String(deadlineMs), "--provider-state-dir", stateDir,
-      // 第 156 轮：读仓库的岗位用自己的预算；live 文件按这一回合的提供方找
-      ...(QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS).flat()];
+      // 第 156 轮：读仓库的岗位用自己的预算；live 文件按这一回合的提供方找。第 198 轮：工作区模式的岗位另有一套
+      ...(worktreeMode ? QUIZS_WORKTREE_BUDGETS : QUIZS_REPO_VIEW_ROLES.includes(spec.role) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS).flat()];
     cmd.push(...QUIZS_TOOL_PREVIEW); // 第 187 轮：工具结果整页进对话（见 QUIZS_TOOL_PREVIEW）
+    let worktreeProblem: string | null = null;
+    if (worktreeMode) {
+      const [extra, problem] = await quizsWorktreeArgs(this.hub.root, where, turnDir, notes);
+      cmd.push(...extra);
+      worktreeProblem = problem;
+    }
     const [live] = quizsLiveFiles(this.hub.root, spec.provider as string);
     for (const [flag, path] of live ?? []) cmd.push(flag, path);
     if (live !== null) { // 第 148 轮：这一回合自己的 plan（见 QUIZS_TURN_PLAN）
@@ -384,7 +400,7 @@ export class TurnRunner {
         cmd.push("--final-schema", join(turnDir, QUIZS_FINAL_SCHEMA));
       }
     }
-    return [cmd, null, quizsCmd, sessionsDir];
+    return [cmd, null, quizsCmd, sessionsDir, worktreeProblem];
   }
 
   private piCommand(spec: RosterSpec, agent: string, tools: readonly string[], rolePath: string, turnDir: string, id: string): [string[], string[]] {

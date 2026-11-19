@@ -23,8 +23,8 @@
   {
    "name": "P02 读仓库的岗位不用自己的预算",
    "file": "scripts/kit_hub.py",
-   "old": "            budgets = QUIZS_VIEW_BUDGETS if spec[\"role\"] in QUIZS_REPO_VIEW_ROLES else QUIZS_TURN_BUDGETS",
-   "new": "            budgets = QUIZS_TURN_BUDGETS"
+   "old": "QUIZS_VIEW_BUDGETS if spec[\"role\"] in QUIZS_REPO_VIEW_ROLES",
+   "new": "QUIZS_TURN_BUDGETS if spec[\"role\"] in QUIZS_REPO_VIEW_ROLES"
   },
   {
    "name": "P03 两份 live 文件就算一套",

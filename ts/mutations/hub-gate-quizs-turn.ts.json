@@ -1,0 +1,32 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-turn.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1500,
+  "mutations": [
+    {
+      "name": "T01 TS 的门禁不走工作区模式",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "export const QUIZS_WORKTREE_ROLES: readonly string[] = [\"gate\"];",
+      "new": "export const QUIZS_WORKTREE_ROLES: readonly string[] = [];"
+    },
+    {
+      "name": "T02 TS 的命令档案不开 python 脚本",
+      "file": "ts/packages/hub/src/quizs.ts",
+      "old": "[\"pythonScripts\", true]",
+      "new": "[\"pythonScripts\", false]"
+    },
+    {
+      "name": "T03 TS 的工作区模式照样冻快照",
+      "file": "ts/packages/hub/src/turn.ts",
+      "old": "inputs === null || worktreeMode ? [null, null]",
+      "new": "inputs === null ? [null, null]"
+    }
+  ]
+}

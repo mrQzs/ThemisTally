@@ -271,7 +271,9 @@ export const QUIZS_TOOL_PREVIEW: readonly [string, string] = ["--tool-preview-by
 /** 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次。 */
 export const QUIZS_BEHAVIOR_ERRORS: Readonly<Record<string, string>> = {
   BUDGET_EXHAUSTED: "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
-  POLICY: "调了没有授权的工具。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
+  // 第 198 轮：工作区模式里被拒的命令超过每回合的上限也是这一类
+  POLICY: "调了没有授权的工具，或者被拒的命令超过了每回合的上限（门禁的 bash 没有 shell，只收 `python -m pytest`、`python -c`、"
+    + "`python 文件.py`、`node 文件` 与只读 git）。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
   TOOL_ERROR: "工具参数不合格式（JSON、路径写法或字段），回合被 Quizs 结束。重交时照工具说明写参数",
   // 第 149 轮：P2b 30 个回合里 1 个这样结束（回应完整、是工具调用，Quizs 不认）；提供方回应残缺也归这一类，同样重来一次
   PROVIDER_FORMAT: "Quizs 读不了模型这一次的回应，回合被结束（多半是工具调用的参数不是合法 JSON、不合工具说明里的格式，或者该写最后回答时还在调工具）。重交时照工具说明写参数，读够了就直接写 json 代码块",
@@ -311,13 +313,50 @@ export const QUIZS_REPO_VIEW_ROLES: readonly string[] = ["contract", "audit"];
 export const QUIZS_VIEW_BUDGETS: readonly (readonly [string, string])[] = [
   ["--max-requests", "128"], ["--max-tool-calls", "128"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "8388608"], ["--max-object-bytes", "8388608"],
 ];
+/** 第 198 轮（七端走 Quizs 二期）：在 quizs 上走工作区模式的岗位。Quizs M11 起工作区模式给的是活的 worktree、读写工具与受限的 bash
+ *  （没有 shell，只收 pytest、python、node 与只读 git）；内核复制的输入用 read、grep、find、ls 的 root "inputs" 读 --readonly-root
+ *  （工作区模式不能带快照）。只读岗位照旧冻快照。 */
+export const QUIZS_WORKTREE_ROLES: readonly string[] = ["gate"];
+/** 第 198 轮：门禁每回合的预算。pi 上 290 个门禁回合工具调用中位 32、九成在 69 以内、超过 128 的 3 个；128 也是 GLM live plan 的上限。 */
+export const QUIZS_WORKTREE_BUDGETS: readonly (readonly [string, string])[] = [
+  ["--max-requests", "160"], ["--max-tool-calls", "128"], ["--max-input-bytes", "2097152"], ["--max-response-bytes", "8388608"], ["--max-object-bytes", "8388608"],
+];
+/** 第 198 轮：被拒的命令回反馈、第 6 次才结束回合；参数格式错可以重来 2 次。命令输出：原始 256 KiB、摘要 4 KiB、交给模型的信封 8 KiB
+ *  （QUIZS_TOOL_PREVIEW 装得下）；作业对象 128 个进程、8 GiB（11-19 实测三：T047 门禁的 npm ci 与 vitest 在这里面 51 秒跑完）。 */
+export const QUIZS_WORKTREE_LIMITS: readonly (readonly [string, string])[] = [["--max-format-recoveries", "2"], ["--max-command-denials", "5"]];
+export const QUIZS_OUTPUT_LIMITS: Readonly<Record<string, number>> = { raw_bytes: 262144, summary_bytes: 4096, envelope_bytes: 8192 };
+export const QUIZS_JOB_LIMITS: Readonly<Record<string, number | string>> = { activeProcessLimit: 128, memoryLimitBytes: 8589934592, basis: "tt-gate" };
+/** 第 198 轮：Quizs 原生组件（工作区模式的 runner 与文件后端）。QUIZS_NATIVE 是放它们的目录；没设时从 QUIZS_CMD 里的源码入口
+ *  （…/ts/packages/quizs/cli/src/main.ts）往上推出 Quizs 根、拼 dist/native。 */
+export const QUIZS_NATIVE_ENV = "QUIZS_NATIVE";
+export const QUIZS_NATIVE_FILES: readonly [string, string] = ["worktree-runner.exe", "worktree-fs.exe"];
+export const QUIZS_MAIN_TAIL = "ts/packages/quizs/cli/src/main.ts";
+/** 第 198 轮：回合目录里交给 Quizs 的三份文件；门禁的 npm、bun 缓存根在信箱下，跨回合保留，第一次用时打上 Low 标签。 */
+export const QUIZS_PROFILE_FILE = "command-profile.json";
+export const QUIZS_OUTPUT_FILE = "output-limits.json";
+export const QUIZS_JOB_FILE = "job-limits.json";
+export const QUIZS_CACHE_DIR = "quizs-cache";
+export const QUIZS_CACHE_MARK = ".low-labelled";
+/** 第 198 轮：开门禁回合之前在 Medium 预装 ts/node_modules 的时限（实测三：执行域的低完整性令牌建不了 symlink）。 */
+export const QUIZS_PREPARE_TIMEOUT = 300;
+/** 第 198 轮：门禁在 quizs 上的工具说明。pi 上门禁 290 个回合 bash 四千多次，多半是 head、grep、cat 与内联 python；Quizs 的 bash
+ *  没有 shell，照 shell 的习惯写会被拒（被拒的回反馈，第 6 次结束回合）。 */
+export const QUIZS_WORKTREE_NOTE: readonly string[] = [
+  "", "## 这一回合的工具（Quizs 的工作区模式）", "",
+  "- bash 收的是 argv 数组，没有 shell：管道、重定向、&&、cd、变量都没有，也跑不了 ls、cat、head、grep、rm 这类命令。"
+    + "看文件用 read、grep、find、ls；改文件用 edit、write。",
+  "- bash 只收这几种：`python -m pytest …`（只认报告类选项，-q、-rfE 都行）、`python -c 代码`（代码可以多行）、"
+    + "`python 文件.py …`、`node 文件.mjs …`（文件都在工作目录里），与只读的 git（status、log、diff、show、rev-parse、ls-files）。",
+  "- 自己建的临时文件用 `python -c` 调 os.remove 删掉；不进仓库的探针、脚本交付前都要删。",
+  "- 被拒的命令什么也没跑，结果里写明被拒的是哪个参数、这里收什么：照它改。一回合里被拒到第 6 次，回合就结束。",
+];
 /** 第 156 轮：每个提供方一套 live 文件，放在信箱的 quizs-live/<提供方>/ 下（续期脚本写的三个文件名）。三份不全时退回环境变量给的那一套
  *  （第 141 轮协调人原来的做法），但那一套的提供方档案认得出是别家的就不用（键是 Quizs 的 --provider，值是它的档案 id）。 */
 export const QUIZS_LIVE_ROOT = "quizs-live";
 export const QUIZS_LIVE_NAMES: readonly (readonly [string, string])[] = [
   ["--live-plan", "plan.json"], ["--provider-profile", "profile.json"], ["--qualification", "qualification.json"],
 ];
-export const QUIZS_PROFILE_IDS: Readonly<Record<string, string>> = { deepseek: "deepseek-api", minimax: "minimax-m-plan", stepfun: "stepfun-cn-step-plan" };
+export const QUIZS_PROFILE_IDS: Readonly<Record<string, string>> = { deepseek: "deepseek-api", minimax: "minimax-m-plan", stepfun: "stepfun-cn-step-plan", glm: "glm-coding-plan" };
 /** 第 156 轮：算工作目录的树时用的临时索引（回合目录里，用完就删）。 */
 export const QUIZS_VIEW_INDEX = "view.index";
 /** 第 175 轮：交差策略是代码块那一种的 plan，内核把这个岗位给模型看的 schema（toolSchema，letter 是英文键）写进回合目录、用

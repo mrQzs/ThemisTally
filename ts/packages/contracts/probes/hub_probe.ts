@@ -436,7 +436,7 @@ export function hubPrompt(request: Record<string, unknown>, fromTagged: (tagged:
         value = inputPath(new Hub(textOf(a)), optionalText(b), c as PyValue);
         break;
       case "snapshot_manifest":
-        value = snapshotManifest(textOf(a), b === true); // 第 156 轮：第二个参数是仓库视图
+        value = snapshotManifest(textOf(a), b === true, c === true); // 第 156 轮：第二个参数是仓库视图；第 198 轮：第三个是工作区模式
         break;
       case "quizs_live_files":
       case "quizs_unready": { // 第 156 轮：QUIZS_* 环境照请求设（没给的去掉），调用完还原

@@ -634,7 +634,9 @@ QUIZS_TOOL_PREVIEW = ("--tool-preview-bytes", "65536")
 #: 第 145 轮：quizs 因模型的做法结束回合的错误类别（不是环境问题）：记成交差不合格，内核带着这段说明当场重交一次
 QUIZS_BEHAVIOR_ERRORS = {
     "BUDGET_EXHAUSTED": "这一回合用完了请求或工具调用的预算还没交差。重交时少翻目录，只读要用的文件，尽早写出 json 代码块",
-    "POLICY": "调了没有授权的工具。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
+    # 第 198 轮：工作区模式里被拒的命令超过每回合的上限也是这一类
+    "POLICY": "调了没有授权的工具，或者被拒的命令超过了每回合的上限（门禁的 bash 没有 shell，只收 `python -m pytest`、`python -c`、"
+              "`python 文件.py`、`node 文件` 与只读 git）。交差不调用任何工具，把 json 代码块直接写在最后的回答里",
     "TOOL_ERROR": "工具参数不合格式（JSON、路径写法或字段），回合被 Quizs 结束。重交时照工具说明写参数",
     # 第 149 轮：P2b 30 个回合里 1 个这样结束（回应完整、是工具调用，Quizs 不认）；提供方回应残缺也归这一类，同样重来一次
     "PROVIDER_FORMAT": "Quizs 读不了模型这一次的回应，回合被结束（多半是工具调用的参数不是合法 JSON、不合工具说明里的格式，或者该写最后回答时还在调工具）。重交时照工具说明写参数，读够了就直接写 json 代码块",
@@ -671,11 +673,44 @@ QUIZS_REPO_VIEW_ROLES = ("contract", "audit")
 #: 工具调用 128 是 Quizs live plan 的上限
 QUIZS_VIEW_BUDGETS = (("--max-requests", "128"), ("--max-tool-calls", "128"), ("--max-input-bytes", "2097152"),
                       ("--max-response-bytes", "8388608"), ("--max-object-bytes", "8388608"))
+#: 第 198 轮（七端走 Quizs 二期）：在 quizs 上走工作区模式的岗位。Quizs M11 起工作区模式给的是活的 worktree、读写工具与受限的 bash
+#: （没有 shell，只收 pytest、python、node 与只读 git）；内核复制的输入用 read、grep、find、ls 的 root "inputs" 读 --readonly-root
+#: （工作区模式不能带快照）。只读岗位照旧冻快照
+QUIZS_WORKTREE_ROLES = ("gate",)
+#: 第 198 轮：门禁每回合的预算。pi 上 290 个门禁回合工具调用中位 32、九成在 69 以内、超过 128 的 3 个；128 也是 GLM live plan 的上限
+QUIZS_WORKTREE_BUDGETS = (("--max-requests", "160"), ("--max-tool-calls", "128"), ("--max-input-bytes", "2097152"),
+                          ("--max-response-bytes", "8388608"), ("--max-object-bytes", "8388608"))
+#: 第 198 轮：被拒的命令回反馈、第 6 次才结束回合；参数格式错可以重来 2 次。命令输出：原始 256 KiB、摘要 4 KiB、交给模型的信封 8 KiB
+#: （QUIZS_TOOL_PREVIEW 装得下）；作业对象 128 个进程、8 GiB（11-19 实测三：T047 门禁的 npm ci 与 vitest 在这里面 51 秒跑完）
+QUIZS_WORKTREE_LIMITS = (("--max-format-recoveries", "2"), ("--max-command-denials", "5"))
+QUIZS_OUTPUT_LIMITS = {"raw_bytes": 262144, "summary_bytes": 4096, "envelope_bytes": 8192}
+QUIZS_JOB_LIMITS = {"activeProcessLimit": 128, "memoryLimitBytes": 8589934592, "basis": "tt-gate"}
+#: 第 198 轮：Quizs 原生组件（工作区模式的 runner 与文件后端）。QUIZS_NATIVE 是放它们的目录；没设时从 QUIZS_CMD 里的源码入口
+#: （…/ts/packages/quizs/cli/src/main.ts）往上推出 Quizs 根、拼 dist/native
+QUIZS_NATIVE_ENV, QUIZS_NATIVE_FILES = "QUIZS_NATIVE", ("worktree-runner.exe", "worktree-fs.exe")
+QUIZS_MAIN_TAIL = "ts/packages/quizs/cli/src/main.ts"
+#: 第 198 轮：回合目录里交给 Quizs 的三份文件；门禁的 npm、bun 缓存根在信箱下，跨回合保留，第一次用时打上 Low 标签
+QUIZS_PROFILE_FILE, QUIZS_OUTPUT_FILE, QUIZS_JOB_FILE = "command-profile.json", "output-limits.json", "job-limits.json"
+QUIZS_CACHE_DIR, QUIZS_CACHE_MARK = "quizs-cache", ".low-labelled"
+#: 第 198 轮：开门禁回合之前在 Medium 预装 ts/node_modules 的时限（实测三：执行域的低完整性令牌建不了 symlink）
+QUIZS_PREPARE_TIMEOUT = 300
+#: 第 198 轮：门禁在 quizs 上的工具说明。pi 上门禁 290 个回合 bash 四千多次，多半是 head、grep、cat 与内联 python；Quizs 的 bash
+#: 没有 shell，照 shell 的习惯写会被拒（被拒的回反馈，第 6 次结束回合）
+QUIZS_WORKTREE_NOTE = (
+    "", "## 这一回合的工具（Quizs 的工作区模式）", "",
+    "- bash 收的是 argv 数组，没有 shell：管道、重定向、&&、cd、变量都没有，也跑不了 ls、cat、head、grep、rm 这类命令。"
+    "看文件用 read、grep、find、ls；改文件用 edit、write。",
+    "- bash 只收这几种：`python -m pytest …`（只认报告类选项，-q、-rfE 都行）、`python -c 代码`（代码可以多行）、"
+    "`python 文件.py …`、`node 文件.mjs …`（文件都在工作目录里），与只读的 git（status、log、diff、show、rev-parse、ls-files）。",
+    "- 自己建的临时文件用 `python -c` 调 os.remove 删掉；不进仓库的探针、脚本交付前都要删。",
+    "- 被拒的命令什么也没跑，结果里写明被拒的是哪个参数、这里收什么：照它改。一回合里被拒到第 6 次，回合就结束。",
+)
+ICACLS_EXE = os.path.join(os.environ.get("SystemRoot") or r"C:\Windows", "System32", "icacls.exe")
 #: 第 156 轮：每个提供方一套 live 文件，放在信箱的 quizs-live/<提供方>/ 下（续期脚本写的三个文件名）。三份不全时退回环境变量给的那一套
 #: （第 141 轮协调人原来的做法），但那一套的提供方档案认得出是别家的就不用（键是 Quizs 的 --provider，值是它的档案 id）
 QUIZS_LIVE_ROOT = "quizs-live"
 QUIZS_LIVE_NAMES = (("--live-plan", "plan.json"), ("--provider-profile", "profile.json"), ("--qualification", "qualification.json"))
-QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan"}
+QUIZS_PROFILE_IDS = {"deepseek": "deepseek-api", "minimax": "minimax-m-plan", "stepfun": "stepfun-cn-step-plan", "glm": "glm-coding-plan"}
 #: 第 156 轮：算工作目录的树时用的临时索引（回合目录里，用完就删）
 QUIZS_VIEW_INDEX = "view.index"
 #: 第 175 轮：交差策略是代码块那一种的 plan，内核把这个岗位给模型看的 schema（tool_schema，letter 是英文键）写进回合目录、用
@@ -2186,6 +2221,91 @@ def quizs_unready(now: int, timeout: int, state_dir: Optional[Path], provider: s
     return quizs_live_plan(files["--live-plan"])[1] or quizs_down(now, state_dir, provider)
 
 
+def quizs_native_dir() -> Optional[Path]:
+    """第 198 轮：Quizs 原生组件所在的目录（QUIZS_NATIVE_FILES 都在才算），找不到是 None。"""
+    raw = os.environ.get(QUIZS_NATIVE_ENV)
+    if raw:
+        candidates = [Path(raw)]
+    else:
+        try:
+            command = resolve_quizs_command()
+        except (HubError, ValueError):
+            command = []
+        candidates = [Path(part).parents[5] / "dist" / "native" for part in command
+                      if part.replace("\\", "/").endswith(QUIZS_MAIN_TAIL)]
+    return next((folder for folder in candidates if all((folder / name).is_file() for name in QUIZS_NATIVE_FILES)), None)
+
+
+def quizs_worktree_unready() -> Optional[str]:
+    """第 198 轮：工作区模式起不了的原因（原生组件找不到，命令档案要的程序不在 PATH 上）；起得了是 None。"""
+    if quizs_native_dir() is None:
+        return "找不到 Quizs 的原生组件（%s）：设 %s 指向放它们的目录，或让 QUIZS_CMD 指向 Quizs 源码入口" % (
+            "、".join(QUIZS_NATIVE_FILES), QUIZS_NATIVE_ENV)
+    missing = [name for name in ("python", "git", "node") if not shutil.which(name)]
+    return ("门禁的命令档案缺程序：%s 不在 PATH 上" % "、".join(missing)) if missing else None
+
+
+def quizs_cache_root(hub_root: Path) -> Tuple[Path, Optional[str]]:
+    """第 198 轮：门禁的 npm、bun 缓存根（信箱下 quizs-cache/gate，跨回合保留）。第一次用时建好、用 icacls 打上 Low 标签（执行域的
+    低完整性子进程才写得进，Quizs M11 的 cacheRoot 要调用方做），打好了留个标记；打不上照常开回合，问题写进回合记录。"""
+    root = hub_root / QUIZS_CACHE_DIR / "gate"
+    if (root / QUIZS_CACHE_MARK).is_file():
+        return root, None
+    root.mkdir(parents=True, exist_ok=True)
+    code, _out, _err = pd.run_capture([ICACLS_EXE, str(root), "/setintegritylevel", "(OI)(CI)low"], timeout=60)
+    if code != 0:
+        return root, "门禁的缓存根打不上 Low 标签（icacls 退出码 %s）：执行域里 npm、bun 写不了缓存" % code
+    (root / QUIZS_CACHE_MARK).write_text(utc_now() + "\n", encoding="utf-8", newline="\n")
+    return root, None
+
+
+def quizs_command_profile(workspace: Path, cache_root: Path) -> Dict[str, Any]:
+    """第 198 轮：门禁在 quizs 上的命令档案（Quizs M11）：pytest 与只读 git 之外开 python 脚本与 node（同一个执行域里，pytest 本来
+    就能跑工作区里的任意 Python）；node、bun、git 的目录进 PATH（门禁流水线的 npm ci、vitest 才找得到），npm、bun 的缓存指到缓存根。
+    git 照工作目录实际的 core.autocrlf 钉住：Quizs 藏起了系统与全局的 git 配置，不钉的话 git status 可能整片显示改动。"""
+    python, git, node = (str(shutil.which(name)) for name in ("python", "git", "node"))
+    bun = pd.find_bun(kernel_env())
+    code, out, _err = pd.run_capture([git, "-C", str(workspace), "config", "--get", "core.autocrlf"], timeout=60)
+    autocrlf = out.strip().lower()
+    folders = [str(Path(path).parent) for path in [node] + ([str(bun)] if bun is not None else []) + [git]]
+    return {"python": python, "git": git,
+            "gitConfig": {"core.autocrlf": autocrlf} if code == 0 and autocrlf in ("true", "false", "input") else {},
+            "pythonScripts": True, "node": node, "pathEntries": list(dict.fromkeys(folders)), "cacheRoot": str(cache_root)}
+
+
+def quizs_gate_prepare(workspace: Path) -> Optional[str]:
+    """第 198 轮：开 quizs 上的门禁回合之前在 Medium 预装 ts/node_modules（11-19 实测三：执行域的低完整性令牌建不了 symlink，门禁流水线
+    里的 bun install 只在已经装好时才是空操作）。工作目录里没有 ts/package.json 就不装；装不好只写进回合记录，照常开回合。"""
+    if not (workspace / "ts" / "package.json").is_file():
+        return None
+    bun = pd.find_bun(kernel_env())
+    if bun is None:
+        return "找不到 Bun，门禁工作目录的 ts 依赖没有预装：执行域里门禁流水线的 bun install 会失败"
+    with tempfile.TemporaryFile() as out:
+        result = pd.run_supervised([str(bun), "install", "--frozen-lockfile"], workspace / "ts", kernel_env(), out, out,
+                                   QUIZS_PREPARE_TIMEOUT)
+    if result.get("exit_code") == 0 and not result.get("timed_out"):
+        return None
+    return "门禁工作目录的 ts 依赖没装好（bun install 退出码 %s%s）：执行域里门禁流水线的 bun install 会失败" % (
+        result.get("exit_code"), "，超时" if result.get("timed_out") else "")
+
+
+def quizs_worktree_args(hub: "Hub", workspace: Path, turn_dir: Path, notes: List[str]) -> Tuple[List[str], Optional[str]]:
+    """第 198 轮：工作区模式的参数（Quizs M11），交回（参数, 起不了的原因）：写命令档案与两份上限进回合目录、备好缓存根、预装 ts 依赖；
+    备不好的写进 notes（回合记录的 warnings），照常开回合。"""
+    native = quizs_native_dir()
+    if native is None:
+        return [], quizs_worktree_unready()
+    cache, problem = quizs_cache_root(hub.root)
+    pd.write_json(turn_dir / QUIZS_PROFILE_FILE, quizs_command_profile(workspace, cache))
+    pd.write_json(turn_dir / QUIZS_OUTPUT_FILE, QUIZS_OUTPUT_LIMITS)
+    pd.write_json(turn_dir / QUIZS_JOB_FILE, QUIZS_JOB_LIMITS)
+    notes += [note for note in (problem, quizs_gate_prepare(workspace)) if note]
+    return (["--worktree", "--worktree-runner", str(native / QUIZS_NATIVE_FILES[0]), "--worktree-fs", str(native / QUIZS_NATIVE_FILES[1]),
+             "--command-profile", str(turn_dir / QUIZS_PROFILE_FILE), "--output-limits", str(turn_dir / QUIZS_OUTPUT_FILE),
+             "--job-limits", str(turn_dir / QUIZS_JOB_FILE)] + [part for pair in QUIZS_WORKTREE_LIMITS for part in pair]), None
+
+
 def hub_bindings(hub: "Hub") -> Dict[str, Any]:
     """第 154 轮：配置中心里七端各岗位的绑定，{岗位: kit_roles.hub_binding 的结果}，没配的岗位不在里面。
     配置读不了、没有 hub_roles 这一段、整份校验不过，都当作没配：照名册的缺省跑，不让一份坏配置把枢纽停下。"""
@@ -2244,7 +2364,9 @@ def effective_spec(agent: str, now: int, hub_root: Optional[Path] = None,
     listed = {key: value for key, value in base.items() if key != "fallback"}
     substitute = base.get("fallback")
     state_dir = None if hub_root is None else hub_root / QUIZS_STATE_DIR
-    reason = (quizs_unready(now, int(listed.get("timeout", 1800)), state_dir, str(listed.get("provider")))
+    # 第 198 轮：工作区模式的岗位另要原生组件与命令档案的程序
+    reason = ((quizs_unready(now, int(listed.get("timeout", 1800)), state_dir, str(listed.get("provider")))
+               or (quizs_worktree_unready() if listed.get("role") in QUIZS_WORKTREE_ROLES else None))
               if listed["adapter"] == "quizs" and substitute else None)
     return (listed if reason is None else {**listed, **substitute}), reason
 
@@ -2558,6 +2680,10 @@ class TurnRunner:
         # 第 90 轮：用工具交差：pi 用 deliver 扩展；claude 用 --json-schema（第 101 轮），CLI 自己加上
         # StructuredOutput 工具（init 的工具里有它）
         quizs = spec["adapter"] == "quizs"
+        # 第 198 轮：门禁在 quizs 上走工作区模式（活的 worktree，不冻快照）；备不好的写进回合记录的 warnings
+        worktree_mode = quizs and spec["role"] in QUIZS_WORKTREE_ROLES and inputs is not None
+        notes: List[str] = []
+        worktree_problem: Optional[str] = None
         tools = list(spec["tools"]) + ([] if quizs else [STRUCTURED_TOOL if spec["adapter"] == "claude" else DELIVER_TOOL])
         turn_id = "%s-%s" % (utc_compact(), os.urandom(2).hex())
         turn_dir = self.hub.root / "turns" / agent / turn_id
@@ -2647,9 +2773,13 @@ class TurnRunner:
             cmd += ["--cwd", str(workspace), "--readonly-root", str(inputs if inputs is not None else workspace)]
             cmd += ["--system-append", str(role_path), "--prompt", "@%s" % (turn_dir / "prompt.md"), "--session-dir", str(sessions_dir),
                     "--session-id", session["id"], "--deadline", str(deadline_ms), "--provider-state-dir", str(state_dir)]
-            # 第 156 轮：读仓库的岗位用自己的预算；live 文件按这一回合的提供方找
-            budgets = QUIZS_VIEW_BUDGETS if spec["role"] in QUIZS_REPO_VIEW_ROLES else QUIZS_TURN_BUDGETS
+            # 第 156 轮：读仓库的岗位用自己的预算；live 文件按这一回合的提供方找。第 198 轮：工作区模式的岗位另有一套
+            budgets = (QUIZS_WORKTREE_BUDGETS if worktree_mode else QUIZS_VIEW_BUDGETS if spec["role"] in QUIZS_REPO_VIEW_ROLES
+                       else QUIZS_TURN_BUDGETS)
             cmd += [part for pair in budgets for part in pair] + list(QUIZS_TOOL_PREVIEW)
+            if worktree_mode:
+                extra, worktree_problem = quizs_worktree_args(self.hub, workspace, turn_dir, notes)
+                cmd += extra
             live, _problem = quizs_live_files(self.hub.root, spec["provider"])
             for flag, path in (live or {}).items():
                 cmd += [flag, path]
@@ -2689,9 +2819,9 @@ class TurnRunner:
             env["THEMIS_GUARD"] = guard_config(workspace, self.hub.repo)
         if quizs:
             view = workspace if spec["role"] in QUIZS_REPO_VIEW_ROLES else None
-            ref, problem = (None, None) if inputs is None else quizs_snapshot(quizs_cmd, sessions_dir, inputs, env, view,
-                                                                           turn_dir / QUIZS_VIEW_INDEX)
-            blocked = delivery_problem(spec["role"]) or problem
+            ref, problem = (None, None) if inputs is None or worktree_mode else quizs_snapshot(
+                quizs_cmd, sessions_dir, inputs, env, view, turn_dir / QUIZS_VIEW_INDEX)
+            blocked = delivery_problem(spec["role"]) or worktree_problem or problem
             if ref is not None:
                 cmd += ["--read-snapshot", ref]
         else:
@@ -2708,6 +2838,8 @@ class TurnRunner:
         audit = (audit_claude_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo) if spec["adapter"] == "claude"
                  else audit_quizs_stream(lines, dict(spec, tools=tools)) if quizs
                  else audit_pi_stream(lines, dict(spec, tools=tools), workspace, self.hub.repo))
+        if notes:
+            audit["warnings"] = notes + list(audit.get("warnings") or [])
         if blocked:
             audit["api_error"] = blocked  # 按接口报错走：不重试，阶段标为 failed，直接交给站主
         elif not audit.get("api_error"):
@@ -5721,15 +5853,18 @@ def snapshot_path(hub: Hub, path: Any) -> str:
     return text if not text or rel == os.pardir or rel.startswith(os.pardir + os.sep) else rel.replace(os.sep, "/")
 
 
-def snapshot_manifest(inputs: Path, view: bool = False) -> List[str]:
+def snapshot_manifest(inputs: Path, view: bool = False, live: bool = False) -> List[str]:
     """第 151 轮：quizs 回合的提示里列出快照里的文件，照输入目录的清单（INPUTS.json）；没有清单就不列。
     P2b 的 30 个协调人回合：483 次工具调用里 171 次是 ls、find 在摸目录，17 个回合读过快照里没有的路径。
-    第 156 轮：仓库视图（view）里输入只是叠在仓库上的那一层，仓库自己的文件不列，照仓库路径直接读。"""
+    第 156 轮：仓库视图（view）里输入只是叠在仓库上的那一层，仓库自己的文件不列，照仓库路径直接读。
+    第 198 轮：工作区模式（live）没有快照，列的是只读输入目录里的文件，读时加 root "inputs"。"""
     index = read_text(inputs / INPUTS_INDEX)
     if not index:
         return []
     listing = json.loads(index)
     files = listing["files"]
+    if live:
+        return live_manifest(listing)
     lines = ["", "## 快照里的文件（内核）", ""]
     together = "- 互不依赖的读取放在同一条回复里一起发，不要一条回复只读一个文件。"
     if view:
@@ -5753,14 +5888,29 @@ def snapshot_manifest(inputs: Path, view: bool = False) -> List[str]:
     return lines
 
 
+def live_manifest(listing: Dict[str, Any]) -> List[str]:
+    """第 198 轮：工作区模式的输入清单（门禁在 quizs 上）：只读输入目录里的文件，read、grep 加 root "inputs"、照清单的路径读。"""
+    files = listing["files"]
+    lines = ["", "## 只读输入目录里的文件（内核）", "",
+             "- 一共 %d 个文件%s：read、grep 加 `root: \"inputs\"`、用这些路径读；仓库自己的文件照仓库路径在工作目录里读，不加 root。" % (
+                 len(files), "，都列在下面" if len(files) <= SNAPSHOT_MANIFEST_LIMIT else "，下面列前 %d 个，别的用 ls 加 root 看" % SNAPSHOT_MANIFEST_LIMIT),
+             "- 互不依赖的读取放在同一条回复里一起发，不要一条回复只读一个文件。"]
+    lines += ["- %s（%d 字节）" % (item["path"], item["bytes"]) for item in files[:SNAPSHOT_MANIFEST_LIMIT]]
+    if listing["skipped"]:
+        lines.append("- 另有 %d 个文件太大、没有复制进来，名单在 SKIPPED.md（也在只读输入目录里）。" % len(listing["skipped"]))
+    return lines + list(QUIZS_WORKTREE_NOTE)
+
+
 def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters: List[str],
                 workspace: Path, error: Optional[str] = None, inputs: Optional[Path] = None,
                 resume: Optional[Dict[str, Any]] = None, routing_note: Optional[str] = None) -> str:
     # 第 145 轮：按这一回合实际用的配置写（quizs 起不了退回 pi 时，交差段落也换成 deliver）
     spec, _fallback = effective_spec(agent, int(time.time()), hub.root, hub_bindings(hub))
-    snapshot = spec["adapter"] == "quizs" and inputs is not None  # 第 137 轮：quizs 读的是输入目录冻成的快照
+    # 第 198 轮：门禁在 quizs 上读写活的 worktree，输入用 root "inputs" 读（路径与快照里的写法相同：相对仓库）
+    live_tree = spec["adapter"] == "quizs" and inputs is not None and spec["role"] in QUIZS_WORKTREE_ROLES
+    snapshot = spec["adapter"] == "quizs" and inputs is not None and not live_tree  # 第 137 轮：quizs 读的是输入目录冻成的快照
     view = snapshot and spec["role"] in QUIZS_REPO_VIEW_ROLES  # 第 156 轮：读仓库的岗位读的是整棵仓库，输入叠在上面
-    shown = ((lambda path: snapshot_path(hub, path)) if snapshot  # noqa: E731  主工作区的路径一律换成输入里的那一份
+    shown = ((lambda path: snapshot_path(hub, path)) if snapshot or live_tree  # noqa: E731  主工作区的路径一律换成输入里的那一份
              else (lambda path: input_path(hub, inputs, path)))
     role = spec["role"]
     task_dir = hub.task_dir(task_id)
@@ -5771,7 +5921,9 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
              "- 工作目录：%s" % workspace,
              ("- 只读输入目录：%s（内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放：信里写的 `.agent/…` 路径在这里找；主工作区一律不碰，只许按路径读已经装好的依赖 %s）" % (inputs, "、".join(
                  str(hub.repo / dep) for dep in DEPENDENCY_DIRS)) if inputs is not None else
-              "- 仓库主工作区（只读参考）：%s" % hub.repo) if not snapshot else
+              "- 仓库主工作区（只读参考）：%s" % hub.repo) if not snapshot and not live_tree else
+             ("- 只读输入目录：内核这一回合复制的信箱、合同与执行证据，照相对仓库的原样摆放。read、grep、find、ls 加 `root: \"inputs\"`、"
+              "用相对仓库的路径读（信里写的 `.agent/…` 路径照原样写），不能改；不加 root 读写的是工作目录") if live_tree else
              ("- 只读快照：根目录是这一回合工作目录此刻冻成的整棵仓库（已跟踪的文件与没被忽略的新文件；二进制与超过 4 MiB 的不在里面），"
               "内核复制的输入（信箱、合同与执行证据）照相对仓库的原样叠在上面；read、grep、find、ls 都用相对快照根的路径，"
               "信里写的 `.agent/…` 路径照原样读；主工作区与工作目录本身读不到") if view else
@@ -5933,15 +6085,16 @@ def turn_prompt(hub: Hub, ts: Dict[str, Any], agent: str, task_id: str, letters:
             if seeded:
                 parts.append("- 这是新的 attempt：内核已把上一轮的白盒测试（%s）放进工作目录的 `%s`。在它上面改，"
                              "对照这一轮的候选核对每条断言，不必整份重写。" % (seeded, target))
-    if snapshot:
-        parts += snapshot_manifest(inputs, view)
+    if snapshot or live_tree:
+        parts += snapshot_manifest(inputs, view, live_tree)
     if spec["adapter"] == "quizs":
         # 第 137 轮：quizs 用最后回答里的 json 代码块交差（Quizs 的 v1 交付：result 的 final_text 就是这段回答），内核按 schema 核验
         parts += ["", "## 交差（最后的回答写一个 json 代码块）", "",
                   "- 这一回合做完，最后的回答里只写一个 ```json 代码块，内容是一个 JSON 对象，格式是内核给的 JSON Schema，"
                   "大致如下。写完这一回合就结束。",
                   "- 内核核验不过时会退回并写明哪里不对：照着改了再交。",
-                  "- 只写这一个 json 代码块。交差不调用任何工具（没有 deliver，也没有名叫 json 的工具）：把代码块直接写在最后的回答文本里；这一回合能调用的工具只有角色说明里列的只读工具。", "",
+                  "- 只写这一个 json 代码块。交差不调用任何工具（没有 deliver，也没有名叫 json 的工具）：把代码块直接写在最后的回答文本里；" + (
+                      "这一回合能用的工具见上面“这一回合的工具”一节。" if live_tree else "这一回合能调用的工具只有角色说明里列的只读工具。"), "",
                   "```", output_spec(role), "```"]
     elif spec["adapter"] != "claude":
         # 第 90 轮（七端改造第 1 条）：用 deliver 工具交差，格式由工具的 schema 卡住

@@ -7516,6 +7516,95 @@ def test_quizs_repository_view_for_reading_posts(tmp_path, monkeypatch):
 
 
 
+def test_the_gate_on_quizs_writes_in_its_live_worktree_and_reads_the_inputs_by_root(tmp_path, monkeypatch):
+    # 第 198 轮（七端走 Quizs 二期）：门禁在 quizs 上走 Quizs M11 的工作区模式：活的 worktree、读写工具与受限的 bash，不冻快照；
+    # 命令档案（python 脚本、node、PATH 上的 node/bun/git、npm 与 bun 的缓存根）与两份上限写进回合目录，缓存根第一次用时打 Low 标签
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, "gate-sonnet", dict(kh.ROSTER["gate-sonnet"], adapter="quizs", provider="glm"))
+    newline = chr(10)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    subprocess_run = __import__("subprocess").run
+    subprocess_run([shutil.which("git"), "init", "-q", str(workspace)], check=True)
+    inputs = tmp_path / "inputs"
+    (inputs / ".agent").mkdir(parents=True)
+    (inputs / ".agent" / "brief.md").write_text("门禁任务书", encoding="utf-8")
+    live = hub.root / kh.QUIZS_LIVE_ROOT / "glm"
+    live.mkdir(parents=True)
+    (live / "plan.json").write_text(json.dumps({"plan_id": "tt-glm-1", "final_response_policy": "fenced_json_final_once_v1"}), encoding="utf-8")
+    (live / "profile.json").write_text(json.dumps({"id": "glm-coding-plan"}), encoding="utf-8")
+    (live / "qualification.json").write_text(json.dumps({"expires_at_ms": (int(time.time()) + 86400) * 1000}), encoding="utf-8")
+    # 假的 Quizs 源码树：QUIZS_CMD 指向它的源码入口，原生组件从那里推出（dist/native 里两个 exe 在就算）
+    quizs_root = tmp_path / "quizs"
+    main = quizs_root / "ts" / "packages" / "quizs" / "cli" / "src" / "main.ts"
+    main.parent.mkdir(parents=True)
+    main.write_text("// fake", encoding="utf-8")
+    native = quizs_root / "dist" / "native"
+    native.mkdir(parents=True)
+    for name in kh.QUIZS_NATIVE_FILES:
+        (native / name).write_bytes(b"")
+    monkeypatch.setenv("QUIZS_CMD", json.dumps([sys.executable, str(main)]))
+    monkeypatch.delenv(kh.QUIZS_NATIVE_ENV, raising=False)
+    for name in ("QUIZS_LIVE_PLAN", "QUIZS_PROVIDER_PROFILE", "QUIZS_QUALIFICATION"):
+        monkeypatch.delenv(name, raising=False)
+    seen = []
+
+    def launcher(cmd, cwd, env, out, err, timeout):
+        seen.append(cmd)
+        out.write((json.dumps({"type": "result", "exit_code": 0, "error_class": None, "actual_model": "glm-5.3", "usage": None,
+                               "final_text": "没有代码块"}) + newline).encode("utf-8"))
+        return {"exit_code": 0, "timed_out": False, "wall_seconds": 1.0}
+
+    turn = kh.TurnRunner(hub, launcher=launcher).run("gate-sonnet", "T001-3-gate-pre", workspace, "角色", "输入", inputs=inputs)
+    cmd = seen[0]
+    turn_dir = Path(turn["turn_dir"])
+    assert "--read-snapshot" not in cmd, "the worktree mode cannot take a snapshot"
+    assert cmd[cmd.index("--provider") + 1] == "glm" and cmd[cmd.index("--tools") + 1] == "read,grep,find,ls,edit,write,bash"
+    assert cmd[cmd.index("--cwd") + 1] == str(workspace) and cmd[cmd.index("--readonly-root") + 1] == str(inputs)
+    assert "--worktree" in cmd and cmd[cmd.index("--worktree-runner") + 1] == str(native / "worktree-runner.exe")
+    assert cmd[cmd.index("--worktree-fs") + 1] == str(native / "worktree-fs.exe")
+    assert cmd[cmd.index("--max-command-denials") + 1] == "5" and cmd[cmd.index("--max-format-recoveries") + 1] == "2"
+    assert cmd[cmd.index("--max-requests") + 1] == "160" and cmd[cmd.index("--max-tool-calls") + 1] == "128"
+    profile = json.loads((turn_dir / kh.QUIZS_PROFILE_FILE).read_text(encoding="utf-8"))
+    assert cmd[cmd.index("--command-profile") + 1] == str(turn_dir / kh.QUIZS_PROFILE_FILE)
+    assert profile["pythonScripts"] is True and profile["node"] == shutil.which("node") and profile["git"] == shutil.which("git")
+    assert profile["python"] == shutil.which("python") and profile["cacheRoot"] == str(hub.root / kh.QUIZS_CACHE_DIR / "gate")
+    assert str(Path(shutil.which("node")).parent) in profile["pathEntries"] and str(Path(shutil.which("git")).parent) in profile["pathEntries"]
+    assert json.loads((turn_dir / kh.QUIZS_OUTPUT_FILE).read_text(encoding="utf-8")) == kh.QUIZS_OUTPUT_LIMITS
+    assert json.loads((turn_dir / kh.QUIZS_JOB_FILE).read_text(encoding="utf-8")) == kh.QUIZS_JOB_LIMITS
+    assert (hub.root / kh.QUIZS_CACHE_DIR / "gate" / kh.QUIZS_CACHE_MARK).is_file(), "the cache root got its Low label once"
+    # 原生组件不见了：名册写了替补的岗位这一回合换成 pi（effective_spec 交回原因）
+    for name in kh.QUIZS_NATIVE_FILES:
+        (native / name).unlink()
+    substitute = dict(kh.ROSTER["gate-sonnet"], fallback={"adapter": "pi", "provider": "cc-switch-zhipu-glm", "model": "glm-5.3", "thinking": "high"})
+    monkeypatch.setitem(kh.ROSTER, "gate-sonnet", substitute)
+    spec, reason = kh.effective_spec("gate-sonnet", int(time.time()), hub.root)
+    assert spec["adapter"] == "pi" and "原生组件" in reason
+
+
+def test_the_gate_prompt_on_quizs_lists_the_inputs_by_root_and_explains_the_tools(tmp_path, monkeypatch):
+    # 第 198 轮：门禁在 quizs 上的提示：输入清单写 root "inputs"，附 Quizs 工作区模式的工具说明；交差那一句不再说“只有只读工具”
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    monkeypatch.setitem(kh.ROSTER, "gate-sonnet", dict(kh.ROSTER["gate-sonnet"], adapter="quizs", provider="glm"))
+    ts = kh.new_task_state("T001", "doc", "门禁", "abc", True)
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / kh.INPUTS_INDEX).write_text(json.dumps({"files": [{"path": ".agent/plans/t001.v1.md", "bytes": 12}], "skipped": []}),
+                                          encoding="utf-8")
+    prompt = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-3-gate-pre", [], tmp_path, inputs=inputs)
+    assert "## 只读输入目录里的文件（内核）" in prompt and "- .agent/plans/t001.v1.md（12 字节）" in prompt
+    assert "加 `root: \"inputs\"`" in prompt and "## 快照里的文件（内核）" not in prompt and "- 只读快照：" not in prompt
+    assert "## 这一回合的工具（Quizs 的工作区模式）" in prompt and "`python -c 代码`" in prompt and "被拒到第 6 次" in prompt
+    assert "这一回合能用的工具见上面“这一回合的工具”一节" in prompt and "只有角色说明里列的只读工具" not in prompt
+    # 别的 quizs 岗位照旧：协调人读输入冻成的快照（去掉替补，测试里没有证书也不退回 pi）
+    coordinator = {key: value for key, value in kh.ROSTER[kh.COORDINATOR].items() if key != "fallback"}
+    monkeypatch.setitem(kh.ROSTER, kh.COORDINATOR, dict(coordinator, adapter="quizs", provider="deepseek"))
+    other = kh.turn_prompt(hub, ts, kh.COORDINATOR, "T001", [], tmp_path, inputs=inputs)
+    assert "## 快照里的文件（内核）" in other and "## 这一回合的工具（Quizs 的工作区模式）" not in other
+
+
 def test_a_quizs_turn_without_the_fenced_plan_gets_no_final_schema_and_notes_its_stream(tmp_path, monkeypatch):
     # 第 175 轮：plan 不是代码块交差的那一种就不给 --final-schema（候选 #47）；Quizs 当场按 schema 退回的记录（final_schema_rejected）
     # 写进回合的 warnings，带头三条错误，认不得的 action 不记；事件流以换行结尾不再报读不出，中间坏一行照报行数（候选 #48）
