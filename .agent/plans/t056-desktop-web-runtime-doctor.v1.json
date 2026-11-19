@@ -1,0 +1,477 @@
+{
+  "schema_version": 1,
+  "task_id": "t056-desktop-web-runtime-doctor",
+  "plan_version": 1,
+  "title": "[运行就绪检查]：就绪检查一节接上作业接口，逐个角色显示就绪卡",
+  "repository": "ThemisTally",
+  "base_sha": "7083e7aa1d3c0706df6e2354bfbd28ac72553723",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/api.ts",
+      "desktop/web/src/jobs/jobStore.ts",
+      "desktop/web/src/jobs/JobCard.tsx",
+      "desktop/web/src/mock/jobs.ts",
+      "desktop/web/src/pages/readonly1/runtimes-RuntimesView.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/page-runtimes.test.tsx",
+      "tests/test_gate_t009_baseline.py",
+      "tests/test_gate_t023_baseline.py",
+      "tests/test_gate_t043_baseline.py",
+      "tests/test_gate_t045_baseline.py",
+      "tests/test_gate_t054_baseline.py",
+      "tests/test_gate_t055_baseline.py"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/writes/RuntimeDoctor.tsx",
+      "desktop/web/src/writes/runtime-doctor.css",
+      "desktop/web/tests/jobs-doctor-page.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t056_*.py",
+      "tests/test_gate_t001_baseline.py",
+      "tests/test_gate_t002_baseline.py",
+      "tests/test_gate_t003_baseline.py",
+      "tests/test_gate_t004_baseline.py",
+      "tests/test_gate_t005_baseline.py",
+      "tests/test_gate_t006_baseline.py",
+      "tests/test_gate_t007_baseline.py",
+      "tests/test_gate_t008_baseline.py",
+      "tests/test_gate_t010_baseline.py",
+      "tests/test_gate_t011_baseline.py",
+      "tests/test_gate_t012_baseline.py",
+      "tests/test_gate_t013_baseline.py",
+      "tests/test_gate_t014_baseline.py",
+      "tests/test_gate_t015_baseline.py",
+      "tests/test_gate_t016_baseline.py",
+      "tests/test_gate_t017_baseline.py",
+      "tests/test_gate_t018_baseline.py",
+      "tests/test_gate_t019_baseline.py",
+      "tests/test_gate_t020_baseline.py",
+      "tests/test_gate_t021_baseline.py",
+      "tests/test_gate_t022_baseline.py",
+      "tests/test_gate_t024_baseline.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t027_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "tests/test_gate_t031_baseline.py",
+      "tests/test_gate_t032_baseline.py",
+      "tests/test_gate_t033_baseline.py",
+      "tests/test_gate_t034_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t036_baseline.py",
+      "tests/test_gate_t037_baseline.py",
+      "tests/test_gate_t038_baseline.py",
+      "tests/test_gate_t039_baseline.py",
+      "tests/test_gate_t040_baseline.py",
+      "tests/test_gate_t041_baseline.py",
+      "tests/test_gate_t042_baseline.py",
+      "tests/test_gate_t044_baseline.py",
+      "tests/test_gate_t046_baseline.py",
+      "tests/test_gate_t047_baseline.py",
+      "tests/test_gate_t048_baseline.py",
+      "tests/test_gate_t049_baseline.py",
+      "tests/test_gate_t050_baseline.py",
+      "tests/test_gate_t051_baseline.py",
+      "tests/test_gate_t052_baseline.py",
+      "tests/test_gate_t053_baseline.py",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/live/**",
+      "desktop/web/src/jobs/job-card.css",
+      "desktop/web/src/writes/RuntimeScan.tsx",
+      "desktop/web/src/writes/runtime-scan.css",
+      "desktop/web/src/writes/RuntimeProbe.tsx",
+      "desktop/web/src/writes/runtime-probe.css",
+      "desktop/web/src/writes/RuntimeModels.tsx",
+      "desktop/web/src/writes/runtime-models.css",
+      "desktop/web/src/writes/useWriteFlow.ts",
+      "desktop/web/src/writes/WriteConfirmDialog.tsx",
+      "desktop/web/src/writes/writeOutcome.ts",
+      "desktop/web/src/writes/snapshots.ts",
+      "desktop/web/src/writes/useLivePreview.ts",
+      "desktop/web/src/writes/RuntimeForm.tsx",
+      "desktop/web/src/writes/runtimeRules.ts",
+      "desktop/web/src/writes/profileRules.ts",
+      "desktop/web/src/writes/hubChangeLines.ts",
+      "desktop/web/src/writes/HubBindForm.tsx",
+      "desktop/web/src/writes/RoleBindForm.tsx",
+      "desktop/web/src/writes/ProfileForm.tsx",
+      "desktop/web/src/writes/PresetSaveForm.tsx",
+      "desktop/web/src/writes/runtime-form.css",
+      "desktop/web/src/writes/hub-bind-form.css",
+      "desktop/web/src/writes/profile-form.css",
+      "desktop/web/src/writes/write-flow.css",
+      "desktop/web/src/pages/RuntimesPage.tsx",
+      "desktop/web/src/pages/readonly1/runtimes-logic.ts",
+      "desktop/web/src/pages/readonly1/runtimes-quizs-logic.ts",
+      "desktop/web/src/pages/readonly1/runtimes-styles.css",
+      "desktop/web/src/pages/readonly2/**",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/pages/LogsPage.tsx",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/SecretsPage.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/src/pages/TasksPage.tsx",
+      "desktop/web/src/mock/*.json",
+      "desktop/web/src/mock/writes.ts",
+      "desktop/web/src/mock/quizs.ts",
+      "desktop/web/src/mock/hub-roles.ts",
+      "desktop/web/src/mock/shell.ts",
+      "desktop/web/src/mock/empty.ts",
+      "desktop/web/src/mock/scenario.ts",
+      "desktop/web/src/mock/tasks-*.ts",
+      "desktop/web/src/mock/readonly2-*.ts",
+      "desktop/web/tests/jobs-api.test.ts",
+      "desktop/web/tests/jobs-store.test.ts",
+      "desktop/web/tests/jobs-scan-page.test.tsx",
+      "desktop/web/tests/jobs-store-runtime.test.ts",
+      "desktop/web/tests/jobs-probe-page.test.tsx",
+      "desktop/web/tests/jobs-models-page.test.tsx",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/live-transport.test.ts",
+      "desktop/web/tests/live-mode.test.ts",
+      "desktop/web/tests/page-runtimes-empty.test.tsx",
+      "desktop/web/tests/writes-remove.test.tsx",
+      "desktop/web/tests/page-static.test.ts",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/packages/**",
+      "scripts/**",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t056_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test",
+        "--",
+        "tests/jobs-doctor-page.test.tsx"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "No test files found"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3240,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "「就绪检查」一节的 [运行就绪检查] 是可点的 secondary/md 按钮（文字逐字「运行就绪检查」、带 PlayIcon 16），点它发 `POST /api/v1/jobs`、正文恰 `{\"kind\":\"doctor\"}`，随后每秒查同一个作业号；作业卡显示进度（aria-label 逐字「就绪检查进行中」）、「已用 N 秒」与 [取消]",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "配好模型之后能真的跑一次就绪检查，而不是看一个灰按钮"
+    },
+    {
+      "id": "D02",
+      "text": "作业在跑时按钮禁用；结束后再点是新作业（新的创建请求）；离开这一页再回来看到的是同一个作业、不再发创建请求",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "§8.4「同一类作业同时只能有一个」与「离开页面后作业继续运行」"
+    },
+    {
+      "id": "D03",
+      "text": "作业结束后这一节里显示一句汇总（全部就绪 / 有未就绪的角色（N 个））、每个无头角色一张就绪卡（卡头 ✓/✗ 与角色名与 profile；八个键值行；问题列表；说明行）、不是无头的角色各一行（✓/✗ + 角色中文名 + 内核那一行 text）；缺键写「—」、允许列表 null 写「不限制」、凭据写「变量名 可用 / 不可用」、凭据为空写「无」",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "逐个角色看清楚能不能跑"
+    },
+    {
+      "id": "D04",
+      "text": "作业因有角色没就绪落 failed 但带着 data 时，照样显示结果块（汇总写有未就绪的角色、问题列表在），**不显示**笼统的「就绪检查失败」；没有 data 的失败显示内核报错原文",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "失败也要看得见到底缺什么"
+    },
+    {
+      "id": "D05",
+      "text": "没跑过时那一节仍是虚线框，文字逐字「还没有运行过就绪检查。就绪检查会逐个核对无头角色的命令、模型、登录、思考级别与凭据。」（去掉「运行入口在第二阶段接入」）；运行中另起一行写「离开这个页面作业也会继续，回来时显示结果。」",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01",
+        "R01"
+      ],
+      "intent": "这一节的版式照设计 §7.22 与 §8.4"
+    },
+    {
+      "id": "D06",
+      "text": "作业客户端多一类 doctor（`JobKind` 四类、`KINDS`/`snaps`/`subscribers` 各一项、JobCard 三张表各一项：失败标题「就绪检查失败」、aria-label「就绪检查进行中」、超时 600）；扫描、探测、列模型三支一个字不变（T054/T055 的既有包内测试与探针原样照过）",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "G01",
+        "R01",
+        "scope"
+      ],
+      "intent": "三类作业共用一张卡与一个槽，别的片不受影响"
+    },
+    {
+      "id": "D07",
+      "text": "桩里 doctor 放行（不带 runtime 也能建）、奇数次执行端没就绪（凭据不可用、落 failed 带 data）、偶数次全部就绪，error 开关落 failed 且没有 data；扫描那一支一字不改",
+      "evidence": [
+        "V01",
+        "V02",
+        "G01"
+      ],
+      "intent": "没有真服务时也能看到两种结局"
+    },
+    {
+      "id": "D08",
+      "text": "视图里那一节只渲染新组件（逐字文案不进入口文件、视图从 `../../api` 仍只 import type、其余一字不改）；新组件自带样式表（只用 `--tt-*` 令牌、类名以 `.rd-` 开头、不写死颜色与内联 style、不跨层引 `src/pages`）；`.rt-ready` 的规则留在 runtimes-styles.css 不动",
+      "evidence": [
+        "V02",
+        "V04",
+        "G01",
+        "R01",
+        "scope"
+      ],
+      "intent": "这一片只加就绪检查，别顺手改别处"
+    },
+    {
+      "id": "D09",
+      "text": "新增 `desktop/web/tests/jobs-doctor-page.test.tsx`，覆盖 D01–D05 点名的每一项（含「有 data 与没有 data 两支」「取消与超时」「卸载再挂载是同一个作业」「结束后再点是新作业」「取消后再点新作业的 [取消] 可点」「缺键写「—」」「桩的 loading 与 error」），测真实实现，不许 `skip`/`only`/`todo`",
+      "evidence": [
+        "V01",
+        "V02",
+        "review"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D10",
+      "text": "旧断言逐处改到位：t009（:2895、:2904、:2907、:2970、:2974、:2975）、t023（:805、:808-810、:37、:1401）、t043（:491-492）、t045（:560、:563）、t054（:717-718）、t055（:109、:532-533、:749、:918-923、:926-929、:930-935、:889-893）、`desktop/web/tests/page-app.test.tsx`（:93、:98）、`desktop/web/tests/page-runtimes.test.tsx`（:115、:119）——每处只改上面写明的那一处，其余一个字不动；JobKind 的断言改成「含这几类」，后面再接 doctor-record、search 的片不必再改",
+      "evidence": [
+        "G01",
+        "R01",
+        "V02",
+        "scope"
+      ],
+      "intent": "这些断言钉着「灰按钮 + 禁用数 1」，本片必然推翻，改法不许顺手改别的断言"
+    },
+    {
+      "id": "D11",
+      "text": "所有修改都在允许集合内（可改 13 个文件、可新增 3 个文件），没有碰 forbidden_paths（`tests/test_gate_t056_*.py`、其余 52 份门禁基准、`components/**`、`shell/**`、`live/**`、`job-card.css`、T054/T055 的写入口组件与 CSS、既有写流程文件与 CSS、`runtimes-logic.ts`、`runtimes-styles.css`、`RuntimesPage.tsx`、`mock/*.json` 与 `mock/writes.ts`/`quizs.ts`/`hub-roles.ts`、T054/T055 的六份包内测试与 `live-*.test.ts`、`page-runtimes-empty.test.tsx`、`writes-remove.test.tsx`、`package.json` 与锁文件、`ts/packages/**`、`scripts/**`）",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D12",
+      "text": "`npm test`、`npm run typecheck`、`npm run build` 全过，既有门禁基准照旧通过",
+      "evidence": [
+        "V02",
+        "V03",
+        "V04",
+        "R01"
+      ],
+      "intent": "不能为了接一个入口把别处弄坏"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 10800,
+    "max_wall_seconds_total": 32400,
+    "cost_budget": null
+  }
+}
