@@ -2,9 +2,11 @@
 // 信封与 ?mock= 规则同 api.ts：每次读 currentMock()；loading 返回永不兑现的 Promise；error 返回 ok false、
 // exit_code 2、data null 与报错原文；empty 时检索返回空 matches；data 与 offline 返回深拷贝；夹具之外的参数
 // 返回 ok false、exit_code 2 与「ERROR 夹具里没有这份数据：…」。getHistoryEntry 与 getPlugin 已并入 api.ts，
-// 这里按原样转出，页面仍从本文件引入这三个函数。
+// 这里按原样转出，页面仍从本文件引入这三个函数。真实模式（liveClient() 不为 null）下 searchLogs 不落
+// 夹具：建一个服务的 search 作业，每 1000 毫秒查一次，终态交回作业的信封。
 import type { Envelope } from '../../api';
-import { liveClient } from '../../live/mode';
+import { liveClient, type LiveClient } from '../../live/mode';
+import { isEnvelope } from '../../live/transport';
 import { currentMock, type MockMode } from '../../mock/scenario';
 import { SEARCH_FIXTURE, SEARCH_PATTERN, type SearchData } from '../../mock/readonly2-search';
 
@@ -57,20 +59,65 @@ function searchCommand(q: string, task: string | null, max: number): string[] {
   return command;
 }
 
+// 建作业的正文：键恰好这几个（多一个键服务回 400「请求体含有未知键」），task 为 null 时不带这个键，max 传数字。
+function jobBody(q: string, task: string | null, max: number): Record<string, unknown> {
+  const body: Record<string, unknown> = { kind: 'search', pattern: q, max };
+  if (task !== null) body.task = task;
+  return body;
+}
+
+// 真实模式的固定报错信封：服务的话原样进 messages，正文不是合法七字段信封时按状态码合成一句。
+function failureEnvelope(command: string[], messages: string[]): Envelope<never> {
+  return { ok: false, exit_code: null, data: null, output: [], messages, command, elapsed_ms: 0 };
+}
+
+function replyMessages(status: number, body: unknown): string[] {
+  return isEnvelope(body) ? body.messages : [`ERROR: 服务返回 HTTP ${status}`];
+}
+
+// 作业的 envelope 为 null 或不合法时的四句固定文案（按 state 取，逐字）。
+function terminalMessage(state: string): string {
+  if (state === 'failed') return 'ERROR: 检索作业失败';
+  if (state === 'cancelled') return 'ERROR: 检索作业已取消';
+  if (state === 'timed_out') return 'ERROR: 检索作业超时';
+  return 'ERROR: 检索作业没有交回结果';
+}
+
+// 查作业：单条 setTimeout 链，每 1000 毫秒一次，不设次数上限（服务的 180 秒时限保证作业会到终态）。
+// 查询不是 200 一律立即停（503 是作业表满、401 是会话失效，都不当暂时的）；拿不到回应就 reject。
+function pollJob(client: LiveClient, path: string, command: string[]): Promise<Envelope<SearchData>> {
+  return new Promise<Envelope<SearchData>>((resolve, reject) => {
+    const query = (): void => {
+      client.getRaw<unknown>(path, undefined, 15).then((reply) => {
+        if (reply.status !== 200) {
+          resolve(failureEnvelope(command, replyMessages(reply.status, reply.body)));
+          return;
+        }
+        const job = reply.body as { state?: unknown; envelope?: unknown };
+        const state = String(job.state);
+        if (state !== 'succeeded' && state !== 'failed' && state !== 'cancelled' && state !== 'timed_out') {
+          setTimeout(query, 1000);
+          return;
+        }
+        resolve(isEnvelope(job.envelope)
+          ? (job.envelope as Envelope<SearchData>)
+          : failureEnvelope(command, [terminalMessage(state)]));
+      }, reject);
+    };
+    setTimeout(query, 1000);
+  });
+}
+
 /** logs search <q> [--task <task>] --max <max>：在全部证据里检索正则表达式。 */
 export function searchLogs(q: string, task: string | null, max: number): Promise<Envelope<SearchData>> {
   const command = searchCommand(q, task, max);
   const client = liveClient();
-  // 真实模式：检索（作业那一片）还没接通，不读夹具。
+  // 真实模式：检索是服务那边的 search 作业——建作业，201 之后每 1000 毫秒查一次，终态交回作业的信封。
   if (client) {
-    return Promise.resolve({
-      ok: false,
-      exit_code: null,
-      data: null,
-      output: [],
-      messages: ['ERROR: 检索尚未接通'],
-      command,
-      elapsed_ms: 0,
+    return client.postRaw<unknown>('/api/v1/jobs', jobBody(q, task, max), 15).then((reply) => {
+      if (reply.status !== 201) return failureEnvelope(command, replyMessages(reply.status, reply.body));
+      const id = (reply.body as { id?: unknown }).id;
+      return pollJob(client, '/api/v1/jobs/' + encodeURIComponent(String(id)), command);
     });
   }
   return read(command, (mode) => {

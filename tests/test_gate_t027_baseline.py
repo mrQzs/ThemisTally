@@ -45,8 +45,7 @@
   的 path 与 cursor 进查询、cursor 不带不拼）；getMeta 的 kit_version 映射两种；getHistoryEntry 的
   resource/diff 归一化；getPlugin 的 allowed_permissions null → []；真实模式 ?mock= 不生效；夹具分支与
   error 开关照旧、getHistoryEntry/getPlugin 的 command/报错原文/深拷贝（D07、D08、D10）。
-- unwired（过渡）：写函数与 getOperation 真实模式回 501 固定信封、不发读请求（站主 2026-11-13 为 T037 退役）；searchLogs 回
-  「检索尚未接通」且夹具分支照旧（D09、D10）。
+- unwired（过渡）：searchLogs「检索尚未接通」的探针整份随 T059 退役（站主 2026-11-19 为 T059 退役）；写函数与 getOperation 真实模式回 501 固定信封那一半站主 2026-11-13 为 T037 退役。
 - tasks（过渡）：真实模式下 tasks-data 不取夹具兜底（先证明夹具键存在）、subscribeMockEvents 不模拟
   事件行（D11）。
 
@@ -55,9 +54,9 @@
 - ``test_transitional_s30_*``：connection 只有 connected/disconnected 两个取值——SSE 片会加 reconnecting（站主 2026-11-13 为 T036 退役）。
 - ``test_transitional_s31_*``：getMetaNow 纯夹具同步——B 片第 8 步（首屏异步 meta）推翻。
 - ``test_transitional_s32_*``：api.ts 的写函数 501「写操作尚未接通」——写操作接通的片推翻（站主 2026-11-13 为 T037 退役）。
-- ``test_transitional_s33_*``：searchLogs「检索尚未接通」——作业/检索片推翻。
+- ``test_transitional_s33_*``：searchLogs「检索尚未接通」——作业/检索片推翻（站主 2026-11-19 为 T059 退役）。
 - ``test_transitional_s34_*``：subscribeMockEvents 真实模式不模拟——SSE 片（subscribeEvents）推翻。
-- ``test_transitional_p3_probe_unwired`` / ``test_transitional_p4_probe_tasks``：同上的探针版。
+- ``test_transitional_p6_probe_unwired``：searchLogs 探针，随 T059 退役（站主 2026-11-19 为 T059 退役）；``test_transitional_p7_probe_tasks``：SSE 片会推翻。
 
 合同没有写死、门禁端按最合理读法定下的地方（交付信「下游须知」里逐条列出，终审可改）：超时文案里
 N 用整秒数（timeoutMs 2000 → 「2 秒」）；「下一波 401 再起一次 reauth」按一次在途去重理解；URLSearchParams
@@ -108,7 +107,7 @@ EXECUTOR_TEST_TOKENS = {
                                 "setConnectionState"),
     "live-api.test.ts": ("/api/v1/meta", "/api/v1/attempts", "kit_version",  # “写操作尚未接通”站主 2026-11-13 为 T037 退役
                          "allowed_permissions"),
-    "live-readers.test.ts": ("searchLogs", "检索尚未接通", "夹具里没有这份数据"),
+    "live-readers.test.ts": ("searchLogs", "/api/v1/jobs", "夹具里没有这份数据"),
 }
 
 API_REL = f"{SRC_REL}/api.ts"
@@ -415,7 +414,7 @@ def test_s06_api_reads_writes_and_routes():
 
 
 def test_s07_common_readers_reexport():
-    """S07 / D10、第五节：common-readers.ts 改成转出写法、searchLogs 保留并回「检索尚未接通」、
+    """S07 / D10、第五节：common-readers.ts 改成转出写法、searchLogs 保留、
     对 ../api 只许 import type（T010 :544 的口径）。"""
     need_file(READERS_REL)
     text = read_rel(READERS_REL)
@@ -430,7 +429,6 @@ def test_s07_common_readers_reexport():
             "转出语句的前一条语句应以分号结尾（T010 的正则会一路匹配到下一个分号为止）"
     assert not api_import_problems(READERS_REL), api_import_problems(READERS_REL)
     assert re.search(r"export function searchLogs\(", text), "searchLogs 应保留在 common-readers.ts"
-    assert "ERROR: 检索尚未接通" in text, "searchLogs 真实模式应回「ERROR: 检索尚未接通」"
     assert "夹具里没有这份数据" in text, "searchLogs 的夹具分支（报缺文案）应保留"
     assert ERROR_MESSAGE in text, "error 开关的报错原文应保留"
     assert "SEARCH_PATTERN" in text, "检索夹具的接线应保留"
@@ -516,13 +514,6 @@ def test_transitional_s31_getmetanow_pure_fixture():
     m = re.search(r"export function getMetaNow\([^)]*\)\s*(?::[^{]{0,80})?\s*\{([^{}]*)\}", text, re.S)
     assert m, "getMetaNow 应仍是同步的 export function（签名原样）"
     assert "clone(metaJson)" in m.group(1), "getMetaNow 的函数体应仍是 clone(metaJson)"
-
-
-def test_transitional_s33_searchlogs_unwired_message():
-    """过渡 / D10：searchLogs 真实模式回「检索尚未接通」——作业/检索片（searchLogs 真检索）会推翻。"""
-    need_file(READERS_REL)
-    text = read_rel(READERS_REL)
-    assert "ERROR: 检索尚未接通" in text, "searchLogs 真实模式应回「ERROR: 检索尚未接通」（S07 也查，本条随检索片退役）"
 
 
 def test_transitional_s34_tasks_live_real_mode_gate():
@@ -1066,62 +1057,6 @@ describe('api.ts 的夹具分支保持原样（未注入）', () => {
 });
 """
 
-PROBE_UNWIRED = r"""
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setLiveClientForTests } from '../src/live/mode';
-import { searchLogs } from '../src/pages/readonly2/common-readers';
-
-vi.setConfig({ testTimeout: 60000 });
-
-const calls: any[] = [];
-const fakeClient = {
-  get(path: string, query?: any, timeoutSeconds?: number) {
-    calls.push({ path, query, timeoutSeconds });
-    return Promise.resolve({
-      ok: true, exit_code: 0, data: {}, output: [], messages: [], command: [], elapsed_ms: 3,
-    });
-  },
-};
-
-beforeEach(() => {
-  calls.length = 0;
-  window.location.hash = '';
-  setLiveClientForTests(fakeClient as any);
-});
-afterEach(() => {
-  setLiveClientForTests(undefined);
-  window.location.hash = '';
-});
-
-describe('searchLogs 真实模式回「检索尚未接通」（作业/检索片会推翻）', () => {
-  it('带 task 与 max：信封逐字段、command 数组', async () => {
-    const env = await searchLogs('logs[_ ]cat', 't1', 5);
-    expect(env).toEqual({
-      ok: false, exit_code: null, data: null, output: [],
-      messages: ['ERROR: 检索尚未接通'],
-      command: ['logs', 'search', 'logs[_ ]cat', '--task', 't1', '--max', '5'],
-      elapsed_ms: 0,
-    });
-    expect(calls.length).toBe(0);
-  });
-
-  it('task 为 null：command 不带 --task', async () => {
-    const env = await searchLogs('q1', null, 3);
-    expect(env.command).toEqual(['logs', 'search', 'q1', '--max', '3']);
-    expect(env.messages).toEqual(['ERROR: 检索尚未接通']);
-  });
-
-  it('夹具模式照旧：SEARCH_PATTERN 命中夹具', async () => {
-    setLiveClientForTests(undefined);
-    window.location.hash = '';
-    const env = await searchLogs('logs[_ ]cat', null, 100);
-    expect(env.ok).toBe(true);
-    expect((env.data as any).matches.length).toBeGreaterThanOrEqual(2);
-    expect((env.data as any).matches[0].task).toBe('logs-cat');
-  });
-});
-"""
-
 PROBE_TASKS = r"""
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { findAttemptFixture } from '../src/mock/tasks-attempts';
@@ -1203,10 +1138,9 @@ PROBE_SPECS = {
     "transport": (PROBE_TRANSPORT, (TRANSPORT_REL, CONNECTION_REL)),
     "connection": (PROBE_CONNECTION, (CONNECTION_REL,)),
     "api": (PROBE_API, (MODE_REL, API_REL)),
-    "unwired": (PROBE_UNWIRED, (MODE_REL, API_REL, READERS_REL)),
     "tasks": (PROBE_TASKS, (TASKS_DATA_REL, TASKS_LIVE_REL)),
 }
-PROBE_ORDER = ("mode", "transport", "connection", "api", "unwired", "tasks")
+PROBE_ORDER = ("mode", "transport", "connection", "api", "tasks")
 
 
 def probe_count(source):
@@ -1470,11 +1404,6 @@ def test_p4_probe_connection(pipeline):
 def test_p5_probe_api(pipeline):
     """P2d / D07、D08、D10：api 探针全绿。"""
     assert_probe_ok(pipeline, "api")
-
-
-def test_transitional_p6_probe_unwired(pipeline):
-    """过渡 / D10：searchLogs「尚未接通」的探针——作业/检索片会推翻。写函数 501 的一半站主 2026-11-13 为 T037 退役。"""
-    assert_probe_ok(pipeline, "unwired")
 
 
 def test_transitional_p7_probe_tasks(pipeline):
