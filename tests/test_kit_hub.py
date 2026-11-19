@@ -1290,15 +1290,20 @@ def test_execution_jev_gets_the_objective_fingerprint(tmp_path, monkeypatch):
 
 
 def write_jev_records(hub, *outcomes):
-    """第 191 轮：往 hub 的 JEV 记录（ledger/decisions.jsonl）追加几条，answered 或者无意见的原因；时刻按行号编（第 n 行是 11 月 n 日）。"""
+    """第 191 轮：往 hub 的 JEV 记录（ledger/decisions.jsonl）追加几条，answered 或者无意见的原因；时刻按行号编（第 n 行是 11 月 n 日）。
+    第 196 轮：写成 (原因, detail) 的那条另记对方的回复。"""
     path = hub.root / "ledger" / "decisions.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     start = len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
     with open(path, "a", encoding="utf-8", newline="\n") as handle:
         for line, outcome in enumerate(outcomes, start=start + 1):
+            outcome, detail = outcome if isinstance(outcome, tuple) else (outcome, None)
             status, reason = ("answered", "") if outcome == "answered" else ("no_opinion", outcome)
-            handle.write(json.dumps({"at": "2026-11-%02dT05:00:00Z" % line, "status": status, "reason": reason,
-                                     "context": {"task": "T001", "stage": "3j-jev"}}) + "\n")
+            record = {"at": "2026-11-%02dT05:00:00Z" % line, "status": status, "reason": reason,
+                      "context": {"task": "T001", "stage": "3j-jev"}}
+            if detail is not None:
+                record["detail"] = detail
+            handle.write(json.dumps(record) + "\n")
 
 
 def test_jev_stuck_counts_the_run_of_reasons_that_will_not_fix_themselves(tmp_path):
@@ -1311,17 +1316,34 @@ def test_jev_stuck_counts_the_run_of_reasons_that_will_not_fix_themselves(tmp_pa
     assert kh.jev_stuck(hub) is None
     write_jev_records(hub, "auth_failed", "network", "auth_failed")
     assert kh.jev_stuck(hub) == {"reason": "auth_failed", "count": 2, "since": "2026-11-03T05:00:00Z",
-                                 "last": "2026-11-05T05:00:00Z"}
+                                 "last": "2026-11-05T05:00:00Z", "detail": ""}
     with open(hub.root / "ledger" / "decisions.jsonl", "a", encoding="utf-8") as handle:
         handle.write("不是 JSON\n")
     write_jev_records(hub, "no_key")
     assert kh.jev_stuck(hub) == {"reason": "no_key", "count": 1, "since": "2026-11-07T05:00:00Z",
-                                 "last": "2026-11-07T05:00:00Z"}
+                                 "last": "2026-11-07T05:00:00Z", "detail": ""}
     write_jev_records(hub, "credits_exhausted", "state_too_large", "credits_exhausted")
     assert kh.jev_stuck(hub) == {"reason": "credits_exhausted", "count": 2, "since": "2026-11-08T05:00:00Z",
-                                 "last": "2026-11-10T05:00:00Z"}
+                                 "last": "2026-11-10T05:00:00Z", "detail": ""}
     write_jev_records(hub, "answered")
     assert kh.jev_stuck(hub) is None
+
+
+def test_jev_stuck_keeps_what_the_api_said_last(tmp_path):
+    """第 196 轮（候选 #68 的后一半）：这一串最近一次对方的回复（传输层记下的 detail）压成一行留着；更早那次的不用，跳过的超时
+    那条也不用；最近一次的 detail 不是字符串时当没有。TypeSafe 停用组织时回 403 并写明原因，原来只记 auth_failed，12 天分不清
+    是 key 还是网络层。"""
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    write_jev_records(hub, ("auth_failed", "older reply"), ("timeout", "timed out"),
+                      ("auth_failed", '{"detail":\n  {"message":\t"Your organization has been deactivated."}}'))
+    assert kh.jev_stuck(hub) == {"reason": "auth_failed", "count": 2, "since": "2026-11-01T05:00:00Z",
+                                 "last": "2026-11-03T05:00:00Z",
+                                 "detail": '{"detail": {"message": "Your organization has been deactivated."}}'}
+    write_jev_records(hub, ("auth_failed", 403))
+    assert kh.jev_stuck(hub)["detail"] == ""
+    write_jev_records(hub, "auth_failed")
+    assert (kh.jev_stuck(hub)["count"], kh.jev_stuck(hub)["detail"]) == (4, "")
 
 
 def test_the_owner_is_told_once_per_run_of_a_stuck_jev(tmp_path):
@@ -1397,9 +1419,40 @@ def test_run_jev_tells_the_owner_when_the_decision_api_refuses_the_key(tmp_path,
     assert ts["jev"]["6j-jev"]["reason"] == "auth_failed"
     [letter] = [path.read_text(encoding="utf-8") for path in hub.unread(kh.OWNER)]
     assert "连续 1 次无意见（auth_failed）" in letter
+    assert "对方回复" not in letter
     kh.run_jev(hub, ts, "6j-jev")
     assert len(hub.unread(kh.OWNER)) == 1
     assert kh.jev_stuck(hub)["count"] == 2
+
+
+def test_the_stuck_jev_letter_quotes_why_the_decision_api_refused(tmp_path, monkeypatch):
+    """第 196 轮：传输层把 403 的回复正文记进 detail（遮蔽过），JEV 记录里有它，给站主的信引用最近一次的原话（压成一行），
+    站主不用再花钱探测就知道是组织被停用、还是 key 失效。"""
+    from codekit import decisions
+    real = decisions.Session
+    reply = '{"detail":\n  {"error_type": "authentication_error", "message": "Your organization has been deactivated."}}'
+
+    def refused(body, headers, timeout, url):
+        raise decisions.DecisionError("auth_failed", reply)
+    battery = {"id": "report-screen", "version": "1.0.0", "sha256": "0" * 64, "labels": {},
+               "questions": {"scope_creep": {"type": "noul", "criteria": {"true": "改了范围外的文件", "false": "没有"}}},
+               "thresholds": {}}
+    monkeypatch.setattr(decisions, "Session", lambda settings, path: real(
+        settings, path, transport=refused, environ={settings.api_key_env: "fake-key"}))
+    monkeypatch.setattr(decisions, "load_locked_batteries", lambda path: {"report-screen": battery})
+    hub = kh.Hub(tmp_path)
+    hub.ensure()
+    run_dir = tmp_path / "attempt-001"
+    run_dir.mkdir()
+    ts = locked(make_ts())
+    ts["exec"] = {"run_dir": str(run_dir), "check_exit": 0, "scope_violations": 0}
+    ts["gate_post"] = {"whitebox_exit": 0, "mutation_counts": {}}
+    kh.run_jev(hub, ts, "6j-jev")
+    [record] = decisions.read_records(hub.root / "ledger" / "decisions.jsonl")
+    assert (record["reason"], record["detail"]) == ("auth_failed", reply)
+    [letter] = [path.read_text(encoding="utf-8") for path in hub.unread(kh.OWNER)]
+    assert ("一审、终审前的 JEV 判断都是空的。最近一次对方回复：{\"detail\": {\"error_type\": \"authentication_error\", "
+            "\"message\": \"Your organization has been deactivated.\"}}") in letter
 
 
 def test_guard_final_pass_needs_final_review():
@@ -5423,6 +5476,10 @@ def test_status_names_a_stuck_jev(tmp_path, capsys):
     assert jev_lines() == ["JEV：自 2026-11-02T05:00:00Z 起连续 2 次无意见（auth_failed），最近一次 2026-11-04T05:00:00Z"]
     write_jev_records(hub, "answered")
     assert jev_lines() == []
+    # 第 196 轮：最近一次记了对方的回复，这一行末尾引用它（压成一行）
+    write_jev_records(hub, ("auth_failed", '{"detail":\n  "Your organization has been deactivated."}'))
+    assert jev_lines() == ["JEV：自 2026-11-06T05:00:00Z 起连续 1 次无意见（auth_failed），最近一次 2026-11-06T05:00:00Z，"
+                           '对方回复：{"detail": "Your organization has been deactivated."}']
 
 
 def test_status_says_no_hub_when_the_runner_lock_holder_is_gone(tmp_path, capsys, monkeypatch):

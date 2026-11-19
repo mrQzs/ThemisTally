@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/decisions-client.contract.test.ts",
+    "-t",
+    "第 196 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "P01 401/402/403 的回复正文照旧不记",
+      "file": "scripts/codekit/decisions.py",
+      "old": "        if status in (401, 402, 403, 422):\n",
+      "new": "        if status in (422,):\n"
+    },
+    {
+      "name": "P02 402 的回复正文不记",
+      "file": "scripts/codekit/decisions.py",
+      "old": "        if status in (401, 402, 403, 422):\n",
+      "new": "        if status in (401, 403, 422):\n"
+    },
+    {
+      "name": "P03 500 的回复正文也记",
+      "file": "scripts/codekit/decisions.py",
+      "old": "        if status in (401, 402, 403, 422):\n",
+      "new": "        if status in (401, 402, 403, 422) or status >= 500:\n"
+    }
+  ]
+}

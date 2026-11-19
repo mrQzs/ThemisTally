@@ -340,6 +340,25 @@ describe("第 ⑤j1 片：变异补的场景（手写，各条 it 的标题里�
     expect(stdoutOf(state).trimEnd().split(LF).at(-1)).toBe("JEV：自 2026-11-02T00:00:00Z 起连续 2 次无意见（no_key），最近一次 None");
   }, 600_000);
 
+  // 第 196 轮：JEV 那一行带上最近一次对方的回复（记录里的 detail，压成一行）。更早那次的 detail 不用，超时那条跳过；
+  // 最近一次的 detail 不是字符串时当没有
+  it("第 196 轮：status 的 JEV 那一行带上最近一次对方的回复：压成一行、只取最近一次、不是字符串的当没有", () => {
+    const record = (item: Record<string, unknown>): string => JSON.stringify({ status: "no_opinion", reason: "auth_failed", ...item });
+    const quoted = stateScene(() => undefined, (repo) => put(repo, `${BOX}/ledger/decisions.jsonl`, [
+      record({ at: "2026-11-06T05:22:29Z", detail: "older reply" }), record({ at: "2026-11-07T00:00:00Z", reason: "timeout", detail: "timed out" }),
+      record({ at: "2026-11-08T00:00:00Z", detail: `{"detail":${LF}  {"message":\t"Your organization has been deactivated."}}` }), "",
+    ].join(LF)));
+    const odd = stateScene(() => undefined, (repo) => put(repo, `${BOX}/ledger/decisions.jsonl`, [
+      record({ at: "2026-11-06T05:22:29Z", detail: "older reply" }), record({ at: "2026-11-08T00:00:00Z", detail: 403 }), "",
+    ].join(LF)));
+    const [first, second] = agreeFlow([
+      flow("cmd_status", quoted, [command(quoted.repo, "status", { json: false })]), flow("cmd_status", odd, [command(odd.repo, "status", { json: false })]),
+    ]);
+    expect(stdoutOf(first).trimEnd().split(LF).at(-1)).toBe("JEV：自 2026-11-06T05:22:29Z 起连续 2 次无意见（auth_failed），最近一次 2026-11-08T00:00:00Z，"
+      + `对方回复：{"detail": {"message": "Your organization has been deactivated."}}`);
+    expect(stdoutOf(second).trimEnd().split(LF).at(-1)).toBe("JEV：自 2026-11-06T05:22:29Z 起连续 2 次无意见（auth_failed），最近一次 2026-11-08T00:00:00Z");
+  }, 600_000);
+
   it("task_quiet：.runner 有人拿着、却不是 supervisor 时照样要拿总锁（J03）；暂停标记里的 pid 是命令自己的进程，别的进程问得到它活着（J11）", () => {
     const held: ChildProcess[] = [];
     const log = join(tempDir("spy"), "seen.jsonl");

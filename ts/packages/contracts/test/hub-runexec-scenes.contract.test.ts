@@ -598,7 +598,8 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
         }, () => [200, JSON.stringify({ answers: { scope_creep: { type: "noul", noul: 0.8 }, quality: { type: "score", score: 3.0 } }, usage: { input_tokens: 31, output_tokens: 5 }, model: DEFAULT_MODEL })]],
         [{ ...flow("run_jev", same, [jevTs(same), "3j-jev"]), jev }, () => [401, "{}"]],
         [{ ...flow("run_jev", credits, [jevTs(credits), "3j-jev"]), jev }, () => [402, "{}"]],
-        [{ ...flow("run_jev", counted, [jevTs(counted), "3j-jev"]), jev }, () => [403, "{}"]],
+        // 第 196 轮：403 带正文（TypeSafe 停用组织时的那种，这里分两行），记录里有 detail，给站主的信压成一行引用
+        [{ ...flow("run_jev", counted, [jevTs(counted), "3j-jev"]), jev }, () => [403, `{"detail":${LF}  {"error_type": "authentication_error", "message": "Your organization has been deactivated."}}`]],
         [{ ...flow("run_jev", renewed, [jevTs(renewed), "3j-jev"]), jev }, () => [401, "{}"]],
       ];
       const shown: unknown[][] = [];
@@ -632,6 +633,8 @@ describe("第 ⑤g2 片：run_jev 的真会话（手写，本机假端点、假 
       expect(told[3]?.[0]).toContain("连续 1 次无意见（credits_exhausted）：决策 API 的额度用完了（HTTP 402）");
       expect(told[3]?.[0]).toContain("充值");
       expect(told[4]?.[0]).toContain("JEV 自 2026-11-06T05:22:29Z 起连续 3 次无意见（auth_failed）");
+      expect(told[4]?.[0]).toContain(`。最近一次对方回复：{"detail": {"error_type": "authentication_error", "message": "Your organization has been deactivated."}}`);
+      expect(told[0]?.[0]).toContain("最近一次对方回复：{}");
       expect(told[5]?.[0]).toContain("连续 1 次无意见（auth_failed）");
       expect(states.map((state) => Object.keys(written(state)).some((key) => key.endsWith("/ledger/jev-stuck.json"))), "记下投过的那一串").toEqual([true, false, false, true, true, true]);
       const after6 = fromTagged((states[1]?.["result"] as Record<string, unknown>)["value"] as Tagged) as PyDict;

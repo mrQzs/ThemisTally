@@ -21,8 +21,8 @@
     {
       "name": "T02 换了原因不另起一串",
       "file": "ts/packages/hub/src/runexec.ts",
-      "old": "    else if (reason !== run.get(\"reason\")) break;",
-      "new": "    else if (false && reason !== run.get(\"reason\")) break;"
+      "old": "    } else if (reason !== run.get(\"reason\")) break;",
+      "new": "    } else if (false && reason !== run.get(\"reason\")) break;"
     },
     {
       "name": "T03 第一次的时刻记成最近一次",

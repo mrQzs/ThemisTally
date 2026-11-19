@@ -4564,8 +4564,9 @@ JEV_STUCK_TEXT = {
 
 
 def jev_stuck(hub: Hub) -> Optional[Dict[str, Any]]:
-    """hub 的 JEV 记录（ledger/decisions.jsonl）末尾连着的、不会自己好的无意见：原因、次数、第一次与最近一次的时刻；没有就是 None。
-    有意见的一次结束这一串，换了原因另起一串；别的无意见（超时、网络、状态太大……）跳过，不算也不断。"""
+    """hub 的 JEV 记录（ledger/decisions.jsonl）末尾连着的、不会自己好的无意见：原因、次数、第一次与最近一次的时刻、最近一次
+    对方的回复（第 196 轮）；没有就是 None。有意见的一次结束这一串，换了原因另起一串；别的无意见（超时、网络、状态太大……）
+    跳过，不算也不断。"""
     from codekit import decisions
     run: Optional[Dict[str, Any]] = None
     for item in reversed(decisions.read_records(hub.root / "ledger" / "decisions.jsonl")):
@@ -4574,7 +4575,10 @@ def jev_stuck(hub: Hub) -> Optional[Dict[str, Any]]:
         if item.get("reason") not in JEV_STUCK:
             continue
         if run is None:
-            run = {"reason": item["reason"], "count": 0, "last": item.get("at")}
+            # 传输层记下的回复正文（遮蔽过）压成一行，信与 status 都只占一行；没记就是空串
+            detail = item.get("detail")
+            run = {"reason": item["reason"], "count": 0, "last": item.get("at"),
+                   "detail": " ".join(detail.split()) if isinstance(detail, str) else ""}
         elif item["reason"] != run["reason"]:
             break
         run["count"] += 1
@@ -4599,8 +4603,9 @@ def report_jev_stuck(hub: Hub) -> None:
     hub.append_event("jev.stuck", reason=run["reason"], since=run["since"], count=run["count"])
     what, advice = JEV_STUCK_TEXT[run["reason"]]
     hub.deliver({"from": KERNEL, "to": OWNER, "task-id": "none", "in-reply-to": "none", "type": "阻塞"},
-                {"摘要": "JEV 自 %s 起连续 %d 次无意见（%s）：%s，一审、终审前的 JEV 判断都是空的" % (
-                    run["since"], run["count"], run["reason"], what),
+                {"摘要": "JEV 自 %s 起连续 %d 次无意见（%s）：%s，一审、终审前的 JEV 判断都是空的%s" % (
+                    run["since"], run["count"], run["reason"], what,
+                    "。最近一次对方回复：%s" % run["detail"] if run["detail"] else ""),
                  "提交": "无", "验证": "内核读 hub 的 JEV 记录：最近一次 %s" % run["last"], "偏离": "无",
                  "需协调人决定": (advice % decisions.DEFAULT_API_KEY_ENV) + "。JEV 只是参考，门禁不读，主任务照常推进；"
                                                                       "同一串只投这一封，有意见之后再坏会再投",
@@ -7438,7 +7443,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     print("重活车道：%s%s" % (heavy_holder(hub) or "空", "；排队 %d 份：%s" % (len(queue), "、".join(queue)) if queue else ""))
     stuck = jev_stuck(hub)
     if stuck is not None:  # 第 191 轮
-        print("JEV：自 %s 起连续 %d 次无意见（%s），最近一次 %s" % (stuck["since"], stuck["count"], stuck["reason"], stuck["last"]))
+        print("JEV：自 %s 起连续 %d 次无意见（%s），最近一次 %s%s" % (
+            stuck["since"], stuck["count"], stuck["reason"], stuck["last"],
+            "，对方回复：%s" % stuck["detail"] if stuck["detail"] else ""))
     return EXIT_OK
 
 

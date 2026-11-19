@@ -1,0 +1,28 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-runexec-scenes.contract.test.ts",
+    "-t",
+    "第 191 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T01 这一串不留对方的回复",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "[\"detail\", typeof detail === \"string\" ? pySplit(detail).join(\" \") : \"\"]",
+      "new": "[\"detail\", \"\"]"
+    },
+    {
+      "name": "T02 给站主的信不引用对方的回复",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "${detail ? `。最近一次对方回复：${detail}` : \"\"}",
+      "new": ""
+    }
+  ]
+}

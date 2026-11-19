@@ -15,7 +15,7 @@ import { pyDecodeUtf8, pyDecodeUtf8Replace } from "@themis/base/pyio";
 import { type PyDict, type PyValue, dumps, loads } from "@themis/base/pyjson";
 import { pathMkdir } from "@themis/base/pyos";
 import { purePathName, purePathParent, purePathStr, pyResolve } from "@themis/base/pypath";
-import { cmpCodePoints, codePoints, pyStrip } from "@themis/base/pyre";
+import { cmpCodePoints, codePoints, pySplit, pyStrip } from "@themis/base/pyre";
 import { compilePy, fromPoints, toPoints } from "@themis/base/pyregex";
 import { pyWinErrorMessage } from "@themis/base/supervise";
 import { type Battery, DEFAULT_API_KEY_ENV, batteryDict, loadBatteries, loadLockedBatteries, type Settings, settingsFromConfig } from "@themis/config/decisions";
@@ -687,8 +687,9 @@ const JEV_STUCK_TEXT: Readonly<Record<string, readonly [string, string]>> = {
 };
 
 /**
- * hub 的 JEV 记录（ledger/decisions.jsonl）末尾连着的、不会自己好的无意见：原因、次数、第一次与最近一次的时刻；没有就是 null。
- * 有意见的一次结束这一串，换了原因另起一串；别的无意见（超时、网络、状态太大……）跳过，不算也不断。
+ * hub 的 JEV 记录（ledger/decisions.jsonl）末尾连着的、不会自己好的无意见：原因、次数、第一次与最近一次的时刻、最近一次
+ * 对方的回复（第 196 轮）；没有就是 null。有意见的一次结束这一串，换了原因另起一串；别的无意见（超时、网络、状态太大……）
+ * 跳过，不算也不断。
  */
 export function jevStuck(hub: Hub): PyDict | null {
   let run: PyDict | null = null;
@@ -696,8 +697,11 @@ export function jevStuck(hub: Hub): PyDict | null {
     if (pyGet(item, "status") === "answered") break;
     const reason = pyGet(item, "reason");
     if (typeof reason !== "string" || !JEV_STUCK.includes(reason)) continue;
-    if (run === null) run = new Map<string, PyValue>([["reason", reason], ["count", 0n], ["last", pyGet(item, "at")]]);
-    else if (reason !== run.get("reason")) break;
+    if (run === null) {
+      // 传输层记下的回复正文（遮蔽过）压成一行，信与 status 都只占一行；没记就是空串
+      const detail = pyGet(item, "detail");
+      run = new Map<string, PyValue>([["reason", reason], ["count", 0n], ["last", pyGet(item, "at")], ["detail", typeof detail === "string" ? pySplit(detail).join(" ") : ""]]);
+    } else if (reason !== run.get("reason")) break;
     run.set("count", (run.get("count") as bigint) + 1n);
     run.set("since", pyGet(item, "at"));
   }
@@ -713,13 +717,14 @@ export async function reportJevStuck(hub: Hub): Promise<void> {
   if (run === null) return;
   const path = purePathStr(hub.root, "ledger", "jev-stuck.json");
   const told = loads(readText(path) || "{}");
-  const [reason, since, count, last] = [run.get("reason") as string, run.get("since") as PyValue, run.get("count") as bigint, run.get("last") as PyValue];
+  const [reason, since, count, last, detail] = [run.get("reason") as string, run.get("since") as PyValue, run.get("count") as bigint, run.get("last") as PyValue, run.get("detail") as string];
   if (pyGet(told, "reason") === reason && pyGet(told, "since") === since) return;
   writeTextAtomic(path, `${dumps(new Map<string, PyValue>([["reason", reason], ["since", since], ["at", utcNow()]]), { ensureAscii: false, sortKeys: true })}${LF}`);
   await hub.appendEvent("jev.stuck", [["reason", reason], ["since", since], ["count", count]]);
   const [what, advice] = JEV_STUCK_TEXT[reason] as readonly [string, string];
   await hub.deliver(new Map([["from", KERNEL], ["to", OWNER], ["task-id", "none"], ["in-reply-to", "none"], ["type", "阻塞"]]), new Map<string, PyValue>([
-    ["摘要", `JEV 自 ${pyStrValue(since)} 起连续 ${count} 次无意见（${reason}）：${what}，一审、终审前的 JEV 判断都是空的`], ["提交", "无"],
+    ["摘要", `JEV 自 ${pyStrValue(since)} 起连续 ${count} 次无意见（${reason}）：${what}，一审、终审前的 JEV 判断都是空的${detail ? `。最近一次对方回复：${detail}` : ""}`],
+    ["提交", "无"],
     ["验证", `内核读 hub 的 JEV 记录：最近一次 ${pyStrValue(last)}`], ["偏离", "无"],
     ["需协调人决定", `${advice.replace("%s", DEFAULT_API_KEY_ENV)}。JEV 只是参考，门禁不读，主任务照常推进；同一串只投这一封，有意见之后再坏会再投`],
     ["证据", ".agent/mailbox/ledger/decisions.jsonl"],

@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-commands-scenes.contract.test.ts",
+    "-t",
+    "第 196 轮",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "T03 对方的回复不压成一行",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "typeof detail === \"string\" ? pySplit(detail).join(\" \") : \"\"",
+      "new": "typeof detail === \"string\" ? detail : \"\""
+    },
+    {
+      "name": "T04 status 不引用对方的回复",
+      "file": "ts/packages/hub/src/commands.ts",
+      "old": "${detail ? `，对方回复：${detail}` : \"\"}",
+      "new": ""
+    },
+    {
+      "name": "T05 detail 不是字符串也照用",
+      "file": "ts/packages/hub/src/runexec.ts",
+      "old": "typeof detail === \"string\" ? pySplit(detail).join(\" \") : \"\"",
+      "new": "detail ? pySplit(String(detail)).join(\" \") : \"\""
+    }
+  ]
+}

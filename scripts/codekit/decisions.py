@@ -562,7 +562,9 @@ def http_transport(body: bytes, headers: Dict[str, str], timeout: float, url: st
         code = {401: "auth_failed", 403: "auth_failed", 402: "credits_exhausted", 422: "invalid_request",
                 429: "rate_limited", 529: "overloaded"}.get(status, "http_%d" % status)
         detail = ""
-        if status == 422:
+        # 拒绝凭据、额度、请求形状这几种对方会写明原因，正文遮蔽后记前 300 字。第 196 轮起含 401/402/403：TypeSafe
+        # 停用组织时回 403“organization has been deactivated”，原来只记 auth_failed，hub 12 天分不清是 key 还是网络层
+        if status in (401, 402, 403, 422):
             detail = redact(raw.decode("utf-8", "replace"), 300)
         raise DecisionError(code, detail)
     return raw

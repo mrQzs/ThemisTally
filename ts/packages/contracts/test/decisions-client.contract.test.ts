@@ -176,12 +176,19 @@ interface TransportCase {
 }
 
 const BIG = 1_000_000;
+const DEACTIVATED = `{"detail":{"error_type":"authentication_error","message":"Your organization has been deactivated. Please contact TypeSafe AI for more information."}}`;
 const TRANSPORT: TransportCase[] = [
   { label: "200 与 JSON", behavior: json(200, `{"answers":{}}`), expect: { ok: true } },
   { label: "401 认证失败", behavior: json(401, "{}"), expect: { code: "auth_failed" } },
   { label: "402 额度用完", behavior: json(402, "{}"), expect: { code: "credits_exhausted" } },
   { label: "403 认证失败", behavior: json(403, "{}"), expect: { code: "auth_failed" } },
   { label: "422 带正文：脱敏后截 300", behavior: json(422, `{"error":"bad","token":"sk-ant-api03-${"A".repeat(40)}","pad":"${"x".repeat(400)}"}`), expect: { code: "invalid_request" } },
+  // 第 196 轮：401/402/403 的正文也记（照 422 遮蔽后截 300）。TypeSafe 停用组织时回下面这个 403，原来只记 auth_failed，
+  // hub 12 天分不清是 key 失效还是网络层被拒；别的状态码的正文照旧不记
+  { label: "第 196 轮：403 带正文：照原文记下", behavior: json(403, DEACTIVATED), expect: { code: "auth_failed", detail: DEACTIVATED } },
+  { label: "第 196 轮：401 带正文：凭据形状遮住", behavior: json(401, `{"error":"invalid key sk-ant-api03-${"A".repeat(40)}"}`), expect: { code: "auth_failed", detail: `{"error":"invalid key [secret]"}` } },
+  { label: "第 196 轮：402 带正文", behavior: json(402, `{"error":"credits exhausted"}`), expect: { code: "credits_exhausted", detail: `{"error":"credits exhausted"}` } },
+  { label: "第 196 轮：500 的正文不记", behavior: json(500, `{"error":"upstream down"}`), expect: { code: "http_500", detail: "" } },
   { label: "429 限流", behavior: json(429, "{}"), expect: { code: "rate_limited" } },
   { label: "504", behavior: json(504, "{}"), expect: { code: "http_504" } },
   { label: "529 过载", behavior: json(529, "{}"), expect: { code: "overloaded" } },

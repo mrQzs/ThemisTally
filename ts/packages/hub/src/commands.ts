@@ -660,8 +660,9 @@ export function cmdStatus(args: CommandArgs, out: CommandOut = new PyOut(), deps
   out.print(`重活车道：${heavyHolder(hub, deps) || "空"}${queue.length ? `；排队 ${queue.length} 份：${queue.join("、")}` : ""}`);
   const stuck = jevStuck(hub);
   if (stuck !== null) { // 第 191 轮
+    const detail = stuck.get("detail") as string;
     out.print(`JEV：自 ${pyStrValue(stuck.get("since") as PyValue)} 起连续 ${stuck.get("count") as bigint} 次无意见（${stuck.get("reason") as string}），`
-      + `最近一次 ${pyStrValue(stuck.get("last") as PyValue)}`);
+      + `最近一次 ${pyStrValue(stuck.get("last") as PyValue)}${detail ? `，对方回复：${detail}` : ""}`);
   }
   return EXIT_OK;
 }

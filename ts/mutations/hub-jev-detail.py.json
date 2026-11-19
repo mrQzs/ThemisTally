@@ -1,0 +1,54 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_hub.py",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "-k",
+    "jev_stuck or stuck_jev or refuses_the_key"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 300,
+  "mutations": [
+    {
+      "name": "P01 这一串不留对方的回复",
+      "file": "scripts/kit_hub.py",
+      "old": "                   \"detail\": \" \".join(detail.split()) if isinstance(detail, str) else \"\"}",
+      "new": "                   \"detail\": \"\"}"
+    },
+    {
+      "name": "P02 对方的回复不压成一行",
+      "file": "scripts/kit_hub.py",
+      "old": "                   \"detail\": \" \".join(detail.split()) if isinstance(detail, str) else \"\"}",
+      "new": "                   \"detail\": detail if isinstance(detail, str) else \"\"}"
+    },
+    {
+      "name": "P03 留的是这一串最早那次的回复",
+      "file": "scripts/kit_hub.py",
+      "old": "        run[\"count\"] += 1\n        run[\"since\"] = item.get(\"at\")\n",
+      "new": "        run[\"count\"] += 1\n        run[\"since\"] = item.get(\"at\")\n        if isinstance(item.get(\"detail\"), str):\n            run[\"detail\"] = \" \".join(item[\"detail\"].split())\n"
+    },
+    {
+      "name": "P04 detail 不是字符串也照用",
+      "file": "scripts/kit_hub.py",
+      "old": "                   \"detail\": \" \".join(detail.split()) if isinstance(detail, str) else \"\"}",
+      "new": "                   \"detail\": \" \".join(str(detail).split()) if detail is not None else \"\"}"
+    },
+    {
+      "name": "P05 给站主的信不引用对方的回复",
+      "file": "scripts/kit_hub.py",
+      "old": "                    \"。最近一次对方回复：%s\" % run[\"detail\"] if run[\"detail\"] else \"\"),",
+      "new": "                    \"\"),"
+    },
+    {
+      "name": "P06 status 不引用对方的回复",
+      "file": "scripts/kit_hub.py",
+      "old": "            \"，对方回复：%s\" % stuck[\"detail\"] if stuck[\"detail\"] else \"\"))",
+      "new": "            \"\"))"
+    }
+  ]
+}

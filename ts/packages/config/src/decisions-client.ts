@@ -214,7 +214,9 @@ export const httpTransport: Transport = (body, headers, timeout, url) => {
     if (data.length > MAX_RESPONSE_BYTES) throw new DecisionError("response_too_large");
     if (status !== 200) {
       const named: Readonly<Record<number, string>> = { 401: "auth_failed", 403: "auth_failed", 402: "credits_exhausted", 422: "invalid_request", 429: "rate_limited", 529: "overloaded" };
-      throw new DecisionError(named[status] ?? `http_${status}`, status === 422 ? decisionsRedact(pyDecodeUtf8Replace(data), 300) : "");
+      // 拒绝凭据、额度、请求形状这几种对方会写明原因，正文遮蔽后记前 300 字（第 196 轮起含 401/402/403，见 decisions.py）
+      const detail = [401, 402, 403, 422].includes(status) ? decisionsRedact(pyDecodeUtf8Replace(data), 300) : "";
+      throw new DecisionError(named[status] ?? `http_${status}`, detail);
     }
     return data;
   });

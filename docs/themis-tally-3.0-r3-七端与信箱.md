@@ -3218,6 +3218,25 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 不回头改 T054、T055、T056 的门禁：T056 的门禁已按「含这几类」核对，并要求 t054、t055 跟着改成这样，以后再接第五类作业，这三份都不用动。
   - T056 的 S09 仍逐字核对它要求的几处旧门禁改法（例如 t009 白名单里「'模型', '运行就绪检查'」连写）。后面的片在这些地方只会往后追加，追加不破坏连写，不为它再改。
 
+### 第 196 轮：决策 API 拒绝时把对方的原话也记下，站主的信与 status 引用它（候选 #68 的后一半）
+
+- **起因**：
+  - 第 191 轮让 hub 在 JEV 一直坏着时给站主投信，status 末尾也写一行，但只说得出 auth_failed：传输层把 401/403 都记成这一个原因码，回复正文只在 422 时记。key 失效、组织被停用、网关拦截分不开，信里只好建议站主花钱跑一次 doctor --probe-decisions。
+  - 11-19 经用户同意，用与 doctor --probe-decisions 相同的最小请求探了一次（走 Python 的 http.client，只印状态码、几个回复头与遮蔽过的正文）：TypeSafe 回 403，正文是 authentication_error：Your organization has been deactivated. Please contact TypeSafe AI for more information.。不是 TS 移植读错凭据，也不是传输层被拦，是对方停用了这个组织；请求被拒，没有花 token。这句话原本每次都在回复里，hub 12 天只记下了 auth_failed。
+- **改法**：
+  - 决策客户端（Python 的 http_transport 与 TS 的 httpTransport）：401、402、403 也照 422 把回复正文遮蔽后记前 300 字，作为 DecisionError 的 detail；其他状态码的正文照旧不记。会话照旧把 detail 记进 decisions.jsonl，doctor --probe-decisions 的失败行自然带上它。
+  - hub 的 jev_stuck 另留这一串最近一次的 detail（不是字符串当没有，压成一行）；给站主的“阻塞”信在摘要末尾写“最近一次对方回复：……”，status 的 JEV 那一行末尾写“，对方回复：……”。没有 detail 时两处与第 191 轮相同。Python 与 TS 两份。
+- **测试**：
+  - decisions-client 的传输契约加 4 条（本机假端点，Python、Node、Bun 三边一致）：403 带正文照原文记、401 带正文里的凭据形状遮成 [secret]、402 带正文、500 的正文不记。
+  - test_kit_hub：jev_stuck 的旧断言补上 detail 键；新用例 `test_jev_stuck_keeps_what_the_api_said_last`（取最近一次、跳过超时那条、压成一行、不是字符串当没有）与 `test_the_stuck_jev_letter_quotes_why_the_decision_api_refused`（真会话、传输层带正文的 403，记录与信）；status 的用例加一段带回复的。
+  - hub-runexec 场景：答 403 的那个场景改成带两行正文，核对信里是压成一行的原话；hub-commands 场景加第 196 轮的 status 一条（两种记录，三边一致）。
+- **变异**：新写 decisions-reply-detail（py 3、ts 3）、hub-jev-detail（py 6、ts 2）、hub-jev-detail-cmd（ts 3）；第 191 轮的 hub-jev-stuck.ts 的 T02 锚点随代码改成块写法同步。新写的 17 条全部抓住；hub-jev-stuck.ts 重跑 7 条也全部抓住。
+- **检查**：变异锚点 237 条无失效；类型检查 0 错；元测试 5 条；内核测试 435 passed；决策单元测试 20 passed；决策契约（decisions-client、decisions-commands）97 条过（Python、Node、Bun 三边一致），1 条要显式打开的凭据管理器往返照旧跳过；hub 的 commands-scenes 与 runexec-scenes 36 条、hub-commands 3 条、hub-runexec 1 条。
+- **没做**：
+  - 不替站主处理 TypeSafe 的账户：组织被停用要站主联系 TypeSafe AI，或换一个有效组织的 key（config secret set TYPESAFE_API_KEY）。恢复之前要不要让新主任务登记时带 --no-jev（不再把合同摘要发过去），等站主决定。
+  - 这一串（自 2026-11-06T05:22:29Z 起）第 191 轮已经投过信，按“同一串只投一封”不再补投；原话在本轮之后的下一次 JEV 调用起进记录，status 那一行随之带上。
+  - 429、5xx 等会自己好的状态码不记正文：它们多是网关页面，原因码已经够用。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**
