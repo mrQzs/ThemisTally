@@ -11,6 +11,7 @@ const CHANNELS = [
   "themis-host:open-external",
   "themis-host:reveal",
   "themis-host:notify",
+  "themis-host:open-settings",
 ];
 const SECRET = "ipc-secret-" + crypto.randomBytes(8).toString("hex");
 const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:8123/app" } };
@@ -52,15 +53,19 @@ function okHost(calls) {
       calls.push(["notify", [kind]]);
       return { ok: true };
     },
+    openSettings: async () => {
+      calls.push(["openSettings", []]);
+      return { ok: true };
+    },
   };
 }
 
-test("HOST_CHANNELS 冻结且恰好五个，与 preload 逐字一致", () => {
+test("HOST_CHANNELS 冻结且恰好六个，与 preload 逐字一致", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS));
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("只用 ipcMain.handle 注册五个通道；来源不对回 forbidden 且不进 host", async () => {
+test("只用 ipcMain.handle 注册六个通道；来源不对回 forbidden 且不进 host", async () => {
   const { ipcMain, handlers, onCalls } = fakeIpcMain();
   const calls = [];
   let allowed = false;
@@ -87,6 +92,8 @@ test("来源对：转交 host，多余的实参丢掉", async () => {
   assert.deepEqual(calls[1], ["reveal", ["a/b.txt"]]);
   assert.deepEqual(await handlers["themis-host:reauth"](EV, "EXTRA"), { ok: true });
   assert.deepEqual(calls[2], ["reauth", []]);
+  assert.deepEqual(await handlers["themis-host:open-settings"](EV, "EXTRA"), { ok: true });
+  assert.deepEqual(calls[3], ["openSettings", []], "多余的实参要丢掉");
 });
 
 test("host 抛错（同步与异步）：回 internal，错误消息不外传", async () => {
@@ -101,6 +108,7 @@ test("host 抛错（同步与异步）：回 internal，错误消息不外传", 
     openExternal: async () => ({ ok: true }),
     reveal: async () => ({ ok: true }),
     notify: async () => ({ ok: true }),
+    openSettings: async () => ({ ok: true }),
   };
   registerHostIpc(ipcMain, host, () => true);
   const r1 = await handlers["themis-host:reauth"](EV);
@@ -119,6 +127,7 @@ test("host 回拒绝的 Promise：同样不外传、不抛错", async () => {
     openExternal: async () => ({ ok: true }),
     reveal: async () => ({ ok: true }),
     notify: async () => ({ ok: true }),
+    openSettings: async () => ({ ok: true }),
   };
   registerHostIpc(ipcMain, host, () => true);
   const r = await handlers["themis-host:open-secret-window"](EV, "u", "j");

@@ -1,9 +1,9 @@
 """T026 战前门禁：桌面端外壳第 2 片「服务页的宿主接口」的黑盒基准测试
 （合同 t026-desktop-shell-host v1，基线 4357dca——``desktop/shell`` 只有 T025 的骨架，宿主接口尚未存在）。
 
-被测对象是 ``window.themisHost`` 的五个函数（``reauth``、``openSecretWindow``、``openExternal``、
-``reveal``、``notify``）：自包含的 ``desktop/shell/preload.js``（只 require electron 的 contextBridge 与
-ipcRenderer，恰好一次 ``exposeInMainWorld``，五个固定通道）、纯校验 ``src/hostcheck.js``（页面地址 /
+被测对象是 ``window.themisHost`` 的六个函数（``reauth``、``openSecretWindow``、``openExternal``、
+``reveal``、``notify``、``openSettings``）：自包含的 ``desktop/shell/preload.js``（只 require electron 的 contextBridge 与
+ipcRenderer，恰好一次 ``exposeInMainWorld``，六个固定通道）、纯校验 ``src/hostcheck.js``（页面地址 /
 作业号 / 外链 / relPath 字面检查、realpath 判界、通知文案表、滑动窗口限速）、带控制令牌的
 ``src/control.js``（只连 127.0.0.1 的 http.request POST）、编排 ``src/host.js``（依赖全注入，令牌不外泄）、
 通道白名单 ``src/ipc.js``（只 ``ipcMain.handle``、来源检查、不抛错）；外加 T025 终审留下的三处修复
@@ -43,8 +43,8 @@ S03 扫 ``tests/**``）。
     「不传 io」三条补了 ``{ timeout: 5000 }``（按用例名找，不按行号；实现回退时这三条会挂住而不是变红）。
 - 探针断言（``test_p*``，跑 node --test）：
   - P01/D01（M3）：preload 真跑——只 require electron、恰好一次 exposeInMainWorld("themisHost")、键
-    恰好五个、每个函数把声明的实参原样转交固定通道（多余实参丢掉）、没有 ipcRenderer.on/send；
-    HOST_CHANNELS 冻结且与五个通道逐字一致。
+    恰好六个、每个函数把声明的实参原样转交固定通道（多余实参丢掉）、没有 ipcRenderer.on/send；
+    HOST_CHANNELS 冻结且与六个通道逐字一致。
   - P02/D05/D09/D11（M7、M12、M13、M15、M16）：hostcheck——页面地址正反例（端口 0/65536、令牌
     31/33 位、localhost、https、多余路径、查询串、末尾换行）、作业号 42/44 位、外链协议与空白与
     ``http:\\x``、relPath 字面检查各类、resolveReveal 的注入 realpath/stat（跑出去、落在 root 本身、
@@ -354,14 +354,15 @@ const CHANNELS = [
   "themis-host:open-external",
   "themis-host:reveal",
   "themis-host:notify",
+  "themis-host:open-settings",
 ];
 
-test("HOST_CHANNELS 恰好五个通道、冻结", () => {
+test("HOST_CHANNELS 恰好六个通道、冻结", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS), "HOST_CHANNELS 必须冻结");
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWorld、键恰好五个", () => {
+test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWorld、键恰好六个", () => {
   const source = fs.readFileSync(path.join(SHELL, "preload.js"), "utf8");
   const requires = [];
   const exposes = [];
@@ -379,8 +380,8 @@ test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWor
   assert.equal(exposes.length, 1, "exposeInMainWorld 必须恰好调一次：" + JSON.stringify(exposes.map((e) => e[0])));
   const [name, api] = exposes[0];
   assert.equal(name, "themisHost");
-  assert.deepEqual(Object.keys(api).sort(), ["notify", "openExternal", "openSecretWindow", "reauth", "reveal"]);
-  assert.equal("openSettings" in api, false, "不许有 openSettings（留给外壳页那一片）");
+  assert.deepEqual(Object.keys(api).sort(), ["notify", "openExternal", "openSecretWindow", "openSettings", "reauth", "reveal"]);
+  assert.equal(typeof api.openSettings, "function", "openSettings 必须是函数");
   const u = "http://127.0.0.1:8123/abcdefghijklmnopqrstuv";
   const j = "0123456789".repeat(4) + "012";
   api.reauth();
@@ -390,6 +391,8 @@ test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWor
   api.openExternal("https://x.example/a");
   api.reveal("a/b.txt");
   api.notify("attempt-finished");
+  api.openSettings();
+  api.openSettings("EXTRA");
   assert.deepEqual(invokes, [
     ["themis-host:reauth"],
     ["themis-host:reauth"],
@@ -398,6 +401,8 @@ test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWor
     ["themis-host:open-external", "https://x.example/a"],
     ["themis-host:reveal", "a/b.txt"],
     ["themis-host:notify", "attempt-finished"],
+    ["themis-host:open-settings"],
+    ["themis-host:open-settings"],
   ]);
   assert.ok(!/ipcRenderer\s*\.\s*on\s*\(/.test(source), "preload 不许有 ipcRenderer.on");
   assert.ok(!/ipcRenderer\s*\.\s*send\s*\(/.test(source), "preload 不许有 ipcRenderer.send");
@@ -1223,16 +1228,17 @@ const CHANNELS = [
   "themis-host:open-external",
   "themis-host:reveal",
   "themis-host:notify",
+  "themis-host:open-settings",
 ];
 const SECRET = "ipc-secret-" + crypto.randomBytes(8).toString("hex");
 const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:8123/app" } };
 
-test("HOST_CHANNELS 冻结且恰好五个", () => {
+test("HOST_CHANNELS 冻结且恰好六个", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS));
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("只用 ipcMain.handle 注册五个通道；来源不对回 forbidden 且不进 host", async () => {
+test("只用 ipcMain.handle 注册六个通道；来源不对回 forbidden 且不进 host", async () => {
   const handlers = {};
   let onCalled = 0;
   const ipcMain = {
@@ -1246,6 +1252,7 @@ test("只用 ipcMain.handle 注册五个通道；来源不对回 forbidden 且�
     openExternal: async (url) => { calls.push(["openExternal", [url]]); return { ok: true }; },
     reveal: async (relPath) => { calls.push(["reveal", [relPath]]); return { ok: true }; },
     notify: async (kind) => { calls.push(["notify", [kind]]); return { ok: true }; },
+    openSettings: async () => { calls.push(["openSettings", []]); return { ok: true }; },
   };
   let allowed = false;
   registerHostIpc(ipcMain, host, (event) => allowed && event === EV);
@@ -1271,12 +1278,15 @@ test("来源对：转交 host，多余的实参丢掉", async () => {
     openExternal: async (a) => { calls.push(["openExternal", [a]]); return { ok: true }; },
     reveal: async (a) => { calls.push(["reveal", [a]]); return { ok: true }; },
     notify: async (a) => { calls.push(["notify", [a]]); return { ok: true }; },
+    openSettings: async () => { calls.push(["openSettings", []]); return { ok: true }; },
   };
   registerHostIpc(ipcMain, host, () => true);
   assert.deepEqual(await handlers["themis-host:open-secret-window"](EV, "u", "j", "EXTRA"), { ok: true });
   assert.deepEqual(calls, [["openSecretWindow", ["u", "j"]]], "多余的实参要丢掉");
   assert.deepEqual(await handlers["themis-host:reveal"](EV, "a/b.txt", "EXTRA"), { ok: true });
   assert.deepEqual(calls[1], ["reveal", ["a/b.txt"]]);
+  assert.deepEqual(await handlers["themis-host:open-settings"](EV, "EXTRA"), { ok: true });
+  assert.deepEqual(calls[calls.length - 1], ["openSettings", []], "多余的实参要丢掉");
 });
 
 test("host 抛错（同步与异步）：回 internal，错误消息不外传", async () => {
@@ -1288,6 +1298,7 @@ test("host 抛错（同步与异步）：回 internal，错误消息不外传", 
     openExternal: async () => ({ ok: true }),
     reveal: async () => ({ ok: true }),
     notify: async () => ({ ok: true }),
+    openSettings: async () => ({ ok: true }),
   };
   registerHostIpc(ipcMain, host, () => true);
   const r1 = await handlers["themis-host:reauth"](EV);

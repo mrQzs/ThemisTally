@@ -55,6 +55,8 @@ async function runShellPage() {
   registerHostIpc(ipcMain, relay.host, relay.senderAllowed);
   // 当前外壳页窗口：外壳 IPC、选择框与服务状态事件都读它；换页（首次启动页 / 服务状态页）时换成新的
   let shellWin = null;
+  // 设置外壳窗口：只此一个，由宿主接口的 openSettings() 经 createSettingsWindow 开出；关掉它不停服务、不退应用
+  let settingsWin = null;
   // 外壳页窗口是不是外壳自己关的：起服务成功与意外退出换页那两次由我们主动关，那时应用不退
   let closedByShell = false;
   // 用户关掉当前外壳窗口时才兑现：外壳自己关的窗口不兑现，接着等下一个外壳窗口
@@ -69,22 +71,28 @@ async function runShellPage() {
   // 那一个窗口——重启之后旧窗口迟到的 closed 被身份检查挡掉，不会误停新 run 的服务、也不会误退出
   let serviceGone = false;
 
-  // 外壳窗口统一走这里：每次取新分区、只在它自己的 session 上注册一次协议 handler。
-  // 注册在模块级 protocol 上会 ERR_FAILED；同一个 session 上注册第二次会抛错
-  // （Failed to register protocol: themis-shell），所以每开一次窗都现取 partitionName()
-  async function openShellWindow(url) {
+  // 外壳页窗口的底层建窗：新分区、在该 session 上注册一次协议 handler、用 shell-preload 建窗。
+  // 这个 helper 定义在 runShellPage 内部：root 是 runShellPage 的局部变量，这里闭包能直接用。
+  function createShellPageWindow(title) {
     const partition = partitionName();
     const userSession = session.fromPartition(partition);
     userSession.protocol.handle("themis-shell", (request) => {
       const resolved = resolveShellAsset(root, request.url);
       return new Response(resolved.body, { status: resolved.status, headers: resolved.headers });
     });
-    const opened = guardedWindow({
+    return guardedWindow({
       partition,
       prefs: mainWebPreferences(partition, path.join(__dirname, "shell-preload.js")),
-      options: { title: "ThemisTally" },
+      options: { title },
       allowNavigation: isShellPageUrl,
     });
+  }
+
+  // 外壳窗口统一走这里：每次取新分区、只在它自己的 session 上注册一次协议 handler。
+  // 注册在模块级 protocol 上会 ERR_FAILED；同一个 session 上注册第二次会抛错
+  // （Failed to register protocol: themis-shell），所以每开一次窗都现取 partitionName()
+  async function openShellWindow(url) {
+    const opened = createShellPageWindow("ThemisTally");
     shellWin = opened;
     closedByShell = false;
     const tracked = await trackWindow(opened, () => opened.webContents.loadURL(url));
@@ -95,6 +103,24 @@ async function runShellPage() {
     });
     shellTracked = tracked;
     return tracked;
+  }
+
+  // 设置窗口：只此一个。标题「设置」；页面加载后 ServiceApp 会把 document.title 设成
+  // 「设置 · Themis Tally」，那会盖掉窗口标题——在这个窗口上拦 page-title-updated 并
+  // preventDefault，窗口标题保持「设置」（站主 2026-11-19 实测：拦了之后构造时、加载完、
+  // 1.5 秒后 getTitle() 都是「设置」，页面里的 document.title 照改）。
+  function createSettingsWindow() {
+    const opened = createShellPageWindow("设置");
+    opened.webContents.on("page-title-updated", (event) => {
+      event.preventDefault();
+    });
+    settingsWin = opened;
+    opened.once("closed", () => {
+      if (settingsWin === opened) settingsWin = null;
+      // 关掉设置窗口：应用不退出、服务不停，焦点回到服务窗口
+      if (serviceWindow !== null && !serviceWindow.isDestroyed()) serviceWindow.focus();
+    });
+    return opened;
   }
 
   // 握手成功后开服务窗口：控制令牌只经 onRunning 的实参进 createHost 的闭包，不进状态、不进事件
@@ -121,6 +147,7 @@ async function runShellPage() {
             options: { parent: serviceWindow, width: 560, height: 480, title: "录入凭据" },
           });
         },
+        createSettingsWindow: () => createSettingsWindow(),
         confirmExternal: async (url) => {
           const result = await dialog.showMessageBox(serviceWindow, {
             type: "question",
@@ -180,6 +207,8 @@ async function runShellPage() {
         if (serviceWindow !== opened) return;
         // 外壳自己关的（意外退出换页的收尾）：不收第二次
         if (serviceGone) return;
+        // 服务窗口没了，设置窗口跟着关：关完最后一个窗口应用才退出，退出码规则照旧
+        if (settingsWin !== null && !settingsWin.isDestroyed()) settingsWin.close();
         const stop = await flow.stop();
         if (stop.exited && stop.code === 0) {
           app.exit(0);
@@ -200,6 +229,8 @@ async function runShellPage() {
     // 已经有外壳窗口开着（服务状态页）：不另开窗口，外壳页自己经事件显示错误
     if (shellWin !== null && !shellWin.isDestroyed()) {
       relay.clear();
+      // 设置窗口跟着关：换页的间隙两个旧窗口都收掉，新页面已经在另一个外壳窗口里
+      if (settingsWin !== null && !settingsWin.isDestroyed()) settingsWin.close();
       if (!serviceWindow.isDestroyed()) serviceWindow.close();
       return;
     }
@@ -207,11 +238,15 @@ async function runShellPage() {
       () => {
         // 窗口次序：先建新窗口，再关服务窗口——任何时刻都不出现零窗口
         relay.clear();
+        // 新页面开好之后才关设置窗口与服务窗口
+        if (settingsWin !== null && !settingsWin.isDestroyed()) settingsWin.close();
         if (!serviceWindow.isDestroyed()) serviceWindow.close();
       },
       () => {
         // 服务状态页开不出来：写一行 ERROR 并以 1 退出
         process.stderr.write(`ERROR: 服务意外退出（退出码 ${state.exitCode}）\n`);
+        // 这里没有新窗口顶上，关窗次序照旧：先关设置窗口、再关服务窗口、最后退出
+        if (settingsWin !== null && !settingsWin.isDestroyed()) settingsWin.close();
         if (!serviceWindow.isDestroyed()) serviceWindow.close();
         app.exit(1);
       },
@@ -224,20 +259,27 @@ async function runShellPage() {
     assets: root,
     chooseDirectory: async ({ title }) => {
       const options = { title, properties: ["openDirectory"] };
-      // 当前外壳窗口不在（换页的间隙）就不带父窗口调用
-      const result =
-        shellWin === null || shellWin.isDestroyed()
-          ? await dialog.showOpenDialog(options)
-          : await dialog.showOpenDialog(shellWin, options);
+      // 当前外壳窗口不在（换页的间隙）就退到设置窗口；两个都不在就不带窗口调用
+      const owner =
+        shellWin !== null && !shellWin.isDestroyed()
+          ? shellWin
+          : settingsWin !== null && !settingsWin.isDestroyed()
+            ? settingsWin
+            : null;
+      const result = owner === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(owner, options);
       if (result.canceled || result.filePaths.length === 0) return null;
       return result.filePaths[0];
     },
     chooseFile: async ({ title }) => {
       const options = { title, properties: ["openFile"] };
-      const result =
-        shellWin === null || shellWin.isDestroyed()
-          ? await dialog.showOpenDialog(options)
-          : await dialog.showOpenDialog(shellWin, options);
+      // 当前外壳窗口不在（换页的间隙）就退到设置窗口；两个都不在就不带窗口调用
+      const owner =
+        shellWin !== null && !shellWin.isDestroyed()
+          ? shellWin
+          : settingsWin !== null && !settingsWin.isDestroyed()
+            ? settingsWin
+            : null;
+      const result = owner === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(owner, options);
       if (result.canceled || result.filePaths.length === 0) return null;
       return result.filePaths[0];
     },
@@ -251,10 +293,14 @@ async function runShellPage() {
         detail: url,
         noLink: true,
       };
-      const result =
-        shellWin === null || shellWin.isDestroyed()
-          ? await dialog.showMessageBox(options)
-          : await dialog.showMessageBox(shellWin, options);
+      // 当前外壳窗口不在（换页的间隙）就退到设置窗口；两个都不在就不带窗口调用
+      const owner =
+        shellWin !== null && !shellWin.isDestroyed()
+          ? shellWin
+          : settingsWin !== null && !settingsWin.isDestroyed()
+            ? settingsWin
+            : null;
+      const result = owner === null ? await dialog.showMessageBox(options) : await dialog.showMessageBox(owner, options);
       return result.response === 0;
     },
     openExternal: async (url) => {
@@ -263,9 +309,10 @@ async function runShellPage() {
     appVersion: app.getVersion(),
   });
   registerShellIpc(ipcMain, api, (event) => {
-    // 来源检查读当前外壳窗口：换页之后，旧窗口的 webContents 不再能调外壳接口
-    if (shellWin === null || shellWin.isDestroyed()) return false;
-    return shellSenderAllowed(event, shellWin.webContents);
+    // 来源检查读当前外壳窗口；设置窗口开着时也放行（设置窗口里的外壳接口照外壳页窗口的规则）
+    if (shellWin !== null && !shellWin.isDestroyed() && shellSenderAllowed(event, shellWin.webContents)) return true;
+    if (settingsWin !== null && !settingsWin.isDestroyed() && shellSenderAllowed(event, settingsWin.webContents)) return true;
+    return false;
   });
   await openShellWindow(SHELL_START_URL);
   await shellClosedByUser;

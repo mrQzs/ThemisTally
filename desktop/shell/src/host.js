@@ -9,6 +9,7 @@ const {
   createRateLimiter,
   NOTIFY_TEXT,
 } = require("./hostcheck.js");
+const { SHELL_SETTINGS_URL } = require("./shellprotocol.js");
 
 // 控制接口的两条路径（照 routes.ts 的 CONTROL_PATH 与 jobroutes.ts 的 control.jobs.cancel）
 const BOOTSTRAP_PATH = "/control/bootstrap";
@@ -35,7 +36,7 @@ function readBootstrap(response, origin) {
   return bootstrap;
 }
 
-// 五个宿主函数的编排：系统能力与本机服务全部由注入物承担，控制令牌只在这个闭包里
+// 六个宿主函数的编排：系统能力与本机服务全部由注入物承担，控制令牌只在这个闭包里
 function createHost(options) {
   const {
     origin,
@@ -43,6 +44,7 @@ function createHost(options) {
     repo,
     loadMain,
     createSecretWindow,
+    createSettingsWindow,
     confirmExternal,
     openExternal,
     showItem,
@@ -54,6 +56,8 @@ function createHost(options) {
   const limiter = createRateLimiter({ now });
   // 凭据窗口的占位：最多一个。在第一个 await 之前同步记下，一上来并发也开不出第二个窗口
   let current = null;
+  // 设置窗口的占位：最多一个。同样在第一个 await 之前同步记下
+  let settingsWindow = null;
 
   function cancelJob(jobId) {
     // 404（没有这个作业）、409（已经结束）都是常态，结果与错误一律吞掉
@@ -148,12 +152,38 @@ function createHost(options) {
     return { ok: true };
   }
 
+  async function openSettings() {
+    // 没有注入建窗函数（带参数起服务的那条分支：没有外壳页、没有外壳 IPC）→ 假装能开
+    if (typeof createSettingsWindow !== "function") return { ok: false, reason: "unavailable" };
+    if (settingsWindow !== null) {
+      // 已经开着：最小化先还原再聚焦，不另开第二个窗口
+      if (settingsWindow.isMinimized()) settingsWindow.restore();
+      settingsWindow.focus();
+      return { ok: true };
+    }
+    const win = createSettingsWindow();
+    // 占位在第一个 await 之前同步记下：并发两次调用只建一个窗口
+    settingsWindow = win;
+    // once 不用 on：只清自己的那一个，迟到的旧窗口 closed 不误伤新窗口
+    win.once("closed", () => {
+      if (settingsWindow === win) settingsWindow = null;
+    });
+    try {
+      await win.loadURL(SHELL_SETTINGS_URL);
+    } catch {
+      if (!win.isDestroyed()) win.close();
+      return { ok: false, reason: "load-failed" };
+    }
+    return { ok: true };
+  }
+
   return {
     reauth,
     openSecretWindow,
     openExternal: openExternalUrl,
     reveal,
     notify,
+    openSettings,
   };
 }
 

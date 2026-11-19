@@ -38,6 +38,7 @@ test.after(() => server.close());
 const clock = { at: 0 };
 const winCfg = { failLoad: false, hangLoad: false };
 const wins = [];
+const settingsWins = [];
 const winArgs = [];
 const loadedMain = [];
 const confirmCalls = [];
@@ -53,7 +54,13 @@ function fakeWindow() {
   win.closedByHost = false;
   win.loadCalls = [];
   win.destroyed = false;
+  win.minimized = false;
+  win.restoreCalls = 0;
   win.isDestroyed = () => win.destroyed;
+  win.isMinimized = () => win.minimized;
+  win.restore = () => {
+    win.restoreCalls += 1;
+  };
   win.focus = () => {
     win.focusCalls += 1;
   };
@@ -75,6 +82,7 @@ function resetAll() {
   winCfg.failLoad = false;
   winCfg.hangLoad = false;
   wins.length = 0;
+  settingsWins.length = 0;
   winArgs.length = 0;
   loadedMain.length = 0;
   confirmCalls.length = 0;
@@ -100,6 +108,11 @@ function makeHost(over) {
           winArgs.push(arg);
           const win = fakeWindow();
           wins.push(win);
+          return win;
+        },
+        createSettingsWindow: () => {
+          const win = fakeWindow();
+          settingsWins.push(win);
           return win;
         },
         confirmExternal: async (url) => {
@@ -540,6 +553,81 @@ test("notify 其余类型：bad-kind 且不发通知；渲染进程给的额外�
   assert.deepEqual(shownNotes, [{ title: "ThemisTally", body: "attempt 已结束" }]);
 });
 
+// ---- openSettings ----
+
+test("openSettings 没注入建窗函数：unavailable，不抛错、不开窗", async () => {
+  resetAll();
+  const host = makeHost({ createSettingsWindow: undefined });
+  assert.deepEqual(await host.openSettings(), { ok: false, reason: "unavailable" });
+  assert.deepEqual(await host.openSettings("EXTRA"), { ok: false, reason: "unavailable" });
+  assert.equal(settingsWins.length, 0);
+});
+
+test("openSettings 正常：开一个窗、加载设置地址、回 {ok:true}", async () => {
+  resetAll();
+  const host = makeHost();
+  const r = await host.openSettings();
+  assert.deepEqual(r, { ok: true }, JSON.stringify(r));
+  assert.equal(settingsWins.length, 1, "只建一个窗口");
+  assert.deepEqual(settingsWins[0].loadCalls, ["themis-shell://app/index.html#/settings"]);
+});
+
+test("openSettings 已开着：最小化先 restore 再 focus、不开第二个、回 {ok:true}", async () => {
+  resetAll();
+  const host = makeHost();
+  await host.openSettings();
+  settingsWins[0].minimized = true;
+  assert.deepEqual(await host.openSettings(), { ok: true });
+  assert.equal(settingsWins.length, 1);
+  assert.equal(settingsWins[0].restoreCalls, 1, "最小化时要先 restore");
+  assert.equal(settingsWins[0].focusCalls, 1);
+  settingsWins[0].minimized = false;
+  assert.deepEqual(await host.openSettings(), { ok: true });
+  assert.equal(settingsWins[0].restoreCalls, 1, "没最小化就不该 restore");
+  assert.equal(settingsWins[0].focusCalls, 2);
+  assert.equal(settingsWins.length, 1, "已开着就聚焦，不另开第二个窗口");
+});
+
+test("openSettings 占位在第一个 await 之前：并发两次只建一个", async () => {
+  resetAll();
+  winCfg.hangLoad = true;
+  const host = makeHost();
+  const pending = host.openSettings(); // loadURL 永远挂起，不 await
+  const second = await host.openSettings();
+  assert.deepEqual(second, { ok: true }, "第二个调用看到占位就 restore+focus 后回 ok");
+  assert.equal(settingsWins.length, 1, "不许开出第二个窗口");
+  assert.equal(settingsWins[0].focusCalls, 1);
+  void pending;
+});
+
+test("openSettings 关掉后能再开；旧窗口迟到的 closed 不清掉新窗口的占位", async () => {
+  resetAll();
+  const host = makeHost();
+  await host.openSettings();
+  settingsWins[0].emit("closed"); // 用户关掉设置窗口
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(await host.openSettings(), { ok: true });
+  assert.equal(settingsWins.length, 2, "占位清掉之后要能重新开");
+  settingsWins[0].emit("closed"); // 旧窗口迟到的 closed
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(await host.openSettings(), { ok: true });
+  assert.equal(settingsWins.length, 2, "迟到的 closed 不许清掉新窗口的占位（否则会开第三个）");
+  assert.equal(settingsWins[1].focusCalls, 1, "新窗口被聚焦");
+});
+
+test("openSettings 加载失败：关窗并回 load-failed，之后能再开", async () => {
+  resetAll();
+  winCfg.failLoad = true;
+  const host = makeHost();
+  const r = await host.openSettings();
+  assert.deepEqual(r, { ok: false, reason: "load-failed" });
+  assert.equal(settingsWins[0].closedByHost, true, "失败时窗口还在就要 close()");
+  await new Promise((resolve) => setImmediate(resolve));
+  winCfg.failLoad = false;
+  assert.deepEqual(await host.openSettings(), { ok: true });
+  assert.equal(settingsWins.length, 2, "失败清掉占位后能再开");
+});
+
 // ---- 令牌不外泄 ----
 
 test("控制令牌与引导地址不进宿主对象的 JSON", () => {
@@ -549,7 +637,7 @@ test("控制令牌与引导地址不进宿主对象的 JSON", () => {
   assert.ok(!JSON.stringify(host).includes(server.bootstrapUrl));
 });
 
-test("D12：五个函数成功与各失败分支期间，stdout/stderr 不出现控制令牌、nonce、页面令牌", async () => {
+test("D12：六个函数成功与各失败分支期间，stdout/stderr 不出现控制令牌、nonce、页面令牌", async () => {
   resetAll();
   const bootstrapUrl = server.bootstrapUrl;
   const nonce = bootstrapUrl.slice(bootstrapUrl.lastIndexOf("/") + 1);
@@ -617,6 +705,11 @@ test("D12：五个函数成功与各失败分支期间，stdout/stderr 不出现
     // notify：两类合法、其余拒绝
     assert.deepEqual(await host.notify("attempt-finished"), { ok: true });
     assert.deepEqual(await host.notify("constructor"), { ok: false, reason: "bad-kind" });
+
+    // openSettings：成功开设置窗口
+    resetAll();
+    host = makeHost();
+    assert.deepEqual(await host.openSettings(), { ok: true });
   } finally {
     process.stdout.write = savedOut;
     process.stderr.write = savedErr;

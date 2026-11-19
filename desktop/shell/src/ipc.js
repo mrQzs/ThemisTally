@@ -7,6 +7,7 @@ const HOST_CHANNELS = Object.freeze([
   "themis-host:open-external",
   "themis-host:reveal",
   "themis-host:notify",
+  "themis-host:open-settings",
 ]);
 
 // 每个通道转交的宿主函数与它的实参个数：多余的参数丢掉（preload 已按声明转发，这里是第二道）
@@ -16,6 +17,7 @@ const HOST_METHOD = {
   "themis-host:open-external": "openExternal",
   "themis-host:reveal": "reveal",
   "themis-host:notify": "notify",
+  "themis-host:open-settings": "openSettings",
 };
 const HOST_ARITY = {
   "themis-host:reauth": 0,
@@ -23,6 +25,7 @@ const HOST_ARITY = {
   "themis-host:open-external": 1,
   "themis-host:reveal": 1,
   "themis-host:notify": 1,
+  "themis-host:open-settings": 0,
 };
 
 // 处理器一律不抛错（invoke 的处理器抛错时错误可能被打到日志，也顺带把地址与令牌带出去），

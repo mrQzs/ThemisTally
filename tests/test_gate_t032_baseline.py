@@ -43,9 +43,7 @@
 
 过渡断言（``test_transitional_`` 开头，docstring 写明哪一片推翻，站主按名字退役）：
 
-- ``test_transitional_s06_settings_page_untouched``：SettingsPage.tsx 与基线 344b5d0 逐字一致（合同 v2：本片
-  一个字不改，getState 被拒照旧冒给 PageFrame 显示通用出错块）——主窗口经 host.openSettings() 打开设置窗口的
-  那一片合法改动它时按名字退役。
+- ``test_transitional_s06_settings_page_untouched``：T060 退役（2026-11-19）——本片改了 SettingsPage.tsx（服务窗口的「设置」页签经 host.openSettings() 打开设置外壳窗口）；该条随本片退役。
 - ``test_transitional_s09_baseline_files_untouched``：本片禁改的文件（themisShell.ts、shellStub.ts、ShellWindow.tsx、
   SettingsView.tsx、PageFrame.tsx、App.tsx、vite.config.ts、check-live-build.mjs、src/live/**、两份静态扫描测试、
   现有 8 份 shellpages-*.test.*、场景夹具）与基线 344b5d0 逐字一致——后续片（连接状态片 T029、SSE 片、host 接口片、
@@ -334,19 +332,9 @@ def test_s05_shell_context_four_paths():
     fail_if(top_level, "liveModeIsReal() 不许在模块顶层调用（判定结果不在模块加载时缓存，vi.mock 局部替换才生效）")
 
 
-def test_transitional_s06_settings_page_untouched():
-    """过渡 / D06、D13（合同 v2）：SettingsPage.tsx 本片一个字不改——与基线 344b5d0 逐字一致。
-    现状：load 是 useCallback 包的 getState().then(...)（依赖 [shell]、无 async/await、不传 isEmpty、
-    command 是 'themisShell.getState'），reject 不接住、冒给 PageFrame 显示通用出错块「没有收到服务的回应」
-    （desktop/web/tests/shellpages-settings.test.tsx 与 T012 门禁逐字断言的就是这个）。
-
-    主窗口经 host.openSettings() 打开设置窗口的那一片（合同 Non-goals 的已知不足）合法改动本文件时，
-    按名字退役本条。
-    """
-    path = need_file(SETTINGS_PAGE_REL)
-    base = git_show_base(SETTINGS_PAGE_REL)
-    assert base is not None, f"{SETTINGS_PAGE_REL} 应在基线 {BASE_SHA[:8]} 里（它是既有文件，本片不改）"
-    assert _norm(path.read_text(encoding="utf-8")) == base,         f"{SETTINGS_PAGE_REL} 与基线 {BASE_SHA[:8]} 不一致（合同 v2：本片一个字不改它，getState 被拒照旧冒给 PageFrame）"
+# test_transitional_s06_settings_page_untouched（SettingsPage.tsx 与基线 344b5d0 逐字一致）由站主退役
+# （2026-11-19，T060）：T060 让服务窗口的「设置」页签经 host.openSettings() 打开设置外壳窗口，
+# 本片合法改了 desktop/web/src/pages/SettingsPage.tsx（没有宿主接口时旧的通用出错块照旧留着）。
 
 
 def test_s07_views_error_copies():

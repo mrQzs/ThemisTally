@@ -44,14 +44,14 @@ test("preload 只 require electron，且恰好一次 exposeInMainWorld(\"themisH
   assert.equal(exposes[0][0], "themisHost");
 });
 
-test("暴露面恰好五个函数、没有 openSettings", () => {
+test("暴露面恰好六个函数、含 openSettings", () => {
   const { exposes } = runPreload();
   const api = exposes[0][1];
-  assert.deepEqual(Object.keys(api).sort(), ["notify", "openExternal", "openSecretWindow", "reauth", "reveal"]);
-  assert.equal("openSettings" in api, false, "不许有 openSettings（留给外壳页那一片）");
+  assert.deepEqual(Object.keys(api).sort(), ["notify", "openExternal", "openSecretWindow", "openSettings", "reauth", "reveal"]);
+  assert.equal(typeof api.openSettings, "function");
 });
 
-test("五个通道与 src/ipc.js 的 HOST_CHANNELS 逐字一致", () => {
+test("六个通道与 src/ipc.js 的 HOST_CHANNELS 逐字一致", () => {
   const { source } = runPreload();
   for (const channel of HOST_CHANNELS) {
     assert.ok(source.includes(`"${channel}"`) || source.includes(`'${channel}'`), "preload 缺通道 " + channel);
@@ -73,6 +73,8 @@ test("每个函数只把声明的实参原样转交给固定通道，多余实�
   api.reveal("a/b.txt", "EXTRA");
   api.notify("attempt-finished");
   api.notify("awaiting-review", "EXTRA");
+  api.openSettings();
+  api.openSettings("EXTRA");
   assert.deepEqual(invokes, [
     ["themis-host:reauth"],
     ["themis-host:reauth"],
@@ -84,6 +86,8 @@ test("每个函数只把声明的实参原样转交给固定通道，多余实�
     ["themis-host:reveal", "a/b.txt"],
     ["themis-host:notify", "attempt-finished"],
     ["themis-host:notify", "awaiting-review"],
+    ["themis-host:open-settings"],
+    ["themis-host:open-settings"],
   ]);
 });
 

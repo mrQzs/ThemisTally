@@ -11,7 +11,7 @@ const { createServiceFlow } = require("../src/serviceflow.js");
 const FAKE = path.join(__dirname, "fixtures", "fake-service.js");
 const FAKE_EXIT = path.join(__dirname, "fixtures", "fake-service-exit.js");
 
-const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify"];
+const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings"];
 
 function makeHost(tag) {
   const calls = {};
@@ -40,13 +40,13 @@ async function waitFor(what, predicate, timeoutMs) {
   }
 }
 
-test("形状：{host, senderAllowed, use, clear}，host 是那五个方法", () => {
+test("形状：{host, senderAllowed, use, clear}，host 是那六个方法", () => {
   const relay = createHostRelay();
   assert.deepEqual(Object.keys(relay).sort(), ["clear", "host", "senderAllowed", "use"]);
   assert.deepEqual(Object.keys(relay.host).sort(), [...METHODS].sort());
 });
 
-test("没有当前 host：五个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
+test("没有当前 host：六个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
   const relay = createHostRelay();
   for (const name of METHODS) {
     assert.deepEqual(await relay.host[name]("a", 2), { ok: false, reason: "forbidden" }, name + " 不许抛错");
@@ -90,7 +90,7 @@ test("senderAllowed 的检查抛错按 false", () => {
 
 // 重入：同一个外壳进程里第二次起服务。宿主 IPC 只注册一次，否则 Electron 对同一通道第二次
 // handle 会抛错——假 im 的 handle 遇到重复通道就抛错，照 Electron 的行为
-test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 5、调用进第二个 host", async () => {
+test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 6、调用进第二个 host", async () => {
   const handlers = new Map();
   let registrations = 0;
   const im = {
@@ -102,8 +102,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   };
   const relay = createHostRelay();
   registerHostIpc(im, relay.host, relay.senderAllowed);
-  assert.equal(registrations, 5, "registerHostIpc 注册五条通道");
-  assert.equal(handlers.size, 5);
+  assert.equal(registrations, 6, "registerHostIpc 注册六条通道");
+  assert.equal(handlers.size, 6);
   // 还没有当前 host：调用经来源检查回 forbidden
   assert.deepEqual(await handlers.get("themis-host:notify")({ tag: "x" }, "attempt-finished"), {
     ok: false,
@@ -141,8 +141,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   );
   assert.equal(flow.state().kind, "running");
   // 没有第二次注册（否则 im.handle 早就抛错了）
-  assert.equal(registrations, 5, "第二次起服务不许再注册宿主 IPC");
-  assert.equal(handlers.size, 5);
+  assert.equal(registrations, 6, "第二次起服务不许再注册宿主 IPC");
+  assert.equal(handlers.size, 6);
   assert.deepEqual(await handlers.get("themis-host:reveal")(event, "runs/x/summary.md"), {
     ok: true,
     value: "host2:reveal",

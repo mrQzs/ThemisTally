@@ -8,6 +8,8 @@ const SHELL_HOST = "app";
 const SHELL_START_URL = "themis-shell://app/index.html#/first-run";
 // 服务状态页：服务意外退出时外壳回到这一页，让页面显示退出码与「重启服务」
 const SHELL_STATUS_URL = "themis-shell://app/index.html#/service-status";
+// 设置外壳页：服务窗口的「设置」页签经宿主接口 openSettings() 打开这一个外壳页窗口
+const SHELL_SETTINGS_URL = "themis-shell://app/index.html#/settings";
 
 // CSP 逐字等于 ts/packages/ui/src/localhttp/headers.ts 的 CSP 常量（服务页同一套，这里硬编码同一份字面量）
 const CSP =
@@ -135,6 +137,7 @@ module.exports = {
   SHELL_HOST,
   SHELL_START_URL,
   SHELL_STATUS_URL,
+  SHELL_SETTINGS_URL,
   CSP,
   MIME,
   isShellPageUrl,
