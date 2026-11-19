@@ -338,6 +338,8 @@ describe('按版本记录核验（真实模式）', () => {
     envelopeFor = () => recordEnv(RECORD_OK, true);
     await act(async () => { await sleep(1300); });
     expect(text(sec2), '跑完显示结果').toContain('版本记录 .agent/runs/logs-cat/binding-v2.json');
+    // 回来时文本框是空的（不预填、不记住上次的值）：要再点得先把值填回去。
+    typeRecord(sec2, 'logs-cat.v2');
     fireEvent.click(btnIn(sec2, '核验'));
     await flush();
     expect(creates.length, '同值再点是新作业（只发一次创建）').toBe(2);
@@ -353,6 +355,12 @@ describe('按版本记录核验（真实模式）', () => {
     expect(creates[2]).toEqual({ kind: 'doctor-record', record: 'other-task.v1' });
     await act(async () => { await sleep(1300); });
     expect(text(sec2), '换值后的失败照显示内核原文').toContain('ERROR: other-task.v1 还没有版本记录');
+    // 文本框清空之后再点：空值不合格，只出提示、不发新的创建请求（不记住上次填过的值）。
+    fireEvent.change(recordInput(sec2), { target: { value: '' } });
+    fireEvent.click(btnIn(sec2, '核验'));
+    await flush();
+    expect(creates.length, '空值不合格，不发创建请求').toBe(3);
+    expect(text(sec2), '空值应出提示').toContain('写成 <task-id>.v<N>，例如 logs-cat.v2');
   }, 20000);
 
   it('(j) 创建失败 400：显示「核验失败」与错误原文；[核验] 仍可点，点了重建', async () => {

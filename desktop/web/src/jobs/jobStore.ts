@@ -60,19 +60,14 @@ function disconnectEnvelope(): Envelope<unknown> {
 
 // 创建作业：在途的创建记在 inflight 里让大家共用；201 且正文是合法作业才落 job 与 t0，否则记 createError。
 function doCreate(kind: JobKind, runtime?: string): Promise<JobView | null> {
-  // 槽里本来有没有作业：重新创建（上一行已经办完了）时新作业接着每秒轮询的节奏查，第一次创建时才立刻补查一次。
-  const replaced = snaps[kind].job != null;
   commit(kind, { creating: true, createError: null, job: null, runtime: runtime ?? null });
   const p = startJob(kind, runtime).then(
     (reply) => {
       const view = reply.status === 201 ? reply.body.data : null;
       if (view != null) {
         commit(kind, { job: view, t0: Date.now(), creating: false });
-        // 有组件挂着才起轮询：第一次创建照挂载时的做法立刻查一次，重新创建接着每秒的节奏查（上一行的查询刚走过）。
-        if ((subscribers[kind] ?? 0) > 0) {
-          if (replaced) scheduleNext(kind);
-          else startPolling(kind);
-        }
+        // 重新创建时旧作业已终态、轮询已停：新作业要接着轮询（有组件挂着才起；初始创建由挂载时的 startPolling 负责）。
+        if ((subscribers[kind] ?? 0) > 0) startPolling(kind);
       } else {
         commit(kind, { job: null, createError: reply.body as Envelope<unknown>, creating: false });
       }

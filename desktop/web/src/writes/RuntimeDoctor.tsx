@@ -43,10 +43,6 @@ const PLAN_KEY_RE = /^[a-z0-9][a-z0-9-]{0,63}\.v[1-9][0-9]{0,3}$/u;
 // 记录值不合格时的提示（就地提示，不发请求）。
 const RECORD_HINT = '写成 <task-id>.v<N>，例如 logs-cat.v2';
 
-// 上一次真正发出去的记录值：文本框被清空时（重挂载后就是空的）[核验] 沿用这一个，点的还是这一行当前正在办的那个版本记录
-//（只有这一行的作业还在时才用；没有作业时文本框空着就是没有值，按不合格处理，不发请求）。
-let lastRecord: string | null = null;
-
 // 一个角色的就绪行：无头角色带下面这些键（内核找到命令时才有 command/source/version，是 pi 且有 provider/model
 // 时才有 model_listed/auth_ready/thinking_supported）；不是无头的角色只有 role/mode/problems/text/ready。
 interface DoctorRow {
@@ -277,19 +273,16 @@ export function RuntimeDoctor() {
     if (recordError != null) setRecordError(undefined);
   };
   const onVerify = () => {
-    // 文本框空着时（离开这一页再回来就是空的）沿用这一行当前正在办的那个记录值；连这个都没有（空文本、大写、没有 .v、
-    // v0、含空格等）就不发请求，只在文本框上提示。
-    const value = record === '' && recordJob != null ? lastRecord : record;
-    if (value == null || !PLAN_KEY_RE.test(value)) {
+    // 值不合格（空文本、大写、没有 .v、v0、含空格、超长）就不发请求，只在文本框上提示。
+    if (!PLAN_KEY_RE.test(record)) {
       setRecordError(RECORD_HINT);
       return;
     }
     setRecordError(undefined);
-    lastRecord = value;
     // 起作业：restartJob 管终态且同值（新建，新的 t0 与作业号），ensureJob 管终态且换值与空槽（也是新建）；
     // 两者合起来覆盖终态同值、终态换值、空槽三种要新建的情形，在途的创建由 jobStore 共用，不会建出两个。
-    void restartJob('doctor-record', value);
-    void ensureJob('doctor-record', value);
+    void restartJob('doctor-record', record);
+    void ensureJob('doctor-record', record);
   };
 
   return (
