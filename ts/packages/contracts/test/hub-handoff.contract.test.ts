@@ -192,6 +192,8 @@ describe.runIf(process.platform === "win32")("第 ⑤j3 片：经真启动器转
       { argv: ["send", "T009", "--type", "回复"], input: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("带 BOM 的回复", "utf8")]) },
       // 2000 字的上限照通用换行之后的字数算：四行各 499 字、CRLF 隔开，换成 LF 恰好 2000 字，照常投出（信里按 splitlines 分行，只有这里看得出 CR）
       { argv: ["send", "T009", "--type", "回复"], input: Buffer.from(Array.from({ length: 4 }, () => "长".repeat(499)).join(CR + LF), "utf8") },
+      // 第 199 轮：--carry 要转交到 TS（第 190 轮加了选项、没进转交名单，TS 收不到就照常投信）；不随 2-contract 返工，两边都报用法错误
+      { argv: ["send", "T001", "--type", "回复", "--carry", "attempt-001"], input: Buffer.from("接着改", "utf8") },
       { argv: ["task", "rebase", "T001", "--reason", "挪基线"] },
       { argv: ["task", "after", "T001", "--on", "T002", "--reason", "依赖"] },
       { argv: ["task", "unstick", "T001", "5-exec", "--reason", "卡住"] },
@@ -220,7 +222,7 @@ describe.runIf(process.platform === "win32")("第 ⑤j3 片：经真启动器转
     expect([reference.impls, handed.impls]).toEqual([
       [["runner.started", "python"], ["exclusive.run", "python"]], [["runner.started", "ts"], ["exclusive.run", "ts"]],
     ]);
-    expect(handed.results.filter((result) => result.argv.startsWith("send ")).map((result) => result.status)).toEqual([0, 0, 0]);
+    expect(handed.results.filter((result) => result.argv.startsWith("send ")).map((result) => result.status)).toEqual([0, 0, 0, 2]);
     expect(handed.results.at(-1)?.stdout).toBe(`x 32771${CR}${LF}`); // 孙进程是 Python，文本模式的 print 在 Windows 上写 CRLF
     const texts = handed.box.map(([, text]) => text).join(LF);
     expect(texts).toContain(`摘要: ${String.fromCharCode(0xfeff)}带 BOM 的回复`);

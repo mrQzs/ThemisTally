@@ -3324,6 +3324,35 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
     - 拿三个门禁回合做重放比对，过了再 config hub set gate。
   - 删除工具不做：python -c 在执行域里就能删门禁自己的临时文件。
 
+### 第 199 轮：调度器起的子进程走 Python 的 UTF-8 模式，检查日志里的中文断言照原样可读（候选 #73）；send --carry 补进转交给 TS 的名单
+
+- **起因**：
+  - 这台机器 Python 的区域编码是 cp1252。pytest 的输出里只要有一个字写不出来，就把整段（断言说明、docstring，连换行一起）转成 Unicode 转义串（反斜杠 u 加四位十六进制）：_pytest/_io/terminalwriter.py 碰上 UnicodeEncodeError 时的退路。
+  - 门禁基准与包内测试的断言说明几乎都是中文，检查日志于是成串的转义：.agent/runs 下 32 份检查日志共三千多处（T054 attempt-001 的 G01.log 是候选 #73 当时的例子，T051、T027、T032 的 G01、R01 也是）。协调人、审核端、执行端与站主读到的都是这些，执行端读自己的测试输出也一样。
+  - 调度器把检查的输出原样写进日志、再按 UTF-8 读；内核读子进程的输出也一律按 UTF-8 解（Python 的 bytes.decode() 缺省就是 UTF-8，TS 的 hub 同样）。子进程按 cp1252 写、这边按 UTF-8 读，本来就对不上。
+- **先量（11-19）**：
+  - 当前末端 492c643f 的 57 份门禁基准在 PYTHONUTF8=1 下全跑一遍（站主回归的写法，临时 worktree）：1161 passed、1 failed。红的是 t005 的 d11，npm test 的 vitest 工作进程意外退出、120 秒被杀（那一遍限 6 个核）；同样设着这个变量、不限核单独重跑，36 条全过（69 秒）。
+  - 同一条带中文说明的失败断言：不设时说明是转义串，设了是原样的中文。
+- **改法**（Python 与 TS 两份）：
+  - 调度器的 child_env 缺省补 PYTHONUTF8=1，外面显式设了（例如 0）就照外面的，写法照旧有的 PYTHONDONTWRITEBYTECODE。
+  - 它覆盖执行器的环境、检查命令与 setup；内核的 worker_env、kernel_pytest_env 建在它上面，门禁、合同等岗位的工人回合与站主回归跟着带上。
+  - codekit/baseline.py 记录的环境策略说明同步一句；规划指南（检查命令默认带的变量）与派遣的排障表同步，.claude/skills 的副本逐字照抄。
+- **测试**：
+  - 新文件 tests/test_child_env_utf8.py 三条：child_env、worker_env、kernel_pytest_env 缺省带 PYTHONUTF8=1，外面设了 0 就是 0；照调度器跑检查的写法（输出原样写进日志、再按 UTF-8 读）跑一条带中文说明的失败用例，日志里是原样的中文、没有转义串；对照：去掉这个变量、把标准输出编码钉成 cp1252，同一条就成了转义串（钉住编码是为了在区域编码本来就是 UTF-8 的机器上也测得出来）。
+  - pi-cli 契约：child_env 那一组在外面设 PYTHONUTF8=0（照外面的），另加一条外面没有时补 1，Python 与 TS 逐项比。
+- **顺带修（第 190 轮的漏处）**：
+  - 这一轮的检查带上了 tests/test_kernel_impl.py，红了一条：kit_hub 的 send 有 --carry（第 190 轮，候选 #62），转交给 TS 的名单 HUB_COMMANDS 里却没有它。hub 是 ts 时启动器只转交名单里的键，--carry 被悄悄丢掉，TS 收不到就照常投信、不记 owner_carry。账本里一条 owner_carry 事件也没有：落地以来没生效过。第 190 轮的检查没跑 test_kernel_impl、schemas 与 hub-handoff 契约，所以当时没红。
+  - 名单补上 carry；pyargs-v1 的 send 分支同步补（必填，字符串或 null）。只补名单、不补 Schema 时，转交的 Schema 测试红在 send 的样例上（先红过一遍）。
+  - hub-handoff 契约的命令表加一行 send --carry attempt-001（不随 2-contract 返工）：经真启动器，两边都报用法错误、退出 2；名单漏掉 carry 时 TS 照常投信，这一行就红。
+- **变异**：新写 dispatch-utf8-env（py 2：不补、外面设了也盖成 1；ts 2：同样两种）与 hub-handoff-carry（py 1：名单不带 carry），5 个全抓住；H01 红在 send --carry 那一行（Python 退出 2，TS 退出 0、照常投了信），不是 run 的内核脏检查。
+- **检查**：
+  - 锚点 245 份规格、失效 0；类型检查 0 错；变异清单与源码卫生的元测试 5 条（补 carry 前后各一遍）。
+  - pytest：新测试、找可执行文件、协议、内核实现与调度器五个文件 592 过、3 跳过、子测试 2549，红 1 条（就是上面 send 的转交名单），补上之后 test_kernel_impl 186 条全过；内核测试 437 过；两份旧脚本照常 OK（lifecycle 跳过 2）。
+  - 契约：pi-cli、decisions-client、doctor-smoke 152 过、1 跳过；hub-contract-gate 与 hub-contract-flow 16 过；schemas 6 过；hub-handoff 的命令表经真启动器两边逐字相同（要在干净的树上跑：内核文件与 HEAD 不一致时 run 两边都不起，Python 那边 hub 选 python，不把 TS 源码算进内核文件，两边列的文件不同；所以先提交本轮文件再跑它与 H01）。
+- **没做**：
+  - 门禁端换到 Quizs 之后，执行域里的命令由 Quizs 的命令策略起：python 带 -I（隔离模式，PYTHON 开头的环境变量一律不看），环境变量补了也不起作用。改绑之前在 Quizs 那边给 pytest 与 python 的命令行加 -X utf8（合进主检出要换 BUILD_ID、三份证书重签）。
+  - 不在调度器、内核自己的进程里开 UTF-8 模式：它们读写文件都显式写了编码，读子进程输出按 UTF-8 解，不受影响。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

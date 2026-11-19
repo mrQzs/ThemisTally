@@ -129,6 +129,8 @@ describe("child_env", () => {
     GIT_TERMINAL_PROMPT: "1",
     Gcm_Interactive: "always",
     PYTHONDONTWRITEBYTECODE: "0",
+    // 第 199 轮：外面显式设了 PYTHONUTF8 就照外面的
+    PYTHONUTF8: "0",
   };
 
   it("移除、保留、配置追加、extra 与强制带上的变量", () => {
@@ -149,6 +151,18 @@ describe("child_env", () => {
         if (value === undefined) delete process.env[name];
         else process.env[name] = value;
       }
+    }
+  });
+
+  it("第 199 轮：外面没有 PYTHONUTF8 时补 1（子进程里的 Python 走 UTF-8 模式）", () => {
+    const saved = process.env["PYTHONUTF8"];
+    delete process.env["PYTHONUTF8"];
+    try {
+      const python = agree([{ op: "dispatch.child_env", config_json: "{}", extra: null }]);
+      expect(python[0]?.["items"]).toContainEqual(["PYTHONUTF8", "1"]);
+    } finally {
+      if (saved === undefined) delete process.env["PYTHONUTF8"];
+      else process.env["PYTHONUTF8"] = saved;
     }
   });
 });

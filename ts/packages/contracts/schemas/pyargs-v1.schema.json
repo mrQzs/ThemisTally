@@ -6730,7 +6730,8 @@
             "rework",
             "facts_checked",
             "decision",
-            "no_decision"
+            "no_decision",
+            "carry"
           ],
           "properties": {
             "repo": {
@@ -6787,6 +6788,16 @@
             },
             "no_decision": {
               "type": "boolean"
+            },
+            "carry": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         },

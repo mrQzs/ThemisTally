@@ -144,7 +144,7 @@
   - 模式按 Python 的 `re.search(…, re.M)` 对着去掉色码之后的输出匹配。反向引用（`\1`、`(?P=name)`）与条件分组（`(?(1)…)`）不支持，validate 会拒绝。
 - **避免监听模式**：vitest 用 `run`，jest 不加 `--watch`。
 - **调度器设置的环境**：
-  - 检查命令默认带 `CI=1`、`PYTHONDONTWRITEBYTECODE=1`。
+  - 检查命令默认带 `CI=1`、`PYTHONDONTWRITEBYTECODE=1`、`PYTHONUTF8=1`（子进程里的 Python 按 UTF-8 输出，检查日志里的中文断言照原样可读）。
   - 推送和发布类凭据（GITHUB_TOKEN、NPM_TOKEN、SSH_AUTH_SOCK 等）会被移除。
   - 确实需要的变量写进 `env`，或在 `.agent/dispatch.config.json` 的 `env_keep` 中保留。
 - **检查必须针对确切的候选**：

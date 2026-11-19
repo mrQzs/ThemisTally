@@ -1,0 +1,26 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/pi-cli.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "T01 TS 的 childEnv 不补 PYTHONUTF8",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  if (!env.has(\"PYTHONUTF8\")) env.set(\"PYTHONUTF8\", \"1\");\n",
+      "new": ""
+    },
+    {
+      "name": "T02 TS 外面显式设了 PYTHONUTF8 也被盖成 1",
+      "file": "ts/packages/dispatcher/src/pi-cli.ts",
+      "old": "  if (!env.has(\"PYTHONUTF8\")) env.set(\"PYTHONUTF8\", \"1\");\n",
+      "new": "  env.set(\"PYTHONUTF8\", \"1\");\n"
+    }
+  ]
+}

@@ -712,7 +712,7 @@ def new_run_record(argv: Sequence[str], timeout: float, grace: float) -> Dict[st
         "argv": list(argv), "argv0_which": shutil.which(argv[0]) if argv and argv[0] else None,
         "cwd": "repo_root", "stdin": "devnull", "shell": False, "timeout_seconds": timeout, "grace_seconds": grace,
         "env_policy": "pi_dispatch.child_env({})：继承当前环境，移除仓库重定向变量与推送/发布类凭据，"
-                      "设置 GIT_TERMINAL_PROMPT/GCM_INTERACTIVE，缺省时设置 PYTHONDONTWRITEBYTECODE=1",
+                      "设置 GIT_TERMINAL_PROMPT/GCM_INTERACTIVE，缺省时设置 PYTHONDONTWRITEBYTECODE=1 与 PYTHONUTF8=1",
         "env_removed_names": None, "env_added_names": None,
         "supervisor": "pi_dispatch.run_supervised", "started_at": None, "finished_at": None,
         "duration_seconds": None, "supervisor_wall_seconds": None, "returncode": None, "reason": None,

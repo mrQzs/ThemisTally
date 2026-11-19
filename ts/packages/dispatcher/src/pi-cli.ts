@@ -64,6 +64,8 @@ export function childEnv(config: PyDict, extra: ReadonlyMap<string, string> | nu
   env.set("GIT_TERMINAL_PROMPT", "0");
   env.set("GCM_INTERACTIVE", "never");
   if (!env.has("PYTHONDONTWRITEBYTECODE")) env.set("PYTHONDONTWRITEBYTECODE", "1");
+  // 第 199 轮（候选 #73）：子进程里的 Python 一律走 UTF-8 模式，外面显式设了就照外面的（见 pi_dispatch.child_env）
+  if (!env.has("PYTHONUTF8")) env.set("PYTHONUTF8", "1");
   for (const [name, value] of extra ?? []) env.set(name, value);
   if (WIN) env.set(EXE_SEARCH_GUARD, "1");
   return [env, removed.sort(cmpCodePoints)];

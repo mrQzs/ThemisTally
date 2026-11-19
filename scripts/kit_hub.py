@@ -8274,7 +8274,7 @@ HUB_COMMANDS: Dict[Any, Tuple[Tuple[str, ...], Tuple[str, ...]]] = {
     cmd_task_cap: (("task", "cap"), _TASK_KEYS + ("usd", "tokens", "reason")),
     cmd_task_cleanup: (("task", "cleanup"), _TASK_KEYS),
     cmd_send: (("send",), ("repo", "command", "task", "type", "file", "reply_to", "rework", "facts_checked", "decision",
-                           "no_decision")),
+                           "no_decision", "carry")),
     cmd_exec_recheck: (("exec-recheck",), ("repo", "command", "task")),
     cmd_take: (("take",), ("repo", "command", "peek")),
     cmd_metrics: (("metrics",), ("repo", "command", "json")),

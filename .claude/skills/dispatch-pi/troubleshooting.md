@@ -82,7 +82,7 @@
 | 执行器看到奇怪的规则 | 查看 `preflight/context-files.json`：worktree 之外（例如用户主目录）的 AGENTS.md，以及 `~/.pi/agent` 下的 AGENTS.md、SYSTEM.md 也会被加载 |
 | 费用突然升高 | 看 `auto_retries`、`compactions` 与 thinking 级别；按任务汇总成本（`bash scripts/dispatch-pi.sh metrics`） |
 | 第二轮重复旧错误 | 新合同只写了“再试一次”；改为写明验收差异与失败输出 |
-| 执行器打印中文时 `UnicodeEncodeError`（Windows） | 控制台是 cp1252 / gbk。在项目 AGENTS.md 写明临时运行 `python -c` 时先设 `PYTHONIOENCODING=utf-8`；调度器已为执行器与检查设置 `PYTHONDONTWRITEBYTECODE=1` |
+| 执行器打印中文时 `UnicodeEncodeError`（Windows） | 控制台是 cp1252 / gbk。在项目 AGENTS.md 写明临时运行 `python -c` 时先设 `PYTHONIOENCODING=utf-8`；调度器已为执行器与检查设置 `PYTHONDONTWRITEBYTECODE=1` 与 `PYTHONUTF8=1`（第 199 轮起，经调度器起的 Python 都按 UTF-8 输出；只有自己另起、不经调度器环境的进程还要设） |
 | 流中断后自动重试（`auto_retries` 中有 `terminated`） | 通常是网络或服务端中断，Pi 会自动重试；一次重试成功不影响结果，频繁出现时检查网络与限流 |
 | `TIMEOUT`，但候选看起来已经写完 | 执行器常在动手前长时间推理，写完代码后来不及自检和写报告。运行中 `status` 显示“长时间没有工具调用”时，多半就是这种情况。<br>先 `check --fresh` 验证候选，再复审补丁。超时的 attempt 不能 PASS（G1）：判 REVISE（`--class TIMEOUT`），用 `branch --rework` 取得返工提交，然后二选一：<br>- 还有剩余工作：出一个只收尾的 vN+1，写明剩余差异，并提示先动手再验证；<br>- 候选已经完整（fresh 检查全部通过，逐项复审没有遗留），缺的只是执行报告：由规划器的逐项复审代替报告（写进复审记录），直接集成返工提交，再 `mark … SUPERSEDED --ref … --reason …`，不必为一份报告再派一轮。<br>剩余预算不足、又有剩余工作时按 ESCALATE 处理 |
 

@@ -842,6 +842,10 @@ def child_env(config: Dict[str, Any], extra: Optional[Dict[str, str]] = None) ->
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["GCM_INTERACTIVE"] = "never"
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")  # 避免 __pycache__ 混入候选或造成漂移
+    # 第 199 轮（候选 #73）：子进程里的 Python 一律走 UTF-8 模式。区域编码是 cp1252 时，pytest 的输出里有一个字写不出来，
+    # 就把整段（断言说明、docstring，连换行一起）转成 \uXXXX，检查日志、执行端与门禁工人读到的都是转义串；调度器与内核
+    # 本来就按 UTF-8 解子进程的输出，子进程也写 UTF-8 两头才对上。外面显式设了（例如 0）就照外面的
+    env.setdefault("PYTHONUTF8", "1")
     if extra:
         env.update(extra)
     if IS_WINDOWS:

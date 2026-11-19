@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-handoff.contract.test.ts",
+    "-t",
+    "命令表",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 900,
+  "mutations": [
+    {
+      "name": "H01 send 的转交名单不带 carry（第 190 轮的漏处）",
+      "file": "scripts/kit_hub.py",
+      "old": "\"no_decision\", \"carry\")),",
+      "new": "\"no_decision\")),"
+    }
+  ]
+}
