@@ -113,11 +113,11 @@ describe('CLI 运行时表', () => {
 });
 
 describe('就绪检查区', () => {
-  it('[运行就绪检查] 禁用 secondary 带 PlayIcon，虚线空框，无按版本核验下拉', () => {
+  it('[运行就绪检查] 可点 secondary 带 PlayIcon，虚线空框，无按版本核验下拉', () => {
     const { container } = render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     const sec = sectionNamed(container, '就绪检查');
     const b = btn(sec, '运行就绪检查');
-    expect(b?.disabled).toBe(true);
+    expect(b?.disabled).toBe(false);
     expect(b?.getAttribute('data-variant')).toBe('secondary');
     expect(b?.querySelector('svg')).not.toBeNull();
     expect(text(sec)).toContain('还没有运行过就绪检查。');

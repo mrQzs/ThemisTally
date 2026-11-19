@@ -104,10 +104,46 @@ function modelsEnvelope(runtime: string): Envelope<unknown> {
   };
 }
 
+// 就绪检查夹具（照内核 config doctor --json 与 roles.json 的四个角色）：执行端是无头行，其余三个角色只有一行 text。
+// 第奇数次执行端没就绪（凭据不可用、data.ready 为假、退出码 1，作业落 failed 但 data 照给），第偶数次全部就绪。
+function doctorHeadlessRow(ready: boolean): Record<string, unknown> {
+  return {
+    role: 'execution', mode: 'headless', ready,
+    profile: 'step-high', runtime: 'pi', adapter: 'pi', provider: 'bb', model: 'step-5-preview', thinking: 'high',
+    connected: true, command: ['node', 'pi.js'], source: 'local', version: '0.1.2',
+    model_listed: true, auth_ready: true, thinking_supported: true, allowed: true,
+    credentials: { STEP_API_KEY: ready },
+    problems: ready ? [] : ['凭据变量不可用（被移除、没有设置或为空）：STEP_API_KEY'],
+    notes: [],
+  };
+}
+
+function doctorEnvelope(odd: boolean): Envelope<unknown> {
+  const ready = !odd;
+  const roles = [
+    { role: 'planning_review', mode: 'interactive_host', problems: [], text: 'interactive_host · claude-code（交互宿主的模型不由 Themis 切换）', ready: true },
+    { role: 'contract', mode: 'manual', problems: [], text: 'manual', ready: true },
+    doctorHeadlessRow(ready),
+    { role: 'scheduler_agent', mode: 'disabled', problems: [], text: 'disabled', ready: true },
+  ];
+  return {
+    ok: ready,
+    exit_code: ready ? 0 : 1,
+    data: odd ? { ready: false, roles } : { ready: true, roles },
+    output: [],
+    messages: [],
+    command: ['config', 'doctor', '--json'],
+    elapsed_ms: 0,
+  };
+}
+
 // error 开关对两类新作业的失败信封：没有 data，一行示意原文。
 function kindFailedEnvelope(kind: JobKind, runtime: string | null): Envelope<unknown> {
   if (kind === 'runtime-probe') {
     return { ok: false, exit_code: 1, data: null, output: [], messages: ['ERROR 探测失败：内核报错（示意）'], command: ['config', 'runtime', 'probe', runtime ?? '', '--json'], elapsed_ms: 0 };
+  }
+  if (kind === 'doctor') {
+    return { ok: false, exit_code: 1, data: null, output: [], messages: ['ERROR 就绪检查失败：内核报错（示意）'], command: ['config', 'doctor', '--json'], elapsed_ms: 0 };
   }
   return { ok: false, exit_code: 1, data: null, output: [], messages: ['ERROR 列模型失败：内核报错（示意）'], command: ['config', 'models', runtime ?? '', '--json'], elapsed_ms: 0 };
 }
@@ -131,16 +167,20 @@ interface MockJob {
   runtime: string | null;
   // 探测夹具的奇偶份：同一个 runtime 的第奇数次探测 ok 为假、第偶数次正常。
   probeOdd: boolean;
+  // 就绪检查夹具的奇偶份：第奇数次执行端没就绪（落 failed 带 data）、第偶数次全部就绪。
+  doctorOdd: boolean;
 }
 
 const jobs = new Map<string, MockJob>();
 let seq = 0;
 // 每个 runtime 建过几个探测作业（奇偶份按它算）。
 const probeCounts = new Map<string, number>();
+// 建过几个 doctor 作业（奇偶份按作业次序算，不看 runtime——doctor 没有 runtime）。
+const doctorCounts = new Map<string, number>();
 
 export function mockStartJob(kind: JobKind, runtime?: string): Promise<HttpReply<JobView>> {
-  // 两类新作业必须带 runtime（服务要扁平正文里的 runtime 键，缺了回 400）。
-  if (kind !== 'runtime-scan' && (runtime == null || runtime === '')) {
+  // 探测与列模型必须带 runtime（服务要扁平正文里的 runtime 键，缺了回 400）；doctor 不带 runtime（正文只有 kind）。
+  if ((kind === 'runtime-probe' || kind === 'models') && (runtime == null || runtime === '')) {
     return Promise.resolve({ status: 400, body: errEnvelope('runtime-probe 与 models 要带 runtime') });
   }
   seq += 1;
@@ -149,6 +189,12 @@ export function mockStartJob(kind: JobKind, runtime?: string): Promise<HttpReply
     const n = (probeCounts.get(runtime as string) ?? 0) + 1;
     probeCounts.set(runtime as string, n);
     probeOdd = n % 2 === 1;
+  }
+  let doctorOdd = false;
+  if (kind === 'doctor') {
+    const n = (doctorCounts.get('doctor') ?? 0) + 1;
+    doctorCounts.set('doctor', n);
+    doctorOdd = n % 2 === 1;
   }
   const view: JobView = {
     id: `mock-job-${seq}`,
@@ -160,14 +206,15 @@ export function mockStartJob(kind: JobKind, runtime?: string): Promise<HttpReply
     finished_ms: null,
     envelope: null,
   };
-  jobs.set(view.id, { view, queries: 0, runtime: runtime ?? null, probeOdd });
+  jobs.set(view.id, { view, queries: 0, runtime: runtime ?? null, probeOdd, doctorOdd });
   return Promise.resolve({ status: 201, body: jobEnvelope(view) });
 }
 
-// 终态信封：扫描恒 succeeded；探测照奇偶份（ok 为假时落 failed 但 data 照给）；列模型恒 succeeded。
+// 终态信封：扫描恒 succeeded；探测照奇偶份（ok 为假时落 failed 但 data 照给）；列模型恒 succeeded；就绪检查照奇偶份。
 function terminalEnvelope(job: MockJob): Envelope<unknown> {
   if (job.view.kind === 'runtime-probe') return probeEnvelope(job.runtime ?? '', job.probeOdd);
   if (job.view.kind === 'models') return modelsEnvelope(job.runtime ?? 'pi');
+  if (job.view.kind === 'doctor') return doctorEnvelope(job.doctorOdd);
   return scanEnvelope();
 }
 

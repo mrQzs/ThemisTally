@@ -2892,7 +2892,7 @@ describe('D10 CLI 运行时表', () => {
 });
 
 describe('D10 就绪检查区与空态', () => {
-  it('就绪检查：h2 加禁用的 [运行就绪检查]（PlayIcon，secondary），虚线空框原文；没有按版本核验的下拉与 [核验]', async () => {
+  it('就绪检查：h2 加可点的 [运行就绪检查]（PlayIcon，secondary），虚线空框原文；没有按版本核验的下拉与 [核验]', async () => {
     await mountRuntimes();
     const r = root('runtimes');
     expectAllSectionsTitled(r);
@@ -2901,10 +2901,10 @@ describe('D10 就绪检查区与空态', () => {
     const sec = sectionNamed(r, '就绪检查');
     const b = btn(sec, '运行就绪检查');
     expect(b, '应有 [运行就绪检查]').not.toBeNull();
-    expect(b.disabled).toBe(true);
+    expect(b.disabled).toBe(false);
     expect(b.getAttribute('data-variant')).toBe('secondary');
     expect(b.querySelector('svg'), 'PlayIcon').not.toBeNull();
-    expect(textOf(sec)).toContain('还没有运行过就绪检查。就绪检查会逐个核对无头角色的命令、模型、登录、思考级别与凭据；运行入口在第二阶段接入。');
+    expect(textOf(sec)).toContain('还没有运行过就绪检查。就绪检查会逐个核对无头角色的命令、模型、登录、思考级别与凭据。');
     expect(sec.querySelector('select, [role="combobox"], [role="listbox"]'), '不放按版本核验的下拉').toBeNull();
     expect(btn(r, '核验')).toBeNull();
   });
@@ -2967,12 +2967,12 @@ describe('D11 写入口全部禁用', () => {
     expect(disabledButtons().length).toBeGreaterThan(0);
   });
 
-  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…]、T041 接上的 [手动登记…] 与 T055 接上的 [探测]、[模型]', async () => {
+  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…]、T041 接上的 [手动登记…] 与 T055 接上的 [探测]、[模型] 与 T056 接上的 [运行就绪检查]', async () => {
     set('getRuntimes', runtimesMain());
     await mountApp('#/runtimes');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist(['删除…', '手动登记…', '扫描 PATH', '探测', '模型'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）；T055 接上 [探测] 与 [模型]（2026-11-16）
-    expect(disabledButtons().length).toBeGreaterThan(0);
+    expect(outsideWhitelist(['删除…', '手动登记…', '扫描 PATH', '探测', '模型', '运行就绪检查'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）；T055 接上 [探测] 与 [模型]（2026-11-16）
+    expect(disabledButtons().length).toBe(0);
     tooltipTexts().forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });
 

@@ -489,7 +489,7 @@ def test_s04_runtimes_view_wiring():
         problems.append("QuizsBlock 应从 './runtimes-QuizsBlock' 引入")
     # 既有两节不动
     for needle in ('title="已登记"', 'title="就绪检查"', 'aria-label="已登记的 runtime"', "rt-table",
-                   "还没有运行过就绪检查", 'label="运行就绪检查"', "runtime.remove", "useWriteFlow"):
+                   "RuntimeDoctor", "runtime.remove", "useWriteFlow"):
         if needle not in text:
             problems.append(f"「已登记」「就绪检查」两节的既有内容应一字不改（看不到 {needle}）")
     if "import './runtimes-styles.css'" not in text:

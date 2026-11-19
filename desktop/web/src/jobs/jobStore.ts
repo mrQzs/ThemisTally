@@ -17,7 +17,7 @@ interface StoreState {
   tick: number;
 }
 
-const KINDS: readonly JobKind[] = ['runtime-scan', 'runtime-probe', 'models'];
+const KINDS: readonly JobKind[] = ['runtime-scan', 'runtime-probe', 'models', 'doctor'];
 
 function emptyState(): StoreState {
   return { job: null, runtime: null, t0: null, createError: null, creating: false, tick: 0 };
@@ -27,10 +27,11 @@ const snaps: Record<JobKind, StoreState> = {
   'runtime-scan': emptyState(),
   'runtime-probe': emptyState(),
   models: emptyState(),
+  doctor: emptyState(),
 };
 
 const listeners = new Set<() => void>();
-const subscribers: Record<JobKind, number> = { 'runtime-scan': 0, 'runtime-probe': 0, models: 0 };
+const subscribers: Record<JobKind, number> = { 'runtime-scan': 0, 'runtime-probe': 0, models: 0, doctor: 0 };
 const timers: Partial<Record<JobKind, ReturnType<typeof setTimeout>>> = {};
 const inflight: Partial<Record<JobKind, Promise<JobView | null>>> = {};
 

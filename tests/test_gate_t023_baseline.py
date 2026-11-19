@@ -34,7 +34,7 @@
 - entries：四个入口可点且样式照门禁（方案表/profile 表 ghost sm、运行时 ghost sm、回滚 secondary md 带图标）、
   确认框标题/摘要/命令、方案表点 [删除…] 不调 onDiff（B2）、历史抽屉点回滚钮抽屉仍在且 h2 不变、Esc 只关确认框
   （D12/B2）、本机文件条目禁用提示「本机文件不存快照，不能回滚」（D06/B3）、最新一条可点（D06/B4）、确认框元素
-  文字不含「没有变化」（W3b/B4）、[编辑]/[探测]/[运行就绪检查] 照旧禁用提示「第二阶段接入」、offline 下四个入口
+  文字不含「没有变化」（W3b/B4）、[编辑] 照旧禁用提示「第二阶段接入」、[运行就绪检查] 可点、offline 下四个入口
   照旧可点；
 - flow：[确认…] 五个状态都是 danger、A 片 preset.use 仍是 primary（D04/B1）、W3 重读兑现之前整页没有「已删除」
   （D07/B5）、成功之后行真的消失（D08/B6）、in-use 的失败与内核原文且不弹轻提示（D11/B8）、回滚成功后抽屉仍开
@@ -802,12 +802,10 @@ describe('T023 四个写入口', () => {
     w3bCheck('运行时 [删除…] 打开的确认框');
   });
 
-  it('[运行就绪检查] 照旧禁用，悬停提示「第二阶段接入」', async () => {
+  it('[运行就绪检查] 可点（secondary 带 PlayIcon），空框原文照旧', async () => {
     await mountApp('#/runtimes?write=ok');
     const ready = buttonByText(document.body, '运行就绪检查');
-    expect(ready.disabled).toBe(true);
-    vi.useFakeTimers();
-    expect(await tipOf(ready)).toBe('第二阶段接入');
+    expect(ready.disabled).toBe(false);
   });
 
   it('历史抽屉 #42（最新一条）：回滚钮可点（secondary md 带图标）；点开确认框，变化区「预览没有列出变化」；'
@@ -1398,7 +1396,7 @@ def test_d01_d02_probe_api(pipeline):
 def test_d05_d06_probe_entries(pipeline):
     """entries 探针 / D05、D06、D12、B2–B4、W3b：四个入口可点且样式照门禁、确认框标题/摘要/命令、点入口不冒泡
     （diffPresets 不被调、抽屉仍在 h2 不变、Esc 只关确认框）、本机文件条目禁用提示「本机文件不存快照，不能回滚」、
-    最新一条可点、确认框元素文字不含「没有变化」、[编辑]/[运行就绪检查] 照旧禁用、offline 下四个入口照旧可点。"""
+    最新一条可点、确认框元素文字不含「没有变化」、[编辑] 照旧禁用、[运行就绪检查] 可点、offline 下四个入口照旧可点。"""
     assert_probe_ok(pipeline, "entries")
 
 

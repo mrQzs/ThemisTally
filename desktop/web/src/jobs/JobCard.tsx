@@ -9,16 +9,18 @@ import type { Envelope, JobKind, JobView } from '../api';
 import './job-card.css';
 
 // 前端自己维护的三张按 kind 查的表（照 ts/packages/ui/src/jobroutes.ts 的 JOB_TIMEOUTS）。
-const JOB_TIMEOUT_SECONDS: Record<string, number> = { 'runtime-scan': 150, 'runtime-probe': 150, models: 120 };
+const JOB_TIMEOUT_SECONDS: Record<string, number> = { 'runtime-scan': 150, 'runtime-probe': 150, models: 120, doctor: 600 };
 const JOB_FAILED_TITLES: Record<string, string> = {
   'runtime-scan': '扫描失败',
   'runtime-probe': '探测失败',
   models: '列模型失败',
+  doctor: '就绪检查失败',
 };
 const JOB_PROGRESS_LABELS: Record<string, string> = {
   'runtime-scan': '扫描进行中',
   'runtime-probe': '探测进行中',
   models: '列模型进行中',
+  doctor: '就绪检查进行中',
 };
 
 export interface JobCardProps {

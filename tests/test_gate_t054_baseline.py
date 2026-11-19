@@ -714,8 +714,13 @@ def test_s04_transport_mode_api_jobs():
     need_file(API_REL)
     api = read_rel(API_REL)
     code = strip_ts_comments(api)
-    if "export type JobKind = 'runtime-scan' | 'runtime-probe' | 'models';" not in code:
-        problems.append("api.ts 的 JobKind 应登记三类（runtime-scan / runtime-probe / models）")
+    jk = re.search(r"export type JobKind = ([^;]+);", code)
+    if jk is None:
+        problems.append("api.ts 应有 export type JobKind = …")
+    else:
+        for kind in ("runtime-scan", "runtime-probe", "models", "doctor"):
+            if f"'{kind}'" not in jk.group(1):
+                problems.append(f"api.ts 的 JobKind 应含 '{kind}'")
     sm = re.search(r"export type JobState = ([^;]+);", code)
     if sm is None:
         problems.append("api.ts 应有 export type JobState = …")

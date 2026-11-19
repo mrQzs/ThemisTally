@@ -150,8 +150,8 @@ export interface OperationView {
   envelope: Envelope<null> | null;
 }
 
-// 作业类型（runtime-scan 扫 PATH、runtime-probe 探测一个 runtime、models 列 pi 的模型；服务还有三类，前端本片不接）。
-export type JobKind = 'runtime-scan' | 'runtime-probe' | 'models';
+// 作业类型（runtime-scan 扫 PATH、runtime-probe 探测一个 runtime、models 列 pi 的模型、doctor 就绪检查；服务还有两类，前端本片不接）。
+export type JobKind = 'runtime-scan' | 'runtime-probe' | 'models' | 'doctor';
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 

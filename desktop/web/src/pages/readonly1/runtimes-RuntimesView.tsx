@@ -1,13 +1,13 @@
 // CLI 运行时视图（合同第 6 节）：已登记表（七列）、就绪检查区与 Quizs 一块；版本一律「—」。
-// [探测] 与 [模型] 走 src/writes 下的作业入口（同类作业同时只一个，忙时禁用并写明正在忙谁），[删除…] 走既有写流程，
-// [运行就绪检查] 仍禁用。视图只收数据，不调 api。
+// [探测]、[模型] 与 [运行就绪检查] 都走 src/writes 下的作业入口（同类作业同时只一个，忙时禁用并写明正在忙谁），
+// [删除…] 走既有写流程。视图只收数据，不调 api。
 import type { ReactNode } from 'react';
 import type { Envelope, QuizsLiveData, QuizsProvidersData, RuntimesData } from '../../api';
 import { Button, Table, Tag, type TableColumn } from '../../components';
-import { CircleXIcon, PlayIcon } from '../../icons';
-import { DisabledAction } from '../../shell/DisabledAction';
+import { CircleXIcon } from '../../icons';
 import { ModelsRuntimeAction } from '../../writes/RuntimeModels';
 import { ProbeRuntimeAction } from '../../writes/RuntimeProbe';
+import { RuntimeDoctor } from '../../writes/RuntimeDoctor';
 import { Section } from './common-Section';
 import { QuizsBlock } from './runtimes-QuizsBlock';
 import { useWriteFlow } from '../../writes/useWriteFlow';
@@ -103,10 +103,7 @@ export function RuntimesView({ runtimes, quizs, reload }: RuntimesViewProps) {
       </Section>
       <Section title="就绪检查">
         <div className="rt-ready-area">
-          <DisabledAction label="运行就绪检查" variant="secondary" icon={<PlayIcon width={16} height={16} />} />
-          <p className="rt-ready">
-            还没有运行过就绪检查。就绪检查会逐个核对无头角色的命令、模型、登录、思考级别与凭据；运行入口在第二阶段接入。
-          </p>
+          <RuntimeDoctor />
         </div>
       </Section>
       <QuizsBlock quizs={quizs} />

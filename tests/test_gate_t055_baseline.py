@@ -106,7 +106,7 @@ PAGE_APP_TEST_REL = f"{TESTS_REL}/page-app.test.tsx"
 PAGE_RUNTIMES_TEST_REL = f"{TESTS_REL}/page-runtimes.test.tsx"
 
 # 逐字记号（合同 Behavior contract 与「写法钉死」一节，逐字照抄）
-JOBKIND_THREE = "export type JobKind = 'runtime-scan' | 'runtime-probe' | 'models';"
+JOBKINDS = ("runtime-scan", "runtime-probe", "models", "doctor")
 JOB_STATES = ("queued", "running", "succeeded", "failed", "cancelled", "timed_out")
 JOBVIEW_KEYS = ("id", "kind", "state", "reason", "created_ms", "started_ms", "finished_ms", "envelope")
 
@@ -529,8 +529,13 @@ def test_s01_api_jobs():
     api = read_rel(API_REL)
     code = strip_ts_comments(api)
     problems = []
-    if JOBKIND_THREE not in code:
-        problems.append(f"api.ts 应有逐字 {JOBKIND_THREE}")
+    jk = re.search(r"export type JobKind = ([^;]+);", code)
+    if jk is None:
+        problems.append("api.ts 应有 export type JobKind = …")
+    else:
+        for kind in JOBKINDS:
+            if f"'{kind}'" not in jk.group(1):
+                problems.append(f"api.ts 的 JobKind 应含 '{kind}'")
     sm = re.search(r"export type JobState = ([^;]+);", code)
     if sm is None:
         problems.append("api.ts 应有 export type JobState = …")
@@ -746,7 +751,7 @@ def test_s05_runtimes_view():
                        ("args: { runtime", "删除的 args 带 runtime"),
                        ("reload?:", "reload 可选属性"), ("useWriteFlow(", "useWriteFlow"),
                        ("canProbe(", "canProbe 规则照旧"), ("canModels(", "canModels 规则照旧"),
-                       ('label="运行就绪检查"', "[运行就绪检查] 仍禁用"),
+                       ("'../../writes/RuntimeDoctor'", "就绪检查走新组件"),
                        ('"已登记"', "已登记一节标题"), ('"就绪检查"', "就绪检查一节标题"),
                        ("版本: '—'", "版本列照旧「—」")):
         if mark not in code:
@@ -891,7 +896,7 @@ def test_s08_executor_test_files():
 def test_s09_legacy_assertions_updated():
     """S09 / D10：兼容性一节的旧断言逐处改到位——t023（:297-298 加 not、:783 标题、:793 toBe(false)）、
     t009（:2854 标题、:2861 toBe(false)、「应可点」、:2970 标题加尾段、:2974 白名单加「探测」「模型」）、
-    t045（:560/:563 运行时页 4→1）、t054（:717 三类的逐字记号）、包内 page-app（运行时页 1、toBe(1)）与
+    t045（:560/:563 运行时页 1→0）、t054（:717 三类的逐字记号）、包内 page-app（运行时页 0、toBe(0)）与
     page-runtimes（:101 标题、:109 toBe(false)）；旧口径不再残留在这些文件里。"""
     problems = []
     # t023：两处 DisabledAction 断言改成 not；it 标题「行内其余按钮也可点」；:793 toBe(false)
@@ -913,26 +918,28 @@ def test_s09_legacy_assertions_updated():
         problems.append("t009 :2970 的 it 标题应加「与 T055 接上的 [探测]、[模型]」")
     if "'扫描 PATH', '探测', '模型'" not in t009:
         problems.append("t009 :2974 的白名单应加「探测」「模型」")
-    # t045：运行时页 4→1
+    # t045：运行时页 1→0
     t045 = read_rel(T045_GATE_REL)
-    if "运行时页 1" not in t045:
-        problems.append("t045 :560/:563 的「运行时页 4」应改成「运行时页 1」")
-    if '("运行时页 1", r"toBe\\(1\\)")' not in t045:
-        problems.append('t045 :563 应改成 ("运行时页 1", r"toBe\\(1\\)")')
+    if "运行时页 0" not in t045:
+        problems.append("t045 :560/:563 的「运行时页 1」应改成「运行时页 0」")
+    if '("运行时页 0", r"toBe\\(0\\)")' not in t045:
+        problems.append('t045 :563 应改成 ("运行时页 0", r"toBe\\(0\\)")')
     if "运行时页 4" in t045:
         problems.append("t045 里不应再残留「运行时页 4」")
+    if "运行时页 1" in t045:
+        problems.append("t045 里不应再残留「运行时页 1」")
     # t054：:717 三类 JobKind
     t054 = read_rel(T054_GATE_REL)
-    if f'if "{JOBKIND_THREE}" not in code:' not in t054:
-        problems.append("t054 :717 应改成三类 JobKind 的逐字记号")
+    if "export type JobKind = ([^;]+);" not in t054:
+        problems.append("t054 :717 应改成「含这几类」的 JobKind 核对")
     if "export type JobKind = 'runtime-scan';" in t054:
         problems.append("t054 里不应再残留一类的旧记号")
-    # 包内 page-app：运行时页 1、toBe(1)
+    # 包内 page-app：运行时页 0、toBe(0)
     app_test = read_rel(PAGE_APP_TEST_REL)
-    if "运行时页 1" not in app_test:
-        problems.append("page-app :93 的 it 标题应改成「运行时页 1」")
-    if ".toBe(1)" not in app_test or "运行时页 4" in app_test:
-        problems.append("page-app :98 应改成 toBe(1)，且不应再残留「运行时页 4」")
+    if "运行时页 0" not in app_test:
+        problems.append("page-app :93 的 it 标题应改成「运行时页 0」")
+    if "expect(disabled().length, '运行时页').toBe(0)" not in app_test or "运行时页 1" in app_test:
+        problems.append("page-app :98 应改成 toBe(0)，且不应再残留「运行时页 1」")
     # 包内 page-runtimes：:101 标题、:109 toBe(false)
     rt_test = read_rel(PAGE_RUNTIMES_TEST_REL)
     if "[删除…] 与 [探测]、[模型] 都可点" not in rt_test:
