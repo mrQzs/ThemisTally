@@ -2911,12 +2911,12 @@ describe('D10 就绪检查区与空态', () => {
     expect(v.disabled).toBe(false);
   });
 
-  it('runtimes 为空数组：空态「还没有登记的 runtime」加说明，不渲染视图', async () => {
+  it('runtimes 为空数组：空态「还没有登记的 runtime」加说明，视图根照常渲染（空态只替换「已登记」那一节）', async () => {
     await mountRuntimes(env({ runtimes: [] }, ['config', 'runtime', 'show']));
     expect(frame().getAttribute('data-page-state')).toBe('empty');
     expect(pageText()).toContain('还没有登记的 runtime');
     // 空态说明随 T041 接上 [手动登记…] 改写（站主按 T041 规划报告 §4.1 R3 放宽，2026-11-14）：只钉标题
-    expect(root('runtimes')).toBeNull();
+    expect(root('runtimes'), '空态下视图根照常渲染（T058：空态只替换「已登记」那一节）').not.toBeNull();
   });
 
   it('读取失败：页面级出错块写命令与退出码', async () => {
@@ -3026,7 +3026,7 @@ describe('TRANS1 经 ?mock= 渲染三页的五态', () => {
         const state = wantState[page][mock];
         expect(frame().getAttribute('data-page-state'), page + ' ?mock=' + mock).toBe(state);
         expect(textOf(document.querySelector('h1'))).toBe(titles[page]);
-        expect(root(page) !== null, page + ' ?mock=' + mock + ' 视图根').toBe(state === 'data');
+        expect(root(page) !== null, page + ' ?mock=' + mock + ' 视图根').toBe(state === 'data' || (page === 'runtimes' && mock === 'empty'));
         if (mock === 'offline') expect(frame().hasAttribute('data-stale'), page + ' 断线时标「可能已过期」').toBe(true);
       }
     }

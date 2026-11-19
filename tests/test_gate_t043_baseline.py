@@ -455,9 +455,8 @@ def test_s03_runtimes_page_parallel():
         for name in ("getRuntimes", "getQuizsProviders", "getQuizsLive"):
             if not re.search(rf"\b{name}\b", m.group(0)):
                 problems.append(f"api 引入里应有 {name}")
-    # 页头与 children 不动
-    for needle in ('title="CLI 运行时"', 'ScanRuntimesAction', "AddRuntimeAction",
-                   "还没有登记的 runtime"):
+    # 页头与 children 不动（「还没有登记的 runtime」那段空态文案随 T058 搬进 RuntimesView）
+    for needle in ('title="CLI 运行时"', 'ScanRuntimesAction', "AddRuntimeAction"):
         if needle not in text:
             problems.append(f"页头/空态的既有内容应保留（看不到 {needle}）")
     if not re.search(r"\{\(data, reload\)\s*=>", code):
@@ -1055,7 +1054,7 @@ describe('T043 Quizs 一块：broken 情景与错误路径', () => {
 });
 
 describe('T043 ?mock= 五态的页面状态照旧', () => {
-  it('loading 挂起（三个读一起等）；error 整页出错；empty 空态不渲染视图；offline 仍是 data 且 Quizs 一块照常', async () => {
+  it('loading 挂起（三个读一起等）；error 整页出错；empty 空态下视图根照常渲染；offline 仍是 data 且 Quizs 一块照常', async () => {
     await mountApp('#/runtimes?mock=loading');
     expect(frame()!.getAttribute('data-page-state')).toBe('loading');
     expect(pageRoot()).toBeNull();
@@ -1066,7 +1065,9 @@ describe('T043 ?mock= 五态的页面状态照旧', () => {
     cleanup();
     await mountApp('#/runtimes?mock=empty');
     expect(frame()!.getAttribute('data-page-state')).toBe('empty');
-    expect(pageRoot(), '空态不渲染视图，Quizs 一块也就看不到').toBeNull();
+    expect(pageRoot(), '空态下视图根照常渲染（T058：空态只替换「已登记」那一节）').not.toBeNull();
+    expect(quizsSection(), '空态下 Quizs 一块在视图根里').toBeTruthy();
+    expect((quizsSection() as Element).closest('[data-page="runtimes"]'), '空态下 Quizs 一块在视图根里').toBe(pageRoot());
     cleanup();
     await mountApp('#/runtimes?mock=offline');
     expect(frame()!.getAttribute('data-page-state')).toBe('data');

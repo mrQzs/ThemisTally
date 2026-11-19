@@ -4,14 +4,14 @@
 被测对象是 ``desktop/web/`` 前端：
 
 - ``src/pages/RuntimesPage.tsx``：仍照传 ``isEmpty={isRuntimesEmpty}``（空态下 ``data-page-state`` 仍是
-  ``empty``），但不再给 PageFrame 传 ``empty`` 属性——空态由 children 自己摆：``isRuntimesEmpty(data)``
-  真时先 ``EmptyState``（标题「还没有登记的 runtime」与 T041 的说明原文）再 ``QuizsBlock``（直接挂在
-  ``.tt-page`` 下、在视图根之外），假时照旧 ``RuntimesView``。children 仍逐字以 ``{(data, reload) =>`` 开头、
-  ``reload={reload}`` 仍在、load/isEmpty 仍是命名的模块级函数、``isRuntimesEmpty`` 仍是一行只看 runtimes
-  长度、不掺 quizs。
+  ``empty``），但不再给 PageFrame 传 ``empty`` 属性——空态由 children 里的 RuntimesView 在「已登记」那一节
+  里显示（T058 起：视图根在空态下也渲染，就绪检查一节与 Quizs 一块都在视图根里），不再由入口页自己摆。
+  children 仍逐字以 ``{(data, reload) =>`` 开头、``reload={reload}`` 仍在、load/isEmpty 仍是命名的模块级函数、
+  ``isRuntimesEmpty`` 仍是一行只看 runtimes 长度、不掺 quizs。
 - ``index.html``：初始标题逐字 ``<title>Themis Tally</title>``（文件里不再有「组件陈列」）；其余一个字不动。
 - 执行端新测试 ``tests/page-runtimes-empty.test.tsx`` 按合同第 4 步覆盖 (a)–(f)；``tests/page-quizs.test.tsx``
-  只改「?mock=loading / ?mock=empty」那一个 it（去掉与新行为相反的提示语、加 frame 里有 Quizs 区块的断言）。
+  只改「?mock=loading / ?mock=empty」那一个 it（T058 起视图根在空态下也渲染：把「视图根为 null」改成视图根
+  在、Quizs 一块在视图根里）。
 
 基线（618196a2）上标题还是「Themis Tally · 组件陈列」、RuntimesPage 还传着 ``empty={{…}}``、空态没有 Quizs
 一块、新测试文件不存在，所以失败都落在断言上（静态 S01/S02/S04；流水线候选里还没有新测试文件时不调 npm，
@@ -29,11 +29,10 @@ P/D 用例以「流水线未运行」的断言失败），不是收集失败：�
   ``npm test -- gate-probe/<文件名>`` 跑，``finally`` 里删除。探针挂整个 App（不 mock 组件、不 mock api）：
   桩模式用 ``?mock=``/``?quizs=`` 选情景，注入用 ``setLiveClientForTests``（应用自己的测试缝，
   page-quizs.test.tsx 同款）。
-  - empty（D01、D02、D04、D05、D08）：?mock=empty 空态（页面状态 empty、标题与说明原文、EmptyState 与
-    Quizs 区块都直接挂在 .tt-page 下、两张表各 2 行、没有页面级出错块、页头三钮次序与 [手动登记…] 可点）；
+  - empty（D01、D02、D04、D05、D08）：?mock=empty 空态（页面状态 empty、视图根在、标题与说明原文在
+    「已登记」一节里、两张表各 2 行、没有页面级出错块、页头三钮次序与 [手动登记…] 可点）；
     ?mock=empty&quizs=broken（状态仍 empty、区块里「Quizs 跑不起来」与逐套「读不出」、页面级不出错块）；
-    注入替身（runtimes 空数组 + providers 失败）；先空后有（点 [刷新] 之后 data 态、视图根出现、Quizs
-    区块进视图根内）。
+    注入替身（runtimes 空数组 + providers 失败）；先空后有（点 [刷新] 之后 data 态、Quizs 区块进视图根内）。
   - states（D03、D06、D08）：?mock=loading / ?mock=error 没有 Quizs 区块；有 runtime 时页面照旧（视图根内
     三节次序、Quizs 区块在视图根内、页头三钮）；挂载后 document.title 仍由 App 按页面改写。
 
@@ -96,8 +95,8 @@ PIPELINE_BUDGET = 580
 STEP_CAPS = {"npm ci": 240, "npm ci --offline": 240, "npm test": 300, "probe": 120}
 
 ASSUMPTIONS = (
-    "「Quizs 区块直接挂在 .tt-page 下」按最直接的 DOM 关系断言：区块与 EmptyState 的 parentElement 就是"
-    " .tt-page 那一层（合同第 4 步 (a) 的「直接挂在 .tt-page 下面」）；候选若在空态包了别的容器，视为不合规",
+    "T058 起空态由视图在「已登记」一节里显示：入口页不再摆 EmptyState 与 QuizsBlock，视图根在空态下也渲染；"
+    "本探针按新口径断言（标题与说明原文在「已登记」一节里、Quizs 一块在视图根里）",
     "「有 runtime 时页面逐字不变」在行为面钉：data 态、视图根内三节次序（已登记、就绪检查在前，Quizs 在"
     " 就绪检查之后）、页头三钮文案与 [扫描 PATH] 禁用；逐字的 DOM 快照没法在探针里写，静态字面由 t009/t041/"
     "t043 的既有门禁继续负责",
@@ -217,9 +216,9 @@ def test_s01_index_html_title():
 
 def test_s02_runtimes_page_empty_branch():
     """S02 / D01、D04、D05、D07：RuntimesPage 仍照传 isEmpty（空态 data-page-state 仍是 empty）但不再给
-    PageFrame 传 empty 属性；children 在空时自己摆 EmptyState（两段文字逐字）与 QuizsBlock（EmptyState 在前）；
-    长期红线（命名的模块级 load/isEmpty、一行式 isRuntimesEmpty 只看长度不掺 quizs、children 前缀、
-    reload={reload}、页头两钮、t041 禁字表）一条不破。"""
+    PageFrame 传 empty 属性；children 只渲染 RuntimesView 那一行（T058 起空态由视图在「已登记」一节里显示，
+    入口页不再摆 EmptyState 与 QuizsBlock）；长期红线（命名的模块级 load/isEmpty、一行式 isRuntimesEmpty
+    只看长度不掺 quizs、children 前缀、reload={reload}、页头两钮、t041 禁字表）一条不破。"""
     need_file(RUNTIMESPAGE_REL)
     text = read_rel(RUNTIMESPAGE_REL)
     code = strip_ts_comments(text)
@@ -244,28 +243,21 @@ def test_s02_runtimes_page_empty_branch():
             problems.append("isRuntimesEmpty 应仍以 ; 收尾（t043 _statement 的切片口径）")
         if "\n" in empty_fn.strip():
             problems.append("isRuntimesEmpty 应仍是一行 const（t043 S03）")
-    # children 前缀与两支
+    # children 只渲染 RuntimesView 那一行（T058：空态那一支搬进视图，入口页回到「只管读数据与页头」）
     if not re.search(r"\{\(data, reload\)\s*=>", code):
         problems.append("children 应逐字以 {(data, reload) => 开头（t043 :463 的正则）")
     for needle, why in (
-        ("isRuntimesEmpty(data)", "children 应按 isRuntimesEmpty(data) 分空态与 data 态"),
-        ("<EmptyState", "空态应由本页自己摆 EmptyState"),
-        (f'title="{EMPTY_TITLE}"', "EmptyState 的标题逐字"),
-        (f'description="{EMPTY_DESC}"', "EmptyState 的说明逐字（T041 的原文）"),
-        ("<QuizsBlock", "空态应摆 QuizsBlock（Quizs 一块）"),
-        ("quizs={data.quizs}", "QuizsBlock 应收 data.quizs"),
-        ("<RuntimesView", "非空态照旧渲染 RuntimesView"),
+        ("<RuntimesView", "data 态照旧渲染 RuntimesView"),
         ("reload={reload}", "reload={reload} 应保留（t023 :328）"),
     ):
         if needle not in code:
             problems.append(f"{why}（看不到 {needle[:44]}）")
-    if "<EmptyState" in code and "<QuizsBlock" in code and code.index("<EmptyState") > code.index("<QuizsBlock"):
-        problems.append("空态里 EmptyState 应在 QuizsBlock 之前（合同：EmptyState → Quizs）")
-    # 引入（EmptyState 照 PageFrame.tsx:6 的引法；QuizsBlock 从 readonly1）
-    if not re.search(r"import\s*\{[^}]*EmptyState[^}]*\}\s*from\s*['\"]\.\./components['\"]", code):
-        problems.append("EmptyState 应从 '../components' 引入")
-    if "from './readonly1/runtimes-QuizsBlock'" not in code and 'from "./readonly1/runtimes-QuizsBlock"' not in code:
-        problems.append("QuizsBlock 应从 './readonly1/runtimes-QuizsBlock' 引入")
+    for needle, why in (
+        ("<EmptyState", "入口页不应再摆 EmptyState（空态由视图在「已登记」一节里显示）"),
+        ("<QuizsBlock", "入口页不应再摆 QuizsBlock（Quizs 一块在视图里）"),
+    ):
+        if needle in code:
+            problems.append(f"{why}（仍看得到 {needle}）")
     # 页头两钮仍在（空态下 [手动登记…] 照样能用）
     if 'ScanRuntimesAction' not in code:
         problems.append("[扫描 PATH] 应由 src/writes 的 ScanRuntimesAction 渲染")
@@ -436,26 +428,29 @@ function injectLive(over: Record<string, () => Promise<any>>) {
 }
 
 describe('T049 空态也摆 Quizs 一块：?mock=empty', () => {
-  it('空态：页面状态 empty、标题与说明原文、EmptyState 直接挂 .tt-page 下、没有页面级出错块', async () => {
+  it('空态：页面状态 empty、视图根在、标题与说明原文在「已登记」一节里、没有页面级出错块', async () => {
     await mountApp('#/runtimes?mock=empty');
     const f = needFrame();
     expect(f.getAttribute('data-page-state')).toBe('empty');
-    expect(pageRoot(), '空态不渲染视图根').toBeNull();
+    expect(pageRoot(), '空态下视图根照常渲染（T058：空态只替换「已登记」那一节）').not.toBeNull();
+    const root = pageRoot() as ParentNode;
+    const sec = sectionNamed(root, '已登记');
+    expect(sec, '「已登记」一节在视图根里').toBeTruthy();
     expect(textOf(f.querySelector('.tt-empty__title'))).toBe(EMPTY_TITLE);
     expect(textOf(f.querySelector('.tt-empty__desc'))).toBe(EMPTY_DESC);
-    const empty = f.querySelector('.tt-empty');
-    expect(empty, 'EmptyState 的根 .tt-empty 应在').toBeTruthy();
-    expect((empty as Element).parentElement === f, 'EmptyState 直接挂在 .tt-page 下（视图根之外）').toBe(true);
+    const empty = sec!.querySelector('.tt-empty');
+    expect(empty, '「已登记」一节里应有 .tt-empty（空态替换那张表）').toBeTruthy();
     expect(f.querySelector('.tt-page__error'), '空态不应有页面级出错块').toBeNull();
   });
 
-  it('Quizs 一块在 frame 里、不在视图根内、直接挂 .tt-page 下；两张表各 2 行', async () => {
+  it('Quizs 一块在视图根里；两张表各 2 行', async () => {
     await mountApp('#/runtimes?mock=empty');
     const f = needFrame();
     expect(f.getAttribute('data-page-state')).toBe('empty');
-    const sec = quizsSectionIn(f);
-    expect(sec.closest('[data-page="runtimes"]'), 'Quizs 区块不在视图根内（空态视图根是 null）').toBeNull();
-    expect(sec.parentElement === f, 'Quizs 区块直接挂在 .tt-page 下').toBe(true);
+    const root = pageRoot();
+    expect(root, '空态下视图根照常渲染（T058）').not.toBeNull();
+    const sec = quizsSectionIn(root as ParentNode);
+    expect(sec.closest('[data-page="runtimes"]'), 'Quizs 区块在视图根里').toBe(root);
     const pt = tableOf(sec, 'Quizs 提供方档案');
     expect(rowsOf(pt).length, '提供方档案表两行（ok 情景）').toBe(2);
     expect(textOf(pt)).toContain('stepfun');
@@ -480,9 +475,9 @@ describe('T049 空态下的 Quizs 失败只写在区块里', () => {
     await mountApp('#/runtimes?mock=empty&quizs=broken');
     const f = needFrame();
     expect(f.getAttribute('data-page-state'), 'Quizs 坏不影响页面状态').toBe('empty');
-    expect(pageRoot()).toBeNull();
+    expect(pageRoot(), '空态下视图根照常渲染（T058）').not.toBeNull();
     expect(textOf(f.querySelector('.tt-empty__title'))).toBe(EMPTY_TITLE);
-    const sec = quizsSectionIn(f);
+    const sec = quizsSectionIn(pageRoot() as ParentNode);
     const t = textOf(sec);
     expect(t).toContain('Quizs 跑不起来');
     expect(t).toContain('命令 config quizs providers --json 返回退出码 1');
@@ -505,8 +500,8 @@ describe('T049 空态下的 Quizs 失败只写在区块里', () => {
     await mountApp('#/runtimes');
     const f = needFrame();
     expect(f.getAttribute('data-page-state')).toBe('empty');
-    expect(pageRoot()).toBeNull();
-    const sec = quizsSectionIn(f);
+    expect(pageRoot(), '空态下视图根照常渲染（T058）').not.toBeNull();
+    const sec = quizsSectionIn(pageRoot() as ParentNode);
     expect(textOf(sec)).toContain('Quizs 跑不起来');
     expect(textOf(sec)).toContain('E-GATE');
     expect(f.querySelector('.tt-page__error'), 'providers 失败不整页出错').toBeNull();
@@ -529,8 +524,8 @@ describe('T049 空态不是死路：重读之后按有运行时的样子显示',
     await mountApp('#/runtimes');
     const f = needFrame();
     expect(f.getAttribute('data-page-state')).toBe('empty');
-    expect(pageRoot()).toBeNull();
-    quizsSectionIn(f);
+    expect(pageRoot(), '空态下视图根照常渲染（T058）').not.toBeNull();
+    quizsSectionIn(pageRoot() as ParentNode);
     const refresh = headerButtons(f).find((b) => textOf(b) === '刷新');
     expect(refresh, '应有 [刷新] 钮').toBeTruthy();
     await act(async () => {

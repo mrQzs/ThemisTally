@@ -1,9 +1,10 @@
 // CLI 运行时视图（合同第 6 节）：已登记表（七列）、就绪检查区与 Quizs 一块；版本一律「—」。
 // [探测]、[模型] 与 [运行就绪检查] 都走 src/writes 下的作业入口（同类作业同时只一个，忙时禁用并写明正在忙谁），
-// [删除…] 走既有写流程。视图只收数据，不调 api。
+// [删除…] 走既有写流程。视图只收数据，不调 api。一个 runtime 都没有时视图照旧渲染：「已登记」那一节
+// 改成空态（标题与说明两段原文不变），就绪检查一节与 Quizs 一块照常摆在视图根里。
 import type { ReactNode } from 'react';
 import type { Envelope, QuizsLiveData, QuizsProvidersData, RuntimesData } from '../../api';
-import { Button, Table, Tag, type TableColumn } from '../../components';
+import { Button, EmptyState, Table, Tag, type TableColumn } from '../../components';
 import { CircleXIcon } from '../../icons';
 import { ModelsRuntimeAction } from '../../writes/RuntimeModels';
 import { ProbeRuntimeAction } from '../../writes/RuntimeProbe';
@@ -92,14 +93,18 @@ export function RuntimesView({ runtimes, quizs, reload }: RuntimesViewProps) {
   return (
     <div className="rt" data-page="runtimes">
       <Section title="已登记">
-        <Table
-          className="rt-table"
-          aria-label="已登记的 runtime"
-          rowHeight={40}
-          columns={COLUMNS}
-          rows={rows}
-          rowKey={(r) => r.rowId}
-        />
+        {runtimes.length === 0 ? (
+          <EmptyState title="还没有登记的 runtime" description="用页头的[手动登记…]登记运行时：填运行时 ID、适配器与命令（可选）" />
+        ) : (
+          <Table
+            className="rt-table"
+            aria-label="已登记的 runtime"
+            rowHeight={40}
+            columns={COLUMNS}
+            rows={rows}
+            rowKey={(r) => r.rowId}
+          />
+        )}
       </Section>
       <Section title="就绪检查">
         <div className="rt-ready-area">

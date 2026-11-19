@@ -95,6 +95,7 @@ PROFILEFORM_REL = f"{WRITES_REL}/ProfileForm.tsx"
 RUNTIMEFORM_REL = f"{WRITES_REL}/RuntimeForm.tsx"
 RUNTIMERULES_REL = f"{WRITES_REL}/runtimeRules.ts"
 RUNTIMESPAGE_REL = f"{SRC_REL}/pages/RuntimesPage.tsx"
+RUNTIMESVIEW_REL = f"{SRC_REL}/pages/readonly1/runtimes-RuntimesView.tsx"
 SNAPSHOTS_REL = f"{WRITES_REL}/snapshots.ts"
 INDEX_TS_REL = f"{SRC_REL}/components/index.ts"
 WRITEROUTES_REL = "ts/packages/ui/src/writeroutes.ts"
@@ -318,14 +319,17 @@ def test_s04_runtimeform_export_and_no_force():
 
 def test_s05_runtimes_page_entry():
     """S05 / D01、D07：RuntimesPage 只放按钮——AddRuntimeAction 接在页头（[扫描 PATH] 由 ScanRuntimesAction 接上）；
-    空态说明改成合同第八步的原文；确认框标题、轻提示、内核原文与字段提示一个都不出现在入口文件
+    T041 定下的空态标题与说明原文随 T058 搬进 RuntimesView（在那里逐字核对，入口文件不再留空态文案）；
+    确认框标题、轻提示、内核原文与字段提示一个都不出现在入口文件
     （T013 D02 的「登记 runtime」也不许出现）。"""
     need_file(RUNTIMESPAGE_REL)
     text = read_rel(RUNTIMESPAGE_REL)
     assert "AddRuntimeAction" in text, "页头 [手动登记…] 应由 src/writes 的 AddRuntimeAction 渲染（页面只放按钮）"
     assert 'ScanRuntimesAction' in text, "[扫描 PATH] 应由 src/writes 的 ScanRuntimesAction 渲染（次序不变）"
-    assert EMPTY_DESC in text, f"空态说明应改成合同第八步的原文「{EMPTY_DESC}」"
-    assert "还没有登记的 runtime" in text, "空态标题「还没有登记的 runtime」不动"
+    # 空态两段原文（T058 起由视图在「已登记」一节里显示）
+    view = read_rel(RUNTIMESVIEW_REL)
+    assert EMPTY_DESC in view, f"空态说明应逐字是「{EMPTY_DESC}」（T058 起在 RuntimesView 里）"
+    assert "还没有登记的 runtime" in view, "空态标题「还没有登记的 runtime」不动（T058 起在 RuntimesView 里）"
     problems = [f"RuntimesPage.tsx 出现「{frag}」（文字表与字段提示只能写在 src/writes/）"
                 for frag in BAD_ENTRY_TEXTS if frag in text]
     if "登记 runtime" in text:

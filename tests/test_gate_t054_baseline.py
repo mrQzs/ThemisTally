@@ -128,16 +128,12 @@ RUNTIMESPAGE_API_IMPORT = """import {
 # RuntimesPage 其余必须一字不改的记号（并行三读、失败判定、load、children、空态、Quizs、页头说明、既有入口）
 RUNTIMESPAGE_KEEP_MARKS = (
     "import { PageFrame } from '../shell/PageFrame';",
-    "import { EmptyState } from '../components';",
     "import { RuntimesView } from './readonly1/runtimes-RuntimesView';",
-    "import { QuizsBlock } from './readonly1/runtimes-QuizsBlock';",
     "import { AddRuntimeAction } from '../writes/RuntimeForm';",
     "Promise.all([getRuntimes(), getQuizsProviders(), getQuizsLive()])",
     "load={loadRuntimes}",
     "isEmpty={isRuntimesEmpty}",
     "{(data, reload) =>",
-    '<EmptyState title="还没有登记的 runtime"',
-    "<QuizsBlock quizs={data.quizs} />",
     "<RuntimesView runtimes={data.runtimes.runtimes} quizs={data.quizs} reload={reload} />",
     'title="CLI 运行时"',
     'description="每个 runtime 是一个 CLI 的一份安装；命令来源依次是环境变量（只对 pi）、本机文件、PATH"',

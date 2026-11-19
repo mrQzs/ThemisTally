@@ -1,8 +1,8 @@
 // CLI 运行时页（合同第 2、6 条）：并行读 getRuntimes 与两个 Quizs 读函数；只有 runtimes 失败才整页失败，
-// 两个 Quizs 信封整个放进 data.quizs（Quizs 读失败只在区块里显示，页面其余照常）。空态「还没有登记的
-// runtime」；页头 [扫描 PATH] 可点（走作业接口，由 src/writes 的 ScanRuntimesAction 接上），[手动登记…] 由 src/writes 的
-// AddRuntimeAction 接上。空态（一个 runtime 都没有）也摆 Quizs 一块：EmptyState 之后接 QuizsBlock，
-// 直接挂在页面下（视图根之外），间距靠 .tt-page 自己的 gap，不加任何样式。
+// 两个 Quizs 信封整个放进 data.quizs（Quizs 读失败只在区块里显示，页面其余照常）。页头 [扫描 PATH] 可点
+// （走作业接口，由 src/writes 的 ScanRuntimesAction 接上），[手动登记…] 由 src/writes 的 AddRuntimeAction
+// 接上。页面状态由 isEmpty 定：一个 runtime 都没有时仍是 empty，视图根照常渲染——空态由视图在
+// 「已登记」那一节里显示，就绪检查一节与 Quizs 一块也都在视图根里。
 import { PageFrame } from '../shell/PageFrame';
 import {
   getQuizsLive,
@@ -13,9 +13,7 @@ import {
   type QuizsProvidersData,
   type RuntimesData,
 } from '../api';
-import { EmptyState } from '../components';
 import { RuntimesView } from './readonly1/runtimes-RuntimesView';
-import { QuizsBlock } from './readonly1/runtimes-QuizsBlock';
 import { AddRuntimeAction } from '../writes/RuntimeForm';
 import { ScanRuntimesAction } from '../writes/RuntimeScan';
 
@@ -61,16 +59,9 @@ export default function RuntimesPage() {
         </>
       )}
     >
-      {(data, reload) =>
-        isRuntimesEmpty(data) ? (
-          <>
-            <EmptyState title="还没有登记的 runtime" description="用页头的[手动登记…]登记运行时：填运行时 ID、适配器与命令（可选）" />
-            <QuizsBlock quizs={data.quizs} />
-          </>
-        ) : (
-          <RuntimesView runtimes={data.runtimes.runtimes} quizs={data.quizs} reload={reload} />
-        )
-      }
+      {(data, reload) => (
+        <RuntimesView runtimes={data.runtimes.runtimes} quizs={data.quizs} reload={reload} />
+      )}
     </PageFrame>
   );
 }
