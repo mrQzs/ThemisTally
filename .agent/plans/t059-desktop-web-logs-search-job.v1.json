@@ -1,0 +1,437 @@
+{
+  "schema_version": 1,
+  "task_id": "t059-desktop-web-logs-search-job",
+  "plan_version": 1,
+  "title": "日志页的检索在真实模式下走服务的 search 作业",
+  "repository": "ThemisTally",
+  "base_sha": "fcff2f84aa2439afe58289e20d7c652a91e521ad",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/pages/readonly2/common-readers.ts",
+      "desktop/web/tests/live-readers.test.ts",
+      "tests/test_gate_t027_baseline.py"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t059_*.py",
+      "tests/test_gate_t001_baseline.py",
+      "tests/test_gate_t002_baseline.py",
+      "tests/test_gate_t003_baseline.py",
+      "tests/test_gate_t004_baseline.py",
+      "tests/test_gate_t005_baseline.py",
+      "tests/test_gate_t006_baseline.py",
+      "tests/test_gate_t007_baseline.py",
+      "tests/test_gate_t008_baseline.py",
+      "tests/test_gate_t009_baseline.py",
+      "tests/test_gate_t010_baseline.py",
+      "tests/test_gate_t011_baseline.py",
+      "tests/test_gate_t012_baseline.py",
+      "tests/test_gate_t013_baseline.py",
+      "tests/test_gate_t014_baseline.py",
+      "tests/test_gate_t015_baseline.py",
+      "tests/test_gate_t016_baseline.py",
+      "tests/test_gate_t017_baseline.py",
+      "tests/test_gate_t018_baseline.py",
+      "tests/test_gate_t019_baseline.py",
+      "tests/test_gate_t020_baseline.py",
+      "tests/test_gate_t021_baseline.py",
+      "tests/test_gate_t022_baseline.py",
+      "tests/test_gate_t023_baseline.py",
+      "tests/test_gate_t024_baseline.py",
+      "tests/test_gate_t025_baseline.py",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "tests/test_gate_t031_baseline.py",
+      "tests/test_gate_t032_baseline.py",
+      "tests/test_gate_t033_baseline.py",
+      "tests/test_gate_t034_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t036_baseline.py",
+      "tests/test_gate_t037_baseline.py",
+      "tests/test_gate_t038_baseline.py",
+      "tests/test_gate_t039_baseline.py",
+      "tests/test_gate_t040_baseline.py",
+      "tests/test_gate_t041_baseline.py",
+      "tests/test_gate_t042_baseline.py",
+      "tests/test_gate_t043_baseline.py",
+      "tests/test_gate_t044_baseline.py",
+      "tests/test_gate_t045_baseline.py",
+      "tests/test_gate_t046_baseline.py",
+      "tests/test_gate_t047_baseline.py",
+      "tests/test_gate_t048_baseline.py",
+      "tests/test_gate_t049_baseline.py",
+      "tests/test_gate_t050_baseline.py",
+      "tests/test_gate_t051_baseline.py",
+      "tests/test_gate_t052_baseline.py",
+      "tests/test_gate_t053_baseline.py",
+      "tests/test_gate_t054_baseline.py",
+      "tests/test_gate_t055_baseline.py",
+      "tests/test_gate_t056_baseline.py",
+      "tests/test_gate_t057_baseline.py",
+      "tests/test_gate_t058_baseline.py",
+      "desktop/web/src/api.ts",
+      "desktop/web/src/live/**",
+      "desktop/web/src/jobs/**",
+      "desktop/web/src/mock/**",
+      "desktop/web/src/components/**",
+      "desktop/web/src/shell/**",
+      "desktop/web/src/writes/**",
+      "desktop/web/src/pages/readonly1/**",
+      "desktop/web/src/pages/readonly2/logs-*.ts",
+      "desktop/web/src/pages/readonly2/logs-*.tsx",
+      "desktop/web/src/pages/readonly2/logs-*.css",
+      "desktop/web/src/pages/LogsPage.tsx",
+      "desktop/web/src/pages/TasksPage.tsx",
+      "desktop/web/src/pages/OverviewPage.tsx",
+      "desktop/web/src/pages/RolesPage.tsx",
+      "desktop/web/src/pages/SecretsPage.tsx",
+      "desktop/web/src/pages/PluginsPage.tsx",
+      "desktop/web/src/pages/HistoryPage.tsx",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/web/tests/readonly2-logs.test.tsx",
+      "desktop/web/tests/readonly2-static.test.ts",
+      "desktop/web/tests/page-static.test.ts",
+      "desktop/web/tests/cleanup1-static.test.ts",
+      "desktop/web/tests/live-api.test.ts",
+      "desktop/web/tests/live-mode.test.ts",
+      "desktop/web/tests/live-transport.test.ts",
+      "desktop/web/tests/live-connection.test.ts",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "ts/package.json",
+      "ts/bun.lock",
+      "ts/packages/**",
+      "scripts/**",
+      "始终禁止：本合同、AGENTS.md（及 CLAUDE.md，如有）、.agent/、.agents/、.claude/、.codex/、.pi/、scripts/pi_dispatch.py、scripts/dispatch-pi.sh"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [
+    {
+      "id": "S01",
+      "argv": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "expected_exit_code": 0
+    }
+  ],
+  "checks": [
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test",
+        "--",
+        "tests/live-readers.test.ts"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ],
+      "output_must_not_match": [
+        "No test files found"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V05",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 2400,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t059_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "tests/test_gate_t056_baseline.py",
+        "tests/test_gate_t057_baseline.py",
+        "tests/test_gate_t058_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3420,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "真实模式的 `searchLogs` 建作业：`postRaw('/api/v1/jobs', body, 15)`，正文键恰好 `{ kind: 'search', pattern: q, max }`（`task` 不为 null 时才加 `task`），`max` 是数字",
+      "evidence": [
+        "V01",
+        "V05",
+        "G01",
+        "R01"
+      ],
+      "intent": "这是服务认的那份请求（多一个键就 400）"
+    },
+    {
+      "id": "D02",
+      "text": "201 之后第一次查询在 1000 毫秒，路径 `/api/v1/jobs/<id>`（`encodeURIComponent` 编码）、时限 15；非终态继续查（不设上限），终态之后计时器数为 0；全程没有取消请求、没有 `client.get` 调用",
+      "evidence": [
+        "V01",
+        "V05",
+        "G01"
+      ],
+      "intent": "检索要作为作业跑（设计文档 D7），界面「正在检索…」期间有节奏地查"
+    },
+    {
+      "id": "D03",
+      "text": "终态 `succeeded`/`failed`/`cancelled`/`timed_out` 时，作业的 `envelope` 是合法信封就**原样交回**；为 null 或不合法就交回固定报错信封，四句文案逐字（已取消 / 超时 / 失败 / 没有交回结果），`command` 是 `searchCommand(q, task, max)`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "成功要拿到命中，失败要看得懂出了什么事"
+    },
+    {
+      "id": "D04",
+      "text": "建作业非 201、查询非 200（含 503、401）时交回报错信封（`ok:false`、`exit_code:null`、`data:null`、`output:[]`、`command` 是 `searchCommand`、`elapsed_ms:0`），`messages` 取回应信封的 messages、正文不是信封时是「ERROR: 服务返回 HTTP <状态码>」，并**立即停止**",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "不把服务的话丢掉，也不假装还在查"
+    },
+    {
+      "id": "D05",
+      "text": "`postRaw`/`getRaw` reject 时 `searchLogs` reject，不重试、不吞、不再排查询",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "断线要看得见（`SearchPanel` 的 `.catch` 已经接好）"
+    },
+    {
+      "id": "D06",
+      "text": "夹具模式逐字不变（T010 的 readers 探针照旧全过）；导出仍是 `searchLogs`、`getHistoryEntry`、`getPlugin` 三个、不新增导出；对 `../../api` 仍只许 `import type`，转出语句前一条语句以分号结尾；文件里没有四个网络整词、FORBIDDEN_WORDS/FORBIDDEN_CALLS、井号加 3/4/6/8 位十六进制、颜色函数名加括号、T023 的 BAD_ENTRY_FRAGMENTS",
+      "evidence": [
+        "V02",
+        "V03",
+        "V05",
+        "R01",
+        "review"
+      ],
+      "intent": "不推翻旧门禁钉着的形状与扫描"
+    },
+    {
+      "id": "D07",
+      "text": "`desktop/web/tests/live-readers.test.ts` 覆盖 D01–D05（上面写死的十条用例），记号 `searchLogs`、`/api/v1/jobs`、`夹具里没有这份数据` 都在，没有 skip/only/todo；夹具那一个 describe 原样保留",
+      "evidence": [
+        "V01",
+        "V02",
+        "review"
+      ],
+      "intent": "验收看的是行为有没有被测住，不是测试文件在不在"
+    },
+    {
+      "id": "D08",
+      "text": "`tests/test_gate_t027_baseline.py` 的四处逐处改到位（`:111` 的记号三项、S07 `:433` 一行与 docstring 那半句、`test_transitional_s33_searchlogs_unwired_message` 整条退役、`PROBE_UNWIRED` 整份退役且 `PROBE_SPECS`/`PROBE_ORDER` 去掉 `\"unwired\"`、`test_transitional_p6_probe_unwired` 整条退役），退役注记逐字写「（站主 2026-11-19 为 T059 退役）」，**每处只改合同写明的那一处**，其余一个字不动",
+      "evidence": [
+        "V05",
+        "G01",
+        "R01",
+        "scope",
+        "review"
+      ],
+      "intent": "这些旧断言钉的是「检索尚未接通」，本片必然推翻，改法不许顺手改别的断言"
+    },
+    {
+      "id": "D09",
+      "text": "所有修改都在允许集合内（可改 3 个文件、无新增、无删除），没有碰 forbidden_paths（本片门禁 `tests/test_gate_t059_*.py`、其余门禁基准、`api.ts`、`live/**`、`jobs/**`、`mock/**`、日志页组件与 `readonly2` 里除本文件外的其它文件、包内其它测试、`package.json` 与锁文件、`ts/**`、`scripts/**`）",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "这一片不许顺手改别的片的地盘"
+    },
+    {
+      "id": "D10",
+      "text": "`npm test`、`npm run typecheck`、`npm run build` 全过；既有门禁基准（t001–t058）照旧通过",
+      "evidence": [
+        "V01",
+        "V02",
+        "V03",
+        "V04",
+        "V05",
+        "R01"
+      ],
+      "intent": "不能为了接通检索把别处弄坏"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 10800,
+    "max_wall_seconds_total": 32400,
+    "cost_budget": null
+  }
+}
