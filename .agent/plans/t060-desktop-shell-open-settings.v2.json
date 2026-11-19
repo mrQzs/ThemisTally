@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "task_id": "t060-desktop-shell-open-settings",
+  "plan_version": 2,
+  "title": "服务窗口里的「设置」经 host.openSettings() 打开设置外壳窗口",
+  "repository": "ThemisTally",
+  "base_sha": "2f78f8218d9efdb0c169002d1bda128802bdd984",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/main.js",
+      "desktop/shell/preload.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/hostrelay.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/src/shellprotocol.js",
+      "desktop/shell/README.md",
+      "desktop/shell/tests/preload.test.js",
+      "desktop/shell/tests/ipc.test.js",
+      "desktop/shell/tests/hostrelay.test.js",
+      "desktop/shell/tests/host.test.js",
+      "desktop/web/src/pages/SettingsPage.tsx",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t032_baseline.py",
+      "tests/test_gate_t035_baseline.py"
+    ],
+    "allowed_new_files": [
+      "desktop/web/src/live/hostSettings.ts",
+      "desktop/web/tests/host-settings-open.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t060_*.py",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/shellWindowRoute.ts",
+      "desktop/web/src/shellpages/themePref.tsx",
+      "desktop/web/src/App.tsx",
+      "desktop/web/src/live/transport.ts",
+      "desktop/web/src/shell/PageFrame.tsx",
+      "desktop/web/vite.config.ts",
+      "desktop/web/scripts/check-live-build.mjs",
+      "desktop/web/tests/shellpages-static.test.ts",
+      "desktop/web/tests/cleanup2-static.test.ts",
+      "desktop/web/tests/shellpages-stub.test.ts",
+      "desktop/web/tests/shellpages-route.test.ts",
+      "desktop/web/tests/shellpages-first-run.test.tsx",
+      "desktop/web/tests/shellpages-settings.test.tsx",
+      "desktop/web/tests/shellpages-app.test.tsx",
+      "desktop/web/tests/shellpages-isolation.test.tsx",
+      "desktop/web/tests/page-app.test.tsx",
+      "desktop/web/tests/readonly2-app.test.tsx",
+      "desktop/shell/package.json",
+      "desktop/shell/package-lock.json",
+      "desktop/web/package.json",
+      "desktop/web/package-lock.json",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/src/shellipc.js",
+      "desktop/shell/src/serviceflow.js",
+      "desktop/shell/src/window.js"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t060_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "tests/test_gate_t056_baseline.py",
+        "tests/test_gate_t057_baseline.py",
+        "tests/test_gate_t058_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3420,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    },
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "--prefix",
+        "desktop/shell",
+        "test"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "--prefix",
+        "desktop/web",
+        "test"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "--prefix",
+        "desktop/web",
+        "run",
+        "build"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "宿主接口有第六个函数 `openSettings()`：preload 暴露面恰好六个（含 `openSettings`）、`HOST_CHANNELS` 恰好六条且冻结、`HOST_METHODS` 六项、多余实参丢掉、`HOST_ARITY` 为 0",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "接口面与既有五个函数一字不差地并存"
+    },
+    {
+      "id": "D02",
+      "text": "设置窗口只此一个：没有时开一个（`themis-shell://app/index.html#/settings`、标题「设置」、新分区、`shell-preload.js`、不设 parent 选项），已经开着就 restore + focus，不开第二个；并发两次调用只建一个",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "用户在设置页签上点几次都只有一个设置窗口"
+    },
+    {
+      "id": "D03",
+      "text": "设置窗口的标题在页面加载完与 1.5 秒后仍是「设置」（该窗口上 `page-title-updated` 被 `preventDefault`）",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "用户认得出这是设置窗口，而不是被页面标题改成「设置 · Themis Tally」"
+    },
+    {
+      "id": "D04",
+      "text": "设置窗口里的外壳接口放行（来源检查接受还活着的设置窗口），选择框与确认框在有窗口时挂上那个窗口",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "设置窗口里能选目录、能确认外链"
+    },
+    {
+      "id": "D05",
+      "text": "关掉设置窗口时应用不退出、服务不停，焦点回到服务窗口（不兑现 `userClosedShell`）；服务窗口被关掉时设置窗口跟着关，退出码规则与现在相同（0 → `app.exit(0)`，否则写 `ERROR: 服务没有以 0 正常退出` 并 `app.exit(1)`）；服务在设置窗口开着时意外退出照旧切服务状态页；任何时刻不出现零窗口",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "加一个窗口不改变既有退出行为"
+    },
+    {
+      "id": "D06",
+      "text": "带参数起服务的那条分支不注入建窗函数，`openSettings()` 回 `{ ok: false, reason: \"unavailable\" }`",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "那条路上没有外壳页，不假装能开设置窗口"
+    },
+    {
+      "id": "D07",
+      "text": "服务窗口的「设置」页签在有宿主接口时走新分支：挂载开一次设置窗口、点按钮再开一次（聚焦已有窗口）、不调 `getState`、不出现「没有收到服务的回应」、失败时有一行 `role=\"alert\"` 带 reason",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "服务窗口的设置页签真的能开设置窗口"
+    },
+    {
+      "id": "D08",
+      "text": "没有宿主接口时（外壳页窗口、桩模式、开发模式）设置页逐字照旧：同样的 h1「设置」、同样的五组、同样的「没有收到服务的回应」通用出错块",
+      "evidence": [
+        "V02",
+        "R01"
+      ],
+      "intent": "不改既有分支的行为"
+    },
+    {
+      "id": "D09",
+      "text": "主题读回不在本片（本片只验收密度读回）；`SettingsView.tsx`、`App.tsx`、`themePref.tsx`、`src/live/transport.ts` 一个字没改",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "站主另排的那一片不被本片抢跑"
+    },
+    {
+      "id": "D10",
+      "text": "三个旧门禁的改法与合同逐字一致（T026 的 p01/p05、T035 的 p03 与模块常量、T032 的 s06 退役与退役注释），没有顺手改别的断言",
+      "evidence": [
+        "R01",
+        "G01"
+      ],
+      "intent": "门禁的改动可复核，不靠弱化断言换绿"
+    },
+    {
+      "id": "D11",
+      "text": "门禁形状全绿：T026 的 S03/S04/S05、T030 S04、T033 S04、T035 的 S03/S04/S05、T030/T033 S03（`shell-preload.js` 里不出现 `themisHost`）、T039 S06、前端静态约束（`SettingsPage.tsx` 不读 `window.themisShell`、不 import `api`；只有 `shellBridge.ts` 读 `window.themisShell`）",
+      "evidence": [
+        "R01",
+        "G01"
+      ],
+      "intent": "不破坏别的片钉住的形状"
+    },
+    {
+      "id": "D12",
+      "text": "README 的宿主接口表有 `openSettings()` 一行（`unavailable`、`load-failed`），第 5 行不再说它「仍没有」但保留「外壳页在本片就位」，写清唯一窗口、聚焦、随服务窗口关、只保存不重启服务，冒烟条目按验收三条补上；既有 needle 一个没删",
+      "evidence": [
+        "R01",
+        "review"
+      ],
+      "intent": "文档与实现一致"
+    },
+    {
+      "id": "D13",
+      "text": "外壳包内测试与前端新测试覆盖新行为（外壳：不可用、首次建窗、并发只建一个、已开聚焦、关掉再开、加载失败；前端：挂载/按钮各一次、不调 `getState`、alert 带 reason、无宿主接口时照旧）",
+      "evidence": [
+        "V01",
+        "V02"
+      ],
+      "intent": "新行为有独立的回归保护"
+    },
+    {
+      "id": "D14",
+      "text": "所有修改都在允许集合内，没有新增依赖、锁文件与 `package.json` 一个字没动",
+      "evidence": [
+        "scope"
+      ]
+    },
+    {
+      "id": "D15",
+      "text": "没有删除、跳过或弱化既有测试",
+      "evidence": [
+        "review"
+      ]
+    },
+    {
+      "id": "D16",
+      "text": "真窗口冒烟（验收端做，执行端不跑真 Electron）：服务起来后点「设置」页签出标题「设置」的第二个窗口并显示仓库列表、Python、kit、主题、密度；再点 [打开设置] 不出第三个窗口；关掉设置窗口后服务窗口与服务进程还在，再点又能打开；设置窗口里改密度、关掉再打开读回改过的值；首次启动页、服务状态页与关服务窗口退出应用的行为与现在相同",
+      "evidence": [
+        "review"
+      ]
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 5400,
+    "cost_budget": null
+  }
+}
