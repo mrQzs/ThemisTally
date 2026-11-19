@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   repos: [],
   currentRepo: null,
   transcriptDirs: [],
-  theme: "system",
+  theme: "dark",
   density: "standard",
   pythonPath: null,
   kitPath: null,
@@ -93,6 +93,11 @@ function copySettings(raw) {
 
 function defaultCopy() {
   return copySettings(DEFAULT_SETTINGS);
+}
+
+// 外观对象：只取 theme 与 density 两个字段，返回新对象（不返回入参本身，改返回值不改到入参）
+function appearanceOf(settings) {
+  return { theme: settings.theme, density: settings.density };
 }
 
 function normalizeSettings(raw) {
@@ -297,6 +302,7 @@ module.exports = {
   THEME_VALUES,
   DENSITY_VALUES,
   PATCH_KEYS,
+  appearanceOf,
   createSettingsStore,
   normalizeSettings,
   applyPatch,

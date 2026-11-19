@@ -305,7 +305,7 @@ const settings = require("@SHELL@/src/settings.js");
 
 const DEFAULTS = {
   version: 1, repos: [], currentRepo: null, transcriptDirs: [],
-  theme: "system", density: "standard", pythonPath: null, kitPath: null,
+  theme: "dark", density: "standard", pythonPath: null, kitPath: null,
 };
 
 function base() {
@@ -1025,7 +1025,7 @@ test("getState：信封 {ok:true,value}；缺省设置只含五个字段；app �
   const st = r.value;
   assert.deepEqual(st.app, { version: "9.9.9", homepage: HOMEPAGE });
   assert.deepEqual(Object.keys(st.settings).sort(), ["currentRepo", "density", "repos", "theme", "transcriptDirs"]);
-  assert.deepEqual(st.settings, { repos: [], currentRepo: null, transcriptDirs: [], theme: "system", density: "standard" });
+  assert.deepEqual(st.settings, { repos: [], currentRepo: null, transcriptDirs: [], theme: "dark", density: "standard" });
   assert.equal(st.currentRepoCheck, null);
   assert.deepEqual(st.service, { kind: "idle" });
 });
@@ -1370,9 +1370,9 @@ test("写盘失败 → write-failed、内存状态回滚（pickRepo 与 saveSett
   const r = await h.api.pickRepo();
   assert.deepEqual(r, { ok: false, reason: "write-failed" });
   assert.equal((await h.api.getState()).value.settings.repos.length, 0, "写盘失败不许改内存状态");
-  const r2 = await h.api.saveSettings({ theme: "dark" });
+  const r2 = await h.api.saveSettings({ theme: "light" });
   assert.deepEqual(r2, { ok: false, reason: "write-failed" });
-  assert.equal((await h.api.getState()).value.settings.theme, "system", "写盘失败后内存要回滚成补丁前的值");
+  assert.equal((await h.api.getState()).value.settings.theme, "dark", "写盘失败后内存要回滚成补丁前的值");
 });
 
 // 站主 2026-11-13（T033 规划第 3 节）退役了“占位：startService/restartService 回 not-implemented；on 同步返回退订函数且不抛错”一条：

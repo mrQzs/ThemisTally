@@ -119,14 +119,22 @@ SRC_FORBIDDEN = (
 )
 
 IPC_BANS = (
-    (re.compile(r"\bipcMain\s*\.\s*on\b"), "ipcMain.on"),
     (re.compile(r"\bipcRenderer\s*\.\s*send\b"), "ipcRenderer.send"),
+)
+
+# ipcMain.on：片 A（T061）起只许出现在 main.js，且注册的通道只许那两个外观读取字面量（T061 放开的口）
+IPC_MAIN_ON_RE = re.compile(r"\bipcMain\s*\.\s*on\s*\(")
+ALLOWED_SYNC_CHANNEL_ARGS = (
+    "HOST_APPEARANCE_CHANNEL",
+    '"themis-host:get-appearance"',
+    "SHELL_APPEARANCE_CHANNEL",
+    '"themis-shell:get-appearance"',
 )
 
 ELECTRON_ALLOWED = ("main.js", "preload.js", "shell-preload.js")
 
-# host 的六个方法名（合同 Behavior contract 三）
-HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings")
+# host 的七个方法名（合同 Behavior contract；片 A 末尾加 saveTheme）
+HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme")
 
 
 def _shell_read(rel: str) -> str:
@@ -306,6 +314,19 @@ def test_s03_static_scan():
                 raise AssertionError(
                     f"desktop/shell/{rel} 出现全禁的「{what}」："
                     f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+        # ipcMain.on 只许 main.js 有，且注册的通道只许那两个外观读取字面量
+        for m in IPC_MAIN_ON_RE.finditer(text):
+            if rel != "main.js":
+                raise AssertionError(
+                    f"desktop/shell/{rel} 不许出现 ipcMain.on（只许 main.js 的外观读取）："
+                    f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+            open_at = text.find("(", m.start())
+            first_arg = text[open_at + 1:].split(",")[0].strip()
+            if first_arg not in ALLOWED_SYNC_CHANNEL_ARGS:
+                raise AssertionError(
+                    f"main.js 的 ipcMain.on 通道只许那两个外观读取字面量，却见到：{first_arg}"
                 )
 
 
@@ -848,7 +869,7 @@ const { createServiceFlow } = require("@SHELL@/src/serviceflow.js");
 const FAKE = path.join("@SHELL@", "tests", "fixtures", "fake-service.js");
 const FAKE_EXIT = path.join("@SHELL@", "tests", "fixtures", "fake-service-exit.js");
 
-const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings"];
+const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme"];
 
 function makeHost(tag) {
   const calls = {};
@@ -876,13 +897,13 @@ async function waitFor(what, predicate, timeoutMs) {
   }
 }
 
-test("形状：{host, senderAllowed, use, clear}，host 是那六个方法", () => {
+test("形状：{host, senderAllowed, use, clear}，host 是那七个方法", () => {
   const relay = createHostRelay();
   assert.deepEqual(Object.keys(relay).sort(), ["clear", "host", "senderAllowed", "use"]);
   assert.deepEqual(Object.keys(relay.host).sort(), [...METHODS].sort());
 });
 
-test("没有当前 host：六个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
+test("没有当前 host：七个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
   const relay = createHostRelay();
   for (const name of METHODS) {
     assert.deepEqual(await relay.host[name]("a", 2), { ok: false, reason: "forbidden" }, name + " 不许抛错");
@@ -924,7 +945,7 @@ test("senderAllowed 的检查抛错按 false", () => {
   assert.equal(relay.senderAllowed({}), false);
 });
 
-test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 6、调用进第二个 host", async () => {
+test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 7、调用进第二个 host", async () => {
   const handlers = new Map();
   let registrations = 0;
   const im = {
@@ -936,8 +957,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   };
   const relay = createHostRelay();
   registerHostIpc(im, relay.host, relay.senderAllowed);
-  assert.equal(registrations, 6, "registerHostIpc 注册六条通道");
-  assert.equal(handlers.size, 6);
+  assert.equal(registrations, 7, "registerHostIpc 注册七条通道");
+  assert.equal(handlers.size, 7);
   // 还没有当前 host：调用经来源检查回 forbidden
   assert.deepEqual(
     await handlers.get("themis-host:notify")({ tag: "x" }, "attempt-finished"),
@@ -976,8 +997,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   );
   assert.equal(flow.state().kind, "running");
   // registerHostIpc 没有被第二次调用（否则 im.handle 早就抛错了）
-  assert.equal(registrations, 6, "第二次起服务不许再注册宿主 IPC");
-  assert.equal(handlers.size, 6);
+  assert.equal(registrations, 7, "第二次起服务不许再注册宿主 IPC");
+  assert.equal(handlers.size, 7);
   assert.deepEqual(
     await handlers.get("themis-host:reveal")(ev, "runs/x/summary.md"),
     { ok: true, value: "host2:reveal" },

@@ -1,7 +1,7 @@
 "use strict";
 
 const path = require("node:path");
-const { applyPatch, addRepo, addTranscriptDir } = require("./settings.js");
+const { applyPatch, addRepo, addTranscriptDir, appearanceOf } = require("./settings.js");
 const { checkRepo, probePython, probeKit, detectPython, detectKit } = require("./detect.js");
 const { isExternalUrl } = require("./hostcheck.js");
 // 起服务的命令形状只此一处：外壳页与带参数那条路用同一个 serviceCommand
@@ -42,9 +42,12 @@ function createShellApi(options) {
   // 服务控制器与外壳页产物根：都没有注入时 startService 回 no-service（探针不注入新项也不能红）
   const service = opts.service || null;
   const assets = typeof opts.assets === "string" ? opts.assets : "";
+  // 外观变化回调：saveSettings 写盘成功且 theme/density 变了才调一次；不注入就不调
+  const onAppearanceChange = typeof opts.onAppearanceChange === "function" ? opts.onAppearanceChange : null;
 
-  // 内存设置第一次用到时从存盘读入；写盘成功后才更新它
-  let settings = null;
+  // 内存设置：给了 initialSettings 就用它当初值（深拷贝，一次都不再 store.load 起步），
+  // 否则第一次用到时从存盘读入；写盘成功后才更新它
+  let settings = opts.initialSettings !== undefined ? cloneSettings(opts.initialSettings) : null;
   // 检测结果缓存：getState 不重复起子进程，选择与保存之后清掉
   let cache = null;
 
@@ -223,11 +226,24 @@ function createShellApi(options) {
   }
 
   async function saveSettings(patch) {
-    const applied = applyPatch(current(), patch);
+    const source = current();
+    const applied = applyPatch(source, patch);
     if (!applied.ok) return { ok: false, reason: applied.reason };
     dropCache();
     const written = await persist(applied.settings);
     if (!written.ok) return written;
+    // 写盘成功且 theme/density 与写之前不同 → 回调一次外观变化（两个字段都是新值）；
+    // 外观没变、写盘失败、只改仓库等情况不调；回调抛错不影响返回值
+    if (
+      onAppearanceChange !== null &&
+      (applied.settings.theme !== source.theme || applied.settings.density !== source.density)
+    ) {
+      try {
+        onAppearanceChange(appearanceOf(applied.settings));
+      } catch {
+        // 广播回调自己抛错：吞掉，saveSettings 照常回 {ok:true,value}
+      }
+    }
     return { ok: true, value: await stateView() };
   }
 

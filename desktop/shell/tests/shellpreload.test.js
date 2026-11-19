@@ -43,6 +43,7 @@ function runShellPreload() {
   const requires = [];
   const exposes = [];
   const invokes = [];
+  const syncs = [];
   const listeners = [];
   const sends = [];
   const state = { envelope: { ok: true, value: 42 } };
@@ -58,13 +59,17 @@ function runShellPreload() {
           invokes.push(args);
           return state.envelope;
         },
+        sendSync: (...args) => {
+          syncs.push(args);
+          return { theme: "dark", density: "compact" };
+        },
         on: (...args) => listeners.push(args),
         send: (...args) => sends.push(args),
       },
     };
   };
   vm.runInNewContext(source, { require: fakeRequire, module: { exports: {} }, exports: {} });
-  return { source, requires, exposes, invokes, listeners, sends, state };
+  return { source, requires, exposes, invokes, syncs, listeners, sends, state };
 }
 
 test("只 require electron；恰好一次 exposeInMainWorld 且名字 themisShell", () => {
@@ -75,11 +80,12 @@ test("只 require electron；恰好一次 exposeInMainWorld 且名字 themisShel
   assert.equal((p.source.match(/exposeInMainWorld/g) || []).length, 1, "exposeInMainWorld 只许出现一次");
 });
 
-test("成员名集合等于 themisShell.ts 的 interface ThemisShell（从 .ts 解析）", () => {
+test("成员名集合等于 themisShell.ts 的 interface ThemisShell 加 getAppearance（从 .ts 解析）", () => {
   const p = runShellPreload();
   const expected = interfaceNames("ThemisShell");
   assert.equal(expected.length, 10, "类型文件解析出的成员应当是十个：" + JSON.stringify(expected));
-  assert.deepEqual(Object.keys(p.exposes[0][1]).sort(), [...expected].sort());
+  // 本片外壳侧暴露面十一个：原十个 + getAppearance；T063 片 B 起 themisShell.ts 加 getAppearance 后恢复逐字相等
+  assert.deepEqual(Object.keys(p.exposes[0][1]).sort(), [...expected, "getAppearance"].sort());
   assert.equal("themisHost" in p.exposes[0][1], false, "不许暴露 themisHost");
 });
 
@@ -127,11 +133,13 @@ test("信封 ok → resolve value；不 ok → 以带 reason 的 Error reject（
   );
 });
 
-test("on('service-state')：模块加载时只注册一个 ipcRenderer.on，页面监听只收到 state 一个实参", () => {
+test("on('service-state')：模块级恰好两个 ipcRenderer.on，service-state 监听只收到 state 一个实参", () => {
   const p = runShellPreload();
   const api = p.exposes[0][1];
-  assert.equal(p.listeners.length, 1, "模块加载时只许注册一个 ipcRenderer.on");
-  const [channel, internal] = p.listeners[0];
+  assert.equal(p.listeners.length, 2, "模块级恰好两个 ipcRenderer.on（service-state 与 appearance）");
+  const serviceListener = p.listeners.find(([ch]) => ch === "themis-shell:service-state");
+  assert.ok(serviceListener, "要有一条 themis-shell:service-state 订阅");
+  const [channel, internal] = serviceListener;
   assert.equal(channel, "themis-shell:service-state");
   assert.equal(typeof internal, "function");
   const a = [];
@@ -148,6 +156,36 @@ test("on('service-state')：模块加载时只注册一个 ipcRenderer.on，页�
   assert.deepEqual(a[0][0], payload);
   assert.deepEqual(b[0][0], payload);
   assert.ok(!JSON.stringify(a[0]).includes("electron-event"), "不许把事件对象交给页面");
+});
+
+test("getAppearance：走 sendSync themis-shell:get-appearance、载入时不发、回值原样返回", () => {
+  const p = runShellPreload();
+  const api = p.exposes[0][1];
+  assert.deepEqual(p.syncs, [], "载入时不许发 sendSync");
+  const got = api.getAppearance();
+  assert.deepEqual(p.syncs, [["themis-shell:get-appearance"]]);
+  assert.deepEqual(got, { theme: "dark", density: "compact" }, "回值原样返回");
+});
+
+test("on('appearance')：恰好两个 ipcRenderer.on 各一频道；监听只收外观一个实参；退订只删自己那条", () => {
+  const p = runShellPreload();
+  const api = p.exposes[0][1];
+  const channels = p.listeners.map(([ch]) => ch).sort();
+  assert.deepEqual(channels, ["themis-shell:appearance", "themis-shell:service-state"], "两个频道各一个 on");
+  const internal = p.listeners.find(([ch]) => ch === "themis-shell:appearance")[1];
+  const seen1 = [];
+  const seen2 = [];
+  const off1 = api.on("appearance", (...args) => seen1.push(args));
+  assert.equal(typeof off1, "function", "同步返回退订函数");
+  api.on("appearance", (...args) => seen2.push(args));
+  internal({ marker: "electron-event" }, { theme: "light", density: "standard" });
+  assert.deepEqual(seen1, [[{ theme: "light", density: "standard" }]], "监听只收外观对象一个实参");
+  assert.deepEqual(seen2, [[{ theme: "light", density: "standard" }]]);
+  assert.ok(!JSON.stringify(seen1[0]).includes("electron-event"), "不许把事件对象交给页面");
+  off1();
+  internal({}, { theme: "dark", density: "compact" });
+  assert.equal(seen1.length, 1, "退订之后不再收");
+  assert.equal(seen2.length, 2, "另一条订阅不受影响");
 });
 
 test("on：退订只删自己那条、可重复退订；别的事件名同步回空退订函数；on 与退订都不发 IPC", () => {
@@ -198,5 +236,5 @@ test("自包含：只 require electron，没有 ipcRenderer 的发送，不 requ
   assert.ok(!/require\(\s*['"]\./.test(p.source), "不许 require 相对路径");
   assert.ok(!/require\(\s*['"]node:/.test(p.source), "不许 require node: 模块");
   assert.equal((p.source.match(/exposeInMainWorld/g) || []).length, 1, "exposeInMainWorld 只许出现一次");
-  assert.equal(Object.keys(p.exposes[0][1]).length, 10, "暴露面仍是十个成员");
+  assert.equal(Object.keys(p.exposes[0][1]).length, 11, "暴露面共十一个成员（原十个 + getAppearance）");
 });

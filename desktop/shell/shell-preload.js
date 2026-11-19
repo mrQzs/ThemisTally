@@ -13,6 +13,14 @@ ipcRenderer.on("themis-shell:service-state", (_event, state) => {
   for (const listener of [...subscriptions]) listener(state);
 });
 
+// 外观事件的订阅：与 src/shellipc.js 的 SHELL_APPEARANCE_EVENT 同值（preload 不能 require 相对路径，
+// 只能在这里写字面量，两处一致由 tests/shellipc.test.js 比对）。只注册一个 ipcRenderer.on，
+// 每次 on 登记的是这条订阅里的一份，退订只删自己那一条。
+const appearanceSubscriptions = new Set();
+ipcRenderer.on("themis-shell:appearance", (_event, appearance) => {
+  for (const listener of [...appearanceSubscriptions]) listener(appearance);
+});
+
 // 每个方法只把声明的实参转交固定通道，再拆信封：ok === true → resolve value；
 // 否则 → 以 new Error(reason) reject（reason 只进 Error.message，不挂别的属性，主世界拿到的 Error 保留 message）
 function call(channel, ...args) {
@@ -33,13 +41,24 @@ contextBridge.exposeInMainWorld("themisShell", {
   startService: (repo) => call("themis-shell:start-service", repo),
   restartService: () => call("themis-shell:restart-service"),
   openExternal: (url) => call("themis-shell:open-external", url),
-  // 只认 service-state：别的事件名同步回一个空的退订函数，不注册、不抛错。
-  // 监听函数只收到 state 一个实参（Electron 的事件对象不过桥），on 与退订都不发 IPC。
+  // 同步读当前外观：调用时才 sendSync，载入时不发；主进程答 null 时原样返回 null
+  getAppearance: () => ipcRenderer.sendSync("themis-shell:get-appearance"),
+  // 只认 service-state 与 appearance：别的事件名同步回一个空的退订函数，不注册、不抛错。
+  // 监听函数只收到 state/appearance 一个实参（Electron 的事件对象不过桥），on 与退订都不发 IPC。
   on: (event, listener) => {
-    if (event !== "service-state" || typeof listener !== "function") return () => {};
-    subscriptions.add(listener);
-    return () => {
-      subscriptions.delete(listener);
-    };
+    if (typeof listener !== "function") return () => {};
+    if (event === "service-state") {
+      subscriptions.add(listener);
+      return () => {
+        subscriptions.delete(listener);
+      };
+    }
+    if (event === "appearance") {
+      appearanceSubscriptions.add(listener);
+      return () => {
+        appearanceSubscriptions.delete(listener);
+      };
+    }
+    return () => {};
   },
 });

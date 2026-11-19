@@ -135,8 +135,16 @@ WORD_RULES = (
 # require('electron') 的三个文件白名单（合同第七节：T030 起 shell-preload.js 进白名单）
 ELECTRON_ALLOWED = ("main.js", "preload.js", "shell-preload.js")
 IPC_BANS = (
-    (re.compile(r"\bipcMain\s*\.\s*on\b"), "ipcMain.on"),
     (re.compile(r"\bipcRenderer\s*\.\s*send\b"), "ipcRenderer.send"),
+)
+
+# ipcMain.on：片 A（T061）起只许出现在 main.js，且注册的通道只许那两个外观读取字面量（T061 放开的口）
+IPC_MAIN_ON_RE = re.compile(r"\bipcMain\s*\.\s*on\s*\(")
+ALLOWED_SYNC_CHANNEL_ARGS = (
+    "HOST_APPEARANCE_CHANNEL",
+    '"themis-host:get-appearance"',
+    "SHELL_APPEARANCE_CHANNEL",
+    '"themis-shell:get-appearance"',
 )
 
 # main.js 的既有接线标记（合同第六节：T025/T026 钉住的一个都不能丢）
@@ -336,6 +344,19 @@ def test_s03_static_scan():
                 raise AssertionError(
                     f"desktop/shell/{rel} 出现全禁的「{what}」："
                     f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+        # ipcMain.on 只许 main.js 有，且注册的通道只许那两个外观读取字面量
+        for m in IPC_MAIN_ON_RE.finditer(text):
+            if rel != "main.js":
+                raise AssertionError(
+                    f"desktop/shell/{rel} 不许出现 ipcMain.on（只许 main.js 的外观读取）："
+                    f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+            open_at = text.find("(", m.start())
+            first_arg = text[open_at + 1:].split(",")[0].strip()
+            if first_arg not in ALLOWED_SYNC_CHANNEL_ARGS:
+                raise AssertionError(
+                    f"main.js 的 ipcMain.on 通道只许那两个外观读取字面量，却见到：{first_arg}"
                 )
 
     product_files = [SHELL / "main.js"] + sorted((SHELL / "src").rglob("*.js"))
@@ -876,11 +897,12 @@ test("只 require electron；恰好一次 exposeInMainWorld 且名字 themisShel
   assert.equal((p.source.match(/exposeInMainWorld/g) || []).length, 1, "exposeInMainWorld 只许出现一次");
 });
 
-test("成员名集合等于 themisShell.ts 的 interface ThemisShell（从 .ts 解析）", () => {
+test("成员名集合等于 themisShell.ts 的 interface ThemisShell 加 getAppearance（从 .ts 解析）", () => {
   const p = runShellPreload();
   const expected = interfaceNames("ThemisShell");
   assert.equal(expected.length, 10, "类型文件解析出的成员应当是十个：" + JSON.stringify(expected));
-  assert.deepEqual(Object.keys(p.exposes[0][1]).sort(), [...expected].sort());
+  // 本片外壳侧暴露面十一个：原十个 + getAppearance；T063 片 B 起 themisShell.ts 加 getAppearance 后恢复逐字相等
+  assert.deepEqual(Object.keys(p.exposes[0][1]).sort(), [...expected, "getAppearance"].sort());
   assert.equal("themisHost" in p.exposes[0][1], false, "不许暴露 themisHost");
 });
 

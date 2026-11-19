@@ -10,6 +10,7 @@ const {
   NOTIFY_TEXT,
 } = require("./hostcheck.js");
 const { SHELL_SETTINGS_URL } = require("./shellprotocol.js");
+const { THEME_VALUES } = require("./settings.js");
 
 // 控制接口的两条路径（照 routes.ts 的 CONTROL_PATH 与 jobroutes.ts 的 control.jobs.cancel）
 const BOOTSTRAP_PATH = "/control/bootstrap";
@@ -51,6 +52,7 @@ function createHost(options) {
     showNotification,
     now,
     controlTimeoutMs,
+    saveTheme: saveThemeImpl,
   } = options;
 
   const limiter = createRateLimiter({ now });
@@ -177,6 +179,18 @@ function createHost(options) {
     return { ok: true };
   }
 
+  // 保存主题：顺序固定为 bad-args → unavailable → 转交 → 注入抛错回 internal。
+  // 注入实现是 api.saveSettings({ theme: pref }) 转成的信封，转交时只传 pref 这一个实参。
+  async function saveTheme(pref) {
+    if (!THEME_VALUES.includes(pref)) return { ok: false, reason: "bad-args" };
+    if (typeof saveThemeImpl !== "function") return { ok: false, reason: "unavailable" };
+    try {
+      return await saveThemeImpl(pref);
+    } catch {
+      return { ok: false, reason: "internal" };
+    }
+  }
+
   return {
     reauth,
     openSecretWindow,
@@ -184,6 +198,7 @@ function createHost(options) {
     reveal,
     notify,
     openSettings,
+    saveTheme,
   };
 }
 

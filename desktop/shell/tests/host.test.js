@@ -628,6 +628,67 @@ test("openSettings 加载失败：关窗并回 load-failed，之后能再开", a
   assert.equal(settingsWins.length, 2, "失败清掉占位后能再开");
 });
 
+// ---- saveTheme ----
+
+test("saveTheme 暴露面：七个函数，saveTheme 排在最后，前六个照旧", () => {
+  resetAll();
+  const host = makeHost({ saveTheme: async () => ({ ok: true }) });
+  assert.deepEqual(Object.keys(host), [
+    "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme",
+  ]);
+  for (const name of Object.keys(host)) {
+    assert.equal(typeof host[name], "function", name + " 必须是函数");
+  }
+});
+
+test("saveTheme bad-args：pref 不在 THEME_VALUES（neon/null/数字）→ 不进注入实现", async () => {
+  resetAll();
+  const calls = [];
+  const host = makeHost({ saveTheme: async (pref) => {
+    calls.push(pref);
+    return { ok: true };
+  } });
+  assert.deepEqual(await host.saveTheme("neon"), { ok: false, reason: "bad-args" });
+  assert.deepEqual(await host.saveTheme(null), { ok: false, reason: "bad-args" });
+  assert.deepEqual(await host.saveTheme(123), { ok: false, reason: "bad-args" });
+  assert.deepEqual(calls, [], "bad-args 根本不进注入实现");
+});
+
+test("saveTheme bad-args 优先于 unavailable：没注入实现且 pref 非法 → 仍回 bad-args", async () => {
+  resetAll();
+  const host = makeHost(); // 不带 saveTheme（带参数起服务的那条分支就是这样）
+  assert.deepEqual(await host.saveTheme("neon"), { ok: false, reason: "bad-args" });
+});
+
+test("saveTheme unavailable：没注入实现、pref 合法 → unavailable", async () => {
+  resetAll();
+  const host = makeHost();
+  assert.deepEqual(await host.saveTheme("dark"), { ok: false, reason: "unavailable" });
+  assert.deepEqual(await host.saveTheme("system"), { ok: false, reason: "unavailable" });
+});
+
+test("saveTheme 转交：把 pref 原样交给注入实现，信封原样返回，只转交一个实参", async () => {
+  resetAll();
+  const calls = [];
+  let answer = { ok: true, value: { theme: "light", density: "compact" } };
+  const host = makeHost({ saveTheme: async (pref) => {
+    calls.push(pref);
+    return answer;
+  } });
+  assert.deepEqual(await host.saveTheme("light"), { ok: true, value: { theme: "light", density: "compact" } });
+  answer = { ok: false, reason: "write-failed" };
+  assert.deepEqual(await host.saveTheme("dark"), { ok: false, reason: "write-failed" });
+  assert.deepEqual(calls, ["light", "dark"], "只转交这一个实参");
+});
+
+test("saveTheme internal：注入实现抛错 → internal，不外传异常", async () => {
+  resetAll();
+  const host = makeHost({ saveTheme: async () => {
+    throw new Error("boom");
+  } });
+  assert.deepEqual(await host.saveTheme("dark"), { ok: false, reason: "internal" });
+});
+
 // ---- 令牌不外泄 ----
 
 test("控制令牌与引导地址不进宿主对象的 JSON", () => {

@@ -4,7 +4,7 @@
 // 每个服务实例的 host 都是新闭包（控制令牌只在那里面），同一个外壳进程里第二次起服务时
 // 不能重复注册 IPC——Electron 对同一通道第二次 handle 会抛错——只把当前指针换成新的。
 // 纯模块，不 require electron：接线在 main.js，这里只做替换与兜底。
-const HOST_METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings"];
+const HOST_METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme"];
 
 function createHostRelay() {
   let host = null;

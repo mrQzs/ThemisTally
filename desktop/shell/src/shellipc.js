@@ -19,6 +19,11 @@ const SHELL_CHANNELS = Object.freeze([
 // 它不进 SHELL_CHANNELS——不是 invoke 通道，不注册 ipcMain.handle。
 const SERVICE_STATE_CHANNEL = "themis-shell:service-state";
 
+// 外壳外观读取（同步读）与外观事件（主进程 → 页面推送，webContents.send）：
+// 都不是 invoke 通道，不进 SHELL_CHANNELS、不注册 ipcMain.handle。接线在 main.js。
+const SHELL_APPEARANCE_CHANNEL = "themis-shell:get-appearance";
+const SHELL_APPEARANCE_EVENT = "themis-shell:appearance";
+
 // 每个通道转交的主进程方法与它的实参个数：多余的参数丢掉（preload 已按声明转发，这里是第二道）
 const SHELL_METHOD = {
   "themis-shell:get-state": "getState",
@@ -66,4 +71,11 @@ function registerShellIpc(ipcMain, api, senderAllowed) {
   }
 }
 
-module.exports = { SHELL_CHANNELS, SERVICE_STATE_CHANNEL, registerShellIpc, shellSenderAllowed };
+module.exports = {
+  SHELL_CHANNELS,
+  SERVICE_STATE_CHANNEL,
+  SHELL_APPEARANCE_CHANNEL,
+  SHELL_APPEARANCE_EVENT,
+  registerShellIpc,
+  shellSenderAllowed,
+};

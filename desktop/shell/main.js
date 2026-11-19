@@ -2,16 +2,22 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { app, BrowserWindow, session, Menu, ipcMain, shell, dialog, Notification, protocol } = require("electron");
+const { app, BrowserWindow, session, Menu, ipcMain, shell, dialog, Notification, protocol, nativeTheme } = require("electron");
 const { runShell } = require("./src/core.js");
-const { partitionName, webPreferences, mainWebPreferences, isServiceUrl, trackWindow } = require("./src/window.js");
+const { partitionName, backgroundFor, webPreferences, mainWebPreferences, isServiceUrl, trackWindow } = require("./src/window.js");
 const { createHost } = require("./src/host.js");
-const { registerHostIpc } = require("./src/ipc.js");
+const { registerHostIpc, HOST_APPEARANCE_CHANNEL, HOST_APPEARANCE_EVENT } = require("./src/ipc.js");
 const { launchMode } = require("./src/launch.js");
 const { resolveShellAsset, isShellPageUrl } = require("./src/shellprotocol.js");
-const { registerShellIpc, shellSenderAllowed, SERVICE_STATE_CHANNEL } = require("./src/shellipc.js");
+const {
+  registerShellIpc,
+  shellSenderAllowed,
+  SERVICE_STATE_CHANNEL,
+  SHELL_APPEARANCE_CHANNEL,
+  SHELL_APPEARANCE_EVENT,
+} = require("./src/shellipc.js");
 const { createShellApi } = require("./src/shellapi.js");
-const { createSettingsStore } = require("./src/settings.js");
+const { createSettingsStore, appearanceOf } = require("./src/settings.js");
 const { createServiceFlow } = require("./src/serviceflow.js");
 const { createHostRelay } = require("./src/hostrelay.js");
 const { SHELL_START_URL, SHELL_STATUS_URL } = require("./src/shellprotocol.js");
@@ -49,6 +55,10 @@ async function runShellPage() {
     return;
   }
   const store = createSettingsStore({ dir: app.getPath("userData") });
+  // 启动时只读这一次设置，交给 createShellApi 当内存初值（页面首帧前就能拿到已保存的外观）；
+  // 主进程另持一份当前外观，初值取自已读出的设置，之后只在 onAppearanceChange 回调里更新
+  const initialSettings = store.load().settings;
+  let currentAppearance = appearanceOf(initialSettings);
   // 宿主 IPC 只在这里注册一次：调用经 relay 转给当前服务实例的 host。
   // 同一个进程里第二次起服务不再重复注册——同一通道第二次 handle 会抛错
   const relay = createHostRelay();
@@ -71,6 +81,34 @@ async function runShellPage() {
   // 那一个窗口——重启之后旧窗口迟到的 closed 被身份检查挡掉，不会误停新 run 的服务、也不会误退出
   let serviceGone = false;
 
+  // 宿主外观同步读取：只认当前服务窗口的 webContents（窗口为 null 或已销毁一律不认），
+  // 来源被认才答当前外观对象，其余路径（来源不认、读出错）一律回 null。
+  ipcMain.on(HOST_APPEARANCE_CHANNEL, (event) => {
+    event.returnValue = null;
+    try {
+      if (serviceWindow !== null && !serviceWindow.isDestroyed() && event.sender === serviceWindow.webContents) {
+        event.returnValue = currentAppearance;
+      }
+    } catch {
+      event.returnValue = null;
+    }
+  });
+  // 外壳外观同步读取：只认当前外壳页窗口或设置窗口的 webContents（窗口为 null 或已销毁不认），
+  // 来源被认才答当前外观对象，其余路径一律回 null。
+  ipcMain.on(SHELL_APPEARANCE_CHANNEL, (event) => {
+    event.returnValue = null;
+    try {
+      if (
+        (shellWin !== null && !shellWin.isDestroyed() && event.sender === shellWin.webContents) ||
+        (settingsWin !== null && !settingsWin.isDestroyed() && event.sender === settingsWin.webContents)
+      ) {
+        event.returnValue = currentAppearance;
+      }
+    } catch {
+      event.returnValue = null;
+    }
+  });
+
   // 外壳页窗口的底层建窗：新分区、在该 session 上注册一次协议 handler、用 shell-preload 建窗。
   // 这个 helper 定义在 runShellPage 内部：root 是 runShellPage 的局部变量，这里闭包能直接用。
   function createShellPageWindow(title) {
@@ -83,7 +121,7 @@ async function runShellPage() {
     return guardedWindow({
       partition,
       prefs: mainWebPreferences(partition, path.join(__dirname, "shell-preload.js")),
-      options: { title },
+      options: { title, backgroundColor: backgroundFor(currentAppearance.theme, nativeTheme.shouldUseDarkColors) },
       allowNavigation: isShellPageUrl,
     });
   }
@@ -169,6 +207,12 @@ async function runShellPage() {
         showNotification: ({ title, body }) => {
           new Notification({ title, body }).show();
         },
+        // 保存主题：走既有 saveSettings（写盘成功且外观变了会触发广播），再把结果转成 saveTheme 的信封
+        saveTheme: async (pref) => {
+          const result = await api.saveSettings({ theme: pref });
+          if (result.ok !== true) return { ok: false, reason: result.reason };
+          return { ok: true, value: { theme: result.value.settings.theme, density: result.value.settings.density } };
+        },
       });
       // 来源检查：只有服务窗口、且它当前显示的确实是服务 origin 下的页面，才准调宿主接口
       const senderAllowed = (event) => {
@@ -185,7 +229,7 @@ async function runShellPage() {
       const opened = guardedWindow({
         partition: servicePartition,
         prefs: mainWebPreferences(servicePartition, path.join(__dirname, "preload.js")),
-        options: {},
+        options: { backgroundColor: backgroundFor(currentAppearance.theme, nativeTheme.shouldUseDarkColors) },
         allowNavigation: (url) => isServiceUrl(url, origin),
       });
       serviceWindow = opened;
@@ -255,8 +299,17 @@ async function runShellPage() {
   // 选择框与外部链接确认框挂在当前外壳窗口上
   const api = createShellApi({
     store,
+    initialSettings,
     service: flow,
     assets: root,
+    // 外观变化：更新主进程持有的当前外观，并当场广播给还开着的窗口——服务窗口收宿主事件，
+    // 外壳页窗口与设置窗口各收外壳事件；每个窗口发之前自己判 isDestroyed()
+    onAppearanceChange: (appearance) => {
+      currentAppearance = appearance;
+      if (serviceWindow !== null && !serviceWindow.isDestroyed()) serviceWindow.webContents.send(HOST_APPEARANCE_EVENT, appearance);
+      if (shellWin !== null && !shellWin.isDestroyed()) shellWin.webContents.send(SHELL_APPEARANCE_EVENT, appearance);
+      if (settingsWin !== null && !settingsWin.isDestroyed()) settingsWin.webContents.send(SHELL_APPEARANCE_EVENT, appearance);
+    },
     chooseDirectory: async ({ title }) => {
       const options = { title, properties: ["openDirectory"] };
       // 当前外壳窗口不在（换页的间隙）就退到设置窗口；两个都不在就不带窗口调用
@@ -335,6 +388,17 @@ app.whenReady().then(async () => {
   let mainWindow = null;
   let serviceOrigin = null;
 
+  // 带参数起服务分支没有设置存储：宿主外观同步读取恒答 null（来源不认也是 null）
+  ipcMain.on(HOST_APPEARANCE_CHANNEL, (event) => {
+    event.returnValue = null;
+    try {
+      // 这条分支没有设置存储，没有可读的外观
+      event.returnValue = null;
+    } catch {
+      event.returnValue = null;
+    }
+  });
+
   // 来源检查：只有主窗口、且它当前显示的确实是服务 origin 下的页面，才准调宿主接口
   const senderAllowed = (event) => {
     const frame = event.senderFrame;
@@ -349,7 +413,7 @@ app.whenReady().then(async () => {
       partition,
       allowNavigation: (url) => isServiceUrl(url, origin),
       prefs: mainWebPreferences(partition, preloadPath),
-      options: {},
+      options: { backgroundColor: backgroundFor("dark", nativeTheme.shouldUseDarkColors) },
     });
     mainWindow = win;
     return trackWindow(win, () => win.webContents.loadURL(bootstrap));

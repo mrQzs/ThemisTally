@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
-const { HOST_CHANNELS, registerHostIpc } = require("../src/ipc.js");
+const { HOST_CHANNELS, HOST_APPEARANCE_CHANNEL, HOST_APPEARANCE_EVENT, registerHostIpc } = require("../src/ipc.js");
 
 const CHANNELS = [
   "themis-host:reauth",
@@ -12,6 +12,7 @@ const CHANNELS = [
   "themis-host:reveal",
   "themis-host:notify",
   "themis-host:open-settings",
+  "themis-host:save-theme",
 ];
 const SECRET = "ipc-secret-" + crypto.randomBytes(8).toString("hex");
 const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:8123/app" } };
@@ -57,15 +58,23 @@ function okHost(calls) {
       calls.push(["openSettings", []]);
       return { ok: true };
     },
+    saveTheme: async (pref) => {
+      calls.push(["saveTheme", [pref]]);
+      return { ok: true };
+    },
   };
 }
 
-test("HOST_CHANNELS 冻结且恰好六个，与 preload 逐字一致", () => {
+test("HOST_CHANNELS 冻结且恰好七个，save-theme 在末尾；外观常量逐字且不进 invoke 表", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS));
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
+  assert.equal(HOST_APPEARANCE_CHANNEL, "themis-host:get-appearance");
+  assert.equal(HOST_APPEARANCE_EVENT, "themis-host:appearance");
+  assert.ok(!HOST_CHANNELS.includes(HOST_APPEARANCE_CHANNEL), "同步读取不进 invoke 表");
+  assert.ok(!HOST_CHANNELS.includes(HOST_APPEARANCE_EVENT), "事件推送不进 invoke 表");
 });
 
-test("只用 ipcMain.handle 注册六个通道；来源不对回 forbidden 且不进 host", async () => {
+test("只用 ipcMain.handle 注册七个通道；来源不对回 forbidden 且不进 host", async () => {
   const { ipcMain, handlers, onCalls } = fakeIpcMain();
   const calls = [];
   let allowed = false;
@@ -94,6 +103,8 @@ test("来源对：转交 host，多余的实参丢掉", async () => {
   assert.deepEqual(calls[2], ["reauth", []]);
   assert.deepEqual(await handlers["themis-host:open-settings"](EV, "EXTRA"), { ok: true });
   assert.deepEqual(calls[3], ["openSettings", []], "多余的实参要丢掉");
+  assert.deepEqual(await handlers["themis-host:save-theme"](EV, "dark", "EXTRA"), { ok: true });
+  assert.deepEqual(calls[4], ["saveTheme", ["dark"]], "save-theme 转交 saveTheme、多余实参丢掉");
 });
 
 test("host 抛错（同步与异步）：回 internal，错误消息不外传", async () => {

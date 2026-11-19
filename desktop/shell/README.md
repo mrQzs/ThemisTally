@@ -72,7 +72,7 @@ npm test
 
 ## 宿主接口 `window.themisHost`
 
-preload 只把六个函数原样转交给主进程的固定 IPC 通道，参数怎么填、会不会越界，一律由主进程校验；控制令牌只留在主进程，页面经 IPC 也拿不到它。每个函数成功回 `{ ok: true }`，失败回 `{ ok: false, reason: "…" }`——`reason` 是下表的固定词，错误消息（可能带着引导地址、一次性页面令牌或正文片段）一律不外传。
+preload 只把九个函数原样转交给主进程的固定 IPC 通道，参数怎么填、会不会越界，一律由主进程校验；控制令牌只留在主进程，页面经 IPC 也拿不到它。每个函数成功回 `{ ok: true }`，失败回 `{ ok: false, reason: "…" }`——`reason` 是下表的固定词，错误消息（可能带着引导地址、一次性页面令牌或正文片段）一律不外传。
 
 | 函数 | 说明 | 失败时的 `reason` |
 |---|---|---|
@@ -82,6 +82,9 @@ preload 只把六个函数原样转交给主进程的固定 IPC 通道，参数�
 | `reveal(relPath)` | 在系统文件管理器里显示 `<仓库>/.agent/` 下的一个文件或目录 | `bad-path`（路径不合格、不存在、或经重解析点跑到 `.agent` 外） |
 | `notify(kind)` | 发一条系统通知 | `bad-kind`（不是下表里的类型名） |
 | `openSettings()` | 开设置外壳窗口（`themis-shell://app/index.html#/settings`，标题「设置」）；已经开着就聚焦，不另开第二个 | `unavailable`（这条分支不提供设置窗口，例如带参数起服务）、`load-failed`（设置窗口加载失败） |
+| `saveTheme(pref)` | 保存主题（转交 `themis-host:save-theme`），走既有 `saveSettings({ theme: pref })`；成功回 `{ok:true, value:{theme, density}}` | `bad-args`（`pref` 不在 `THEME_VALUES`）、`write-failed`（写盘失败）——与下面「外观」一节的 reason 词表一致 |
+
+`getAppearance()` 同步读当前外观（`sendSync`），`onAppearance(cb)` 订阅外观事件，详见下面「外观」一节。
 
 两种情形对所有函数通用：来源不是主窗口、或主窗口当前显示的不是服务 origin 下的页面 → `forbidden`；其余没列出的意外 → `internal`。
 
@@ -150,7 +153,7 @@ preload 只把六个函数原样转交给主进程的固定 IPC 通道，参数�
 - 协议只登记 `standard` 与 `secure` 两个 privileges（不加 `supportFetchAPI`、`corsEnabled`）；协议 handler 注册在窗口自己的分区 session 上。响应头带与服务页逐字相同的 CSP，外加 `X-Content-Type-Options: nosniff`。
 - 协议只读产物根内的普通文件：越界、路径上任一级的链接/junction、二次解码（解码后仍含 `%`）、目录、未知扩展名，一律回 **404** 且不带正文细节。
 
-`window.themisShell` 由顶层 `shell-preload.js` 暴露（只 require electron、自包含，恰好一次 `exposeInMainWorld`），成员恰好十个，与 `desktop/web/src/shellpages/themisShell.ts` 的 `interface ThemisShell` 一致：`getState`、`pickRepo`、`pickPython`、`pickKit`、`pickTranscriptDir`、`saveSettings`、`startService`、`restartService`、`openExternal`、`on`。每个方法只把声明的实参转交一条固定 IPC 通道，再拆信封：`{ok:true,value}` → resolve `value`；`{ok:false,reason}` → 以 `new Error(reason)` reject（`reason` 只进 `Error.message`，错误细节不外传）。`on('service-state', listener)` 真的订阅主进程发来的服务状态：preload 侧只注册一个 `ipcRenderer.on`，每次 `on` 登记一条独立订阅，退订只删自己那一条、可重复调用，别的事件名同步回一个空的退订函数；监听函数只收到 `state` 一个实参（Electron 的事件对象不过桥），`on` 与退订都不发 IPC。
+`window.themisShell` 由顶层 `shell-preload.js` 暴露（只 require electron、自包含，恰好一次 `exposeInMainWorld`），成员共十一个：`getState`、`pickRepo`、`pickPython`、`pickKit`、`pickTranscriptDir`、`saveSettings`、`startService`、`restartService`、`openExternal`、`on`，加本片新增的 `getAppearance`（同步读外观）。其中前十个与 `desktop/web/src/shellpages/themisShell.ts` 的 `interface ThemisShell` 逐字一致；`getAppearance` 要等 T063 片 B 给 `themisShell.ts` 加上之后才恢复逐名相等（`createShellApi` 的主进程实现仍返回十个成员，与 `themisShell.ts` 一致）。每个方法只把声明的实参转交一条固定 IPC 通道，再拆信封：`{ok:true,value}` → resolve `value`；`{ok:false,reason}` → 以 `new Error(reason)` reject（`reason` 只进 `Error.message`，错误细节不外传）。`on('service-state', listener)` 与 `on('appearance', listener)` 分别订阅服务状态与外观事件：preload 侧各注册一个 `ipcRenderer.on`，每次 `on` 登记一条独立订阅，退订只删自己那一条、可重复调用，别的事件名同步回一个空的退订函数；监听函数只收到 `state`/外观对象一个实参（Electron 的事件对象不过桥），`on` 与退订都不发 IPC。
 
 九条通道都在主进程经 `ipcMain.handle` 注册（不用 `ipcMain.on`），来源三条件核对：发送者是外壳窗口的 webContents、frame 非空、frame 当前显示的是 `themis-shell://app/` 页面；来源不对回 `forbidden`，api 抛错回 `internal`，都不外传错误消息。
 
@@ -195,6 +198,24 @@ preload 只把六个函数原样转交给主进程的固定 IPC 通道，参数�
 **此时首次启动页显示的是桩数据**：页面接 `window.themisShell` 在 T032（点「启动」那一步要等它落地）；在此之前页面显示的仍是桩数据，控制令牌只留在主进程，渲染进程经 IPC 也拿不到它。
 
 Electron 本体没有 postinstall，第一次运行才下载；自动化测试与门禁都不跑真 Electron，纯逻辑测试也不需要本体。
+
+## 外观
+
+外观由两个字段决定：`theme`（`system` / `light` / `dark`）与 `density`（`standard` / `compact`），合起来称外观对象 `{ theme, density }`。**缺省主题是暗**（`DEFAULT_SETTINGS.theme` 为 `"dark"`，密度仍 `"standard"`）；没有 `settings.json` 时 `load()` 读出 `{ theme: "dark", density: "standard" }`。已存成 `"system"` 的旧设置文件**不迁移**，照旧跟随系统。纯函数 `appearanceOf(settings)` 从整份设置里取出这两个字段，返回新对象（不返回入参本身）。
+
+主进程在两个启动分支都提供**同步**外观读取，页面在第一次渲染前就能拿到已保存的外观：
+
+- 宿主侧（服务页经 `window.themisHost`）：`getAppearance()` 走 `ipcRenderer.sendSync("themis-host:get-appearance")`，**同步**返回外观对象；主进程答 `null` 表示「此刻没有可读的外观」，页面据此用缺省暗、标准。
+- 外壳侧（外壳页经 `window.themisShell`）：`getAppearance()` 走 `ipcRenderer.sendSync("themis-shell:get-appearance")`，语义相同。
+- 两个读取通道都由 `ipcMain.on` 注册（只此三处，全在 `main.js`）：外壳分支注册宿主与外壳两条，带参数起服务分支只注册宿主那条且恒答 `null`（没有设置存储）。处理函数每条路径都设过 `event.returnValue`——来源不认、没有可读的外观、读出错一律回 `null`（发到没有监听的通道渲染进程会卡住，所以主进程必须保证有监听就一定答）。
+
+任何一次成功保存只要改了主题或密度，所有还开着的窗口当场收到外观事件（负载只有外观对象一个实参）：服务窗口收 `"themis-host:appearance"`（`onAppearance(cb)` 订阅），外壳页窗口与设置窗口各收 `"themis-shell:appearance"`（`on('appearance', cb)` 订阅）。保存失败、外观没变（同值重写、空补丁）、只改仓库等情况不广播。
+
+服务窗口标题栏的主题菜单经宿主函数 `saveTheme(pref)` 存主题（转交 `"themis-host:save-theme"`，invoke 通道，进 `HOST_CHANNELS` 末尾第七项）：成功回 `{ ok: true, value: { theme, density } }`（`value` 是刚存下的外观对象）；失败回 `{ ok: false, reason }`，`reason` 固定为 `bad-args`（`pref` 不在 `THEME_VALUES`，优先于 `unavailable`）、`unavailable`（这条分支没有注入保存能力）、`forbidden`（来源检查不通过 / 当前没有服务实例）、`write-failed`（写盘失败）、`internal`（注入的实现抛错）。它走既有 `saveSettings({ theme: pref })`，写盘成功且外观变了会触发上面的广播。
+
+五个新通道字面量（preload 里硬写、`src/*.js` 里是常量，两处一致由单测逐字比对）：`"themis-host:save-theme"`（invoke）、`"themis-host:get-appearance"`（同步读）、`"themis-host:appearance"`（推送）、`"themis-shell:get-appearance"`（同步读）、`"themis-shell:appearance"`（推送）。两个读取通道与两个事件通道都**不**进 `HOST_CHANNELS`/`SHELL_CHANNELS` 的 invoke 白名单。
+
+建窗背景色由纯函数 `backgroundFor(theme, systemDark)` 取：暗 `#0C111A`、亮 `#F3F5F9`、跟随系统与任何非法值按 `systemDark`（主进程传 `nativeTheme.shouldUseDarkColors`）取。外壳页窗口（含设置窗口）与两个分支的服务窗口建窗时设 `backgroundColor`，凭据窗口不设——首帧不闪白/不闪黑。
 
 ## 安全设置
 

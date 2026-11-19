@@ -66,6 +66,8 @@ function makeHarness(over) {
   };
   const api = createShellApi({
     store,
+    initialSettings: opts.initialSettings,
+    onAppearanceChange: opts.onAppearanceChange,
     chooseDirectory: async () => chooser.dir,
     chooseFile: async () => chooser.file,
     confirmExternal: async (url) => {
@@ -118,7 +120,7 @@ test("getState：信封与缺省设置（五个字段）、app、service、没�
     repos: [],
     currentRepo: null,
     transcriptDirs: [],
-    theme: "system",
+    theme: "dark",
     density: "standard",
   });
   assert.equal(st.currentRepoCheck, null);
@@ -474,7 +476,7 @@ test("saveSettings：垃圾输入与各类拒绝都回信封、文件字节与�
   }
   const st = (await h.api.getState()).value;
   assert.equal(st.settings.repos.length, 1, "拒绝后内存状态也不变");
-  assert.equal(st.settings.theme, "system");
+  assert.equal(st.settings.theme, "dark");
 });
 
 test("saveSettings：校验顺序 bad-patch → unknown-id → current-repo", async () => {
@@ -578,8 +580,8 @@ test("写盘失败 → write-failed、内存状态回滚（pickRepo 与 saveSett
   h.chooser.dir = h.gitRepo("alpha");
   assert.deepEqual(await h.api.pickRepo(), { ok: false, reason: "write-failed" });
   assert.equal((await h.api.getState()).value.settings.repos.length, 0, "写盘失败不许改内存状态");
-  assert.deepEqual(await h.api.saveSettings({ theme: "dark" }), { ok: false, reason: "write-failed" });
-  assert.equal((await h.api.getState()).value.settings.theme, "system", "写盘失败后内存要回滚");
+  assert.deepEqual(await h.api.saveSettings({ theme: "light" }), { ok: false, reason: "write-failed" });
+  assert.equal((await h.api.getState()).value.settings.theme, "dark", "写盘失败后内存要回滚");
 });
 
 test("startService 按仓库 id 真起服务；restartService 按当前设置重启；on 真订阅", async () => {
@@ -815,6 +817,86 @@ test("startService 按仓库 id 真起服务；restartService 按当前设置重
   assert.equal(typeof offBare, "function");
   assert.doesNotThrow(() => offBare());
   assert.equal(fired, 0, "没有控制器时 on 同步回空退订函数");
+});
+
+test("onAppearanceChange：改 theme 且写盘成功 → 恰好调一次、实参是只含新值的 {theme,density}", async () => {
+  const seen = [];
+  const h = makeHarness({ onAppearanceChange: (a) => seen.push(a) });
+  const r = await h.api.saveSettings({ theme: "light" });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(seen, [{ theme: "light", density: "standard" }], "一次、两个字段都是新值");
+});
+
+test("onAppearanceChange：一次同时改 theme 与 density → 仍只调一次，两字段都是新值", async () => {
+  const seen = [];
+  const h = makeHarness({ onAppearanceChange: (a) => seen.push(a) });
+  await h.api.saveSettings({ theme: "system", density: "compact" });
+  assert.deepEqual(seen, [{ theme: "system", density: "compact" }]);
+});
+
+test("onAppearanceChange：写盘失败 → 不调、回 write-failed", async () => {
+  const seen = [];
+  const h = makeHarness({ failingSave: true, onAppearanceChange: (a) => seen.push(a) });
+  assert.deepEqual(await h.api.saveSettings({ theme: "light" }), { ok: false, reason: "write-failed" });
+  assert.deepEqual(seen, [], "写盘失败不广播");
+});
+
+test("onAppearanceChange：外观没变（同值重写、空补丁）→ 不调", async () => {
+  const seen = [];
+  const h = makeHarness({ onAppearanceChange: (a) => seen.push(a) });
+  assert.equal((await h.api.saveSettings({ theme: "dark" })).ok, true, "缺省就是 dark，同值重写");
+  assert.equal((await h.api.saveSettings({})).ok, true, "空补丁");
+  assert.equal((await h.api.saveSettings({ theme: "dark", density: "standard" })).ok, true, "同值");
+  assert.deepEqual(seen, []);
+});
+
+test("onAppearanceChange：只改仓库（pickTranscriptDir 加目录）→ 不调", async () => {
+  const seen = [];
+  const h = makeHarness({ onAppearanceChange: (a) => seen.push(a) });
+  h.chooser.dir = h.plainDir("logs");
+  const r = await h.api.pickTranscriptDir();
+  assert.equal(r.ok, true, "夹具本身要成功：" + JSON.stringify(r));
+  assert.deepEqual(seen, []);
+});
+
+test("onAppearanceChange：回调抛错 → 不影响 saveSettings 的返回值", async () => {
+  const h = makeHarness({ onAppearanceChange: () => {
+    throw new Error("boom");
+  } });
+  const r = await h.api.saveSettings({ theme: "light" });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.settings.theme, "light");
+});
+
+test("initialSettings：当内存初值（深拷贝）、一次 store.load() 都不调", async () => {
+  const initial = {
+    version: 1, repos: [], currentRepo: null, transcriptDirs: [],
+    theme: "light", density: "compact", pythonPath: null, kitPath: null,
+  };
+  let loads = 0;
+  const api = createShellApi({
+    store: {
+      load: () => {
+        loads += 1;
+        return { settings: Object.assign({}, DEFAULT_SETTINGS), badCopy: null };
+      },
+      save: () => {},
+    },
+    initialSettings: initial,
+    probe: {
+      probePython: async () => null,
+      probeKit: async () => null,
+      detectPython: async () => ({ status: "missing", path: "", version: "" }),
+      detectKit: async () => null,
+    },
+  });
+  const r = await api.getState();
+  assert.equal(r.value.settings.theme, "light", "用注入值当内存初值");
+  assert.equal(r.value.settings.density, "compact");
+  initial.theme = "dark"; // 深拷贝：api 的内存与注入的对象不共用同一份
+  const again = await api.getState();
+  assert.equal(again.value.settings.theme, "light", "改注入的对象不许影响 api 的内存");
+  assert.equal(loads, 0, "给了 initialSettings 就不该 store.load()");
 });
 
 test("十个成员：名字与个数照合同", () => {

@@ -6,6 +6,14 @@ function partitionName() {
   return crypto.randomUUID();
 }
 
+// 建窗背景色：暗 #0C111A、亮 #F3F5F9；跟随系统（"system"）与任何非法值（含 undefined）按 systemDark 取。
+// systemDark 由调用方传 nativeTheme.shouldUseDarkColors。
+function backgroundFor(theme, systemDark) {
+  if (theme === "dark") return "#0C111A";
+  if (theme === "light") return "#F3F5F9";
+  return systemDark ? "#0C111A" : "#F3F5F9";
+}
+
 function webPreferences(partition) {
   return {
     contextIsolation: true,
@@ -62,4 +70,4 @@ function isServiceUrl(url, origin) {
   return parsed.origin === origin;
 }
 
-module.exports = { partitionName, webPreferences, mainWebPreferences, trackWindow, isServiceUrl };
+module.exports = { partitionName, backgroundFor, webPreferences, mainWebPreferences, trackWindow, isServiceUrl };

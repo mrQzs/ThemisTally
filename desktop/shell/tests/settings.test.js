@@ -13,6 +13,7 @@ const {
   THEME_VALUES,
   DENSITY_VALUES,
   PATCH_KEYS,
+  appearanceOf,
   createSettingsStore,
   normalizeSettings,
   applyPatch,
@@ -25,7 +26,7 @@ const DEFAULTS = {
   repos: [],
   currentRepo: null,
   transcriptDirs: [],
-  theme: "system",
+  theme: "dark",
   density: "standard",
   pythonPath: null,
   kitPath: null,
@@ -88,11 +89,26 @@ test("load：文件不存在 → 缺省设置的深拷贝、badCopy 为 null", (
   const b = base();
   const r = makeStore(b).load();
   assert.deepEqual(r.settings, DEFAULTS);
+  assert.equal(r.settings.theme, "dark", "没有 settings.json 时缺省主题是暗（D01）");
+  assert.equal(r.settings.density, "standard", "缺省密度是标准");
   assert.equal(r.badCopy, null);
   assert.notEqual(r.settings, DEFAULT_SETTINGS);
   assert.notEqual(r.settings.repos, DEFAULT_SETTINGS.repos);
   r.settings.repos.push({ id: "x" });
   assert.deepEqual(DEFAULT_SETTINGS.repos, [], "缺省设置不许被读出去的对象带坏");
+});
+
+test("appearanceOf：返回 {theme,density} 的新对象，不带别的键，改它不动入参", () => {
+  const src = {
+    version: 1, repos: [], currentRepo: null, transcriptDirs: [],
+    theme: "light", density: "compact", pythonPath: null, kitPath: null,
+  };
+  const view = appearanceOf(src);
+  assert.deepEqual(Object.keys(view).sort(), ["density", "theme"]);
+  assert.deepEqual(view, { theme: "light", density: "compact" });
+  assert.notEqual(view, src, "不许返回入参本身");
+  view.theme = "dark";
+  assert.equal(src.theme, "light", "改返回值不许改到入参");
 });
 
 const BAD_FILES = [

@@ -287,7 +287,7 @@ def test_s01_host_interface_wiring():
     preload = _shell_read("preload.js")
     assert "openSettings" in preload, "preload.js 要暴露 openSettings"
     assert '"themis-host:open-settings"' in preload, "preload.js 缺通道字面量 themis-host:open-settings"
-    assert "六个函数" in preload, "preload.js 的注释要写「六个函数」（第五个扩成第六个）"
+    assert "九个函数" in preload, "preload.js 的注释要写「九个函数」（第六个扩成第九个）"
     assert not _requires_beyond_electron(preload), "preload.js 仍只许 require electron（T025 门禁 S03）"
     ipc = _shell_read("src/ipc.js")
     assert '"themis-host:open-settings"' in ipc, "src/ipc.js 的 HOST_CHANNELS 要加新通道"
@@ -374,8 +374,8 @@ def test_s04_main_injection_and_sources():
     api = _call_span(code, "createShellApi(")
     assert api, "main.js 缺 createShellApi 调用"
     assert "settingsWin" in api, "选择框与确认框的父窗口在设置窗口开着时要挂它（D04）"
-    assert not re.search(r"settingsWin\s*\.\s*webContents\s*\.\s*send", code), \
-        "服务状态事件照旧只发给外壳页窗口（shellWin），不发设置窗口"
+    assert not re.search(r"settingsWin\s*\.\s*webContents\s*\.\s*send\s*\(\s*SERVICE_STATE_CHANNEL", code), \
+        "服务状态事件照旧只发给外壳页窗口（shellWin），不发设置窗口（外观事件发设置窗口是允许的）"
 
 
 def test_s05_main_lifecycle():
@@ -539,11 +539,11 @@ function reset() {
 const tick = () => new Promise((r) => setImmediate(r));
 
 
-test("暴露面：六个函数，openSettings 排在最后，前五个照旧", () => {
+test("暴露面：七个函数，saveTheme 排在最后，前六个照旧", () => {
   const host = makeHost({ createSettingsWindow });
   assert.deepEqual(
     Object.keys(host),
-    ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings"],
+    ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme"],
   );
   for (const name of Object.keys(host)) {
     assert.equal(typeof host[name], "function", name + " 必须是函数");
@@ -642,6 +642,7 @@ const CHANNELS = [
   "themis-host:reveal",
   "themis-host:notify",
   "themis-host:open-settings",
+  "themis-host:save-theme",
 ];
 const SETTINGS_URL = "themis-shell://app/index.html#/settings";
 
@@ -653,12 +654,12 @@ test("SHELL_SETTINGS_URL：常量逐字、isShellPageUrl 认它、加在 SHELL_S
   assert.ok(src.indexOf("SHELL_STATUS_URL") < src.indexOf("SHELL_SETTINGS_URL"), "常量要加在 SHELL_STATUS_URL 之后");
 });
 
-test("HOST_CHANNELS 恰好六条、冻结、顺序固定（新通道在末尾）", () => {
+test("HOST_CHANNELS 恰好七条、冻结、顺序固定（save-theme 在末尾）", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS), "HOST_CHANNELS 必须冻结");
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("ipc：六个通道都注册；新通道转交 openSettings、多余实参丢掉；来源不对回 forbidden 不进 host", async () => {
+test("ipc：七个通道都注册；新通道转交 openSettings、多余实参丢掉；来源不对回 forbidden 不进 host", async () => {
   const handlers = {};
   const calls = [];
   const host = {
@@ -668,6 +669,7 @@ test("ipc：六个通道都注册；新通道转交 openSettings、多余实参�
     reveal: async () => ({ ok: true }),
     notify: async () => ({ ok: true }),
     openSettings: async (...args) => { calls.push(args); return { ok: true }; },
+    saveTheme: async () => ({ ok: true }),
   };
   const ipcMain = { handle: (ch, fn) => { handlers[ch] = fn; } };
   let allowed = true;
@@ -675,7 +677,7 @@ test("ipc：六个通道都注册；新通道转交 openSettings、多余实参�
   for (const ch of CHANNELS) {
     assert.equal(typeof handlers[ch], "function", "通道没注册：" + ch);
   }
-  assert.equal(Object.keys(handlers).length, CHANNELS.length, "只许注册这六个通道");
+  assert.equal(Object.keys(handlers).length, CHANNELS.length, "只许注册这七个通道");
   const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:1/x" } };
   assert.deepEqual(await handlers["themis-host:open-settings"](EV), { ok: true });
   assert.deepEqual(await handlers["themis-host:open-settings"](EV, "EXTRA", "MORE"), { ok: true });
@@ -686,9 +688,9 @@ test("ipc：六个通道都注册；新通道转交 openSettings、多余实参�
   assert.deepEqual(calls, [], "来源不对根本不进 host");
 });
 
-test("hostrelay：HOST_METHODS 恰好六项（openSettings 在末尾）；openSettings 转给当前 host、没有 host 回 forbidden", async () => {
+test("hostrelay：HOST_METHODS 恰好七项（saveTheme 在末尾）；openSettings 转给当前 host、没有 host 回 forbidden", async () => {
   assert.deepEqual([...HOST_METHODS], [
-    "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings",
+    "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme",
   ]);
   const relay = createHostRelay();
   assert.deepEqual(await relay.host.openSettings(), { ok: false, reason: "forbidden" }, "没有当前 host 不抛错");
@@ -700,17 +702,22 @@ test("hostrelay：HOST_METHODS 恰好六项（openSettings 在末尾）；openSe
   assert.deepEqual(await relay.host.openSettings(), { ok: false, reason: "forbidden" }, "clear 之后回到没有 host");
 });
 
-test("preload 真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰好六个、openSettings 无参转交、无 on/send", () => {
+test("preload 真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰好九个、openSettings 无参转交、恰好一个 on", () => {
   const source = fs.readFileSync(path.join(SHELL, "preload.js"), "utf8");
   const requires = [];
   const exposes = [];
   const invokes = [];
+  const listeners = [];
   const fakeRequire = (name) => {
     requires.push(name);
     assert.equal(name, "electron", "preload 只许 require electron，却 require 了 " + name);
     return {
       contextBridge: { exposeInMainWorld: (n, o) => exposes.push([n, o]) },
-      ipcRenderer: { invoke: async (...args) => { invokes.push(args); return { ok: true }; } },
+      ipcRenderer: {
+        invoke: async (...args) => { invokes.push(args); return { ok: true }; },
+        sendSync: () => ({ theme: "dark", density: "standard" }),
+        on: (...args) => listeners.push(args),
+      },
     };
   };
   vm.runInNewContext(source, { require: fakeRequire, module: { exports: {} }, exports: {} });
@@ -719,14 +726,16 @@ test("preload 真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰
   const [name, api] = exposes[0];
   assert.equal(name, "themisHost");
   assert.deepEqual(Object.keys(api).sort(), [
-    "notify", "openExternal", "openSecretWindow", "openSettings", "reauth", "reveal",
+    "getAppearance", "notify", "onAppearance", "openExternal", "openSecretWindow",
+    "openSettings", "reauth", "reveal", "saveTheme",
   ]);
   assert.equal(typeof api.openSettings, "function", "openSettings 必须是函数");
   api.openSettings();
   api.openSettings("EXTRA");
   assert.deepEqual(invokes.slice(-2), [["themis-host:open-settings"], ["themis-host:open-settings"]],
     "openSettings 无参转交固定通道（多余实参丢掉）：" + JSON.stringify(invokes));
-  assert.ok(!/ipcRenderer\s*\.\s*on\s*\(/.test(source), "preload 不许有 ipcRenderer.on");
+  assert.equal(listeners.length, 1, "模块级恰好一个 ipcRenderer.on（外观事件分发）");
+  assert.equal(listeners[0][0], "themis-host:appearance");
   assert.ok(!/ipcRenderer\s*\.\s*send\s*\(/.test(source), "preload 不许有 ipcRenderer.send");
 });
 '''

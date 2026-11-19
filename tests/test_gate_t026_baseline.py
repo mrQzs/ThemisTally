@@ -131,8 +131,17 @@ LOCATION_RULES = (
     (re.compile(r"\bshowItemInFolder\b"), "showItemInFolder", ("main.js",), "product"),
     (re.compile(r"\bdialog\b"), "dialog", ("main.js",), "product"),
     (re.compile(r"\bNotification\b"), "Notification", ("main.js",), "product"),
-    (re.compile(r"\bipcMain\s*\.\s*on\b"), "ipcMain.on", (), "all"),
+    (re.compile(r"\bipcMain\s*\.\s*on\b"), "ipcMain.on", ("main.js",), "all"),
     (re.compile(r"\bipcRenderer\s*\.\s*send\b"), "ipcRenderer.send", (), "all"),
+)
+
+# ipcMain.on：片 A（T061）起只许出现在 main.js，且注册的通道只许那两个外观读取字面量（T061 放开的口）
+IPC_MAIN_ON_RE = re.compile(r"\bipcMain\s*\.\s*on\s*\(")
+ALLOWED_SYNC_CHANNEL_ARGS = (
+    "HOST_APPEARANCE_CHANNEL",
+    '"themis-host:get-appearance"',
+    "SHELL_APPEARANCE_CHANNEL",
+    '"themis-shell:get-appearance"',
 )
 
 # main.js 的 T026 接线标记（T025 的 15 个标记由 T025 门禁 S04 继续钉住）。createHost/registerHostIpc
@@ -281,6 +290,19 @@ def test_s03_static_scan():
                     f"desktop/shell/{rel} 出现只许在 {list(allowed) or '任何文件都不许'} 的「{what}」："
                     f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
                 )
+        # ipcMain.on 只许 main.js 有，且注册的通道只许那两个外观读取字面量（T061 放开的口）
+        for m in IPC_MAIN_ON_RE.finditer(text):
+            if rel != "main.js":
+                raise AssertionError(
+                    f"desktop/shell/{rel} 不许出现 ipcMain.on（只许 main.js 的外观读取）："
+                    f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+            open_at = text.find("(", m.start())
+            first_arg = text[open_at + 1:].split(",")[0].strip()
+            if first_arg not in ALLOWED_SYNC_CHANNEL_ARGS:
+                raise AssertionError(
+                    f"main.js 的 ipcMain.on 通道只许那两个外观读取字面量，却见到：{first_arg}"
+                )
     for f in [SHELL / "main.js"] + sorted((SHELL / "src").rglob("*.js")):
         text = f.read_text(encoding="utf-8")
         for pat, what in SRC_FORBIDDEN:
@@ -355,24 +377,31 @@ const CHANNELS = [
   "themis-host:reveal",
   "themis-host:notify",
   "themis-host:open-settings",
+  "themis-host:save-theme",
 ];
 
-test("HOST_CHANNELS 恰好六个通道、冻结", () => {
+test("HOST_CHANNELS 恰好七个通道、冻结", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS), "HOST_CHANNELS 必须冻结");
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWorld、键恰好六个", () => {
+test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWorld、键恰好九个", async () => {
   const source = fs.readFileSync(path.join(SHELL, "preload.js"), "utf8");
   const requires = [];
   const exposes = [];
   const invokes = [];
+  const syncs = [];
+  const listeners = [];
   const fakeRequire = (name) => {
     requires.push(name);
     assert.equal(name, "electron", "preload 只许 require electron，却 require 了 " + name);
     return {
       contextBridge: { exposeInMainWorld: (n, o) => exposes.push([n, o]) },
-      ipcRenderer: { invoke: async (...args) => { invokes.push(args); return { ok: true }; } },
+      ipcRenderer: {
+        invoke: async (...args) => { invokes.push(args); return { ok: true }; },
+        sendSync: (...args) => { syncs.push(args); return { theme: "dark", density: "standard" }; },
+        on: (...args) => listeners.push(args),
+      },
     };
   };
   vm.runInNewContext(source, { require: fakeRequire, module: { exports: {} }, exports: {} });
@@ -380,7 +409,10 @@ test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWor
   assert.equal(exposes.length, 1, "exposeInMainWorld 必须恰好调一次：" + JSON.stringify(exposes.map((e) => e[0])));
   const [name, api] = exposes[0];
   assert.equal(name, "themisHost");
-  assert.deepEqual(Object.keys(api).sort(), ["notify", "openExternal", "openSecretWindow", "openSettings", "reauth", "reveal"]);
+  assert.deepEqual(Object.keys(api).sort(), [
+    "getAppearance", "notify", "onAppearance", "openExternal", "openSecretWindow",
+    "openSettings", "reauth", "reveal", "saveTheme",
+  ]);
   assert.equal(typeof api.openSettings, "function", "openSettings 必须是函数");
   const u = "http://127.0.0.1:8123/abcdefghijklmnopqrstuv";
   const j = "0123456789".repeat(4) + "012";
@@ -404,7 +436,17 @@ test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWor
     ["themis-host:open-settings"],
     ["themis-host:open-settings"],
   ]);
-  assert.ok(!/ipcRenderer\s*\.\s*on\s*\(/.test(source), "preload 不许有 ipcRenderer.on");
+  // saveTheme：只转交这一个实参到固定通道，返回信封不拆
+  const r = await api.saveTheme("dark");
+  assert.deepEqual(r, { ok: true }, "与既有函数同款：不拆信封");
+  assert.deepEqual(invokes.slice(-1), [["themis-host:save-theme", "dark"]], "只转交一个实参");
+  // getAppearance：走 sendSync 同步取、载入时不发
+  assert.equal(syncs.length, 0, "preload 载入时不许发 sendSync");
+  assert.deepEqual(api.getAppearance(), { theme: "dark", density: "standard" }, "回值原样返回");
+  assert.deepEqual(syncs, [["themis-host:get-appearance"]]);
+  // 模块级恰好一个 ipcRenderer.on，频道是 themis-host:appearance
+  assert.equal(listeners.length, 1, "模块级恰好一个 ipcRenderer.on（外观事件分发）");
+  assert.equal(listeners[0][0], "themis-host:appearance");
   assert.ok(!/ipcRenderer\s*\.\s*send\s*\(/.test(source), "preload 不许有 ipcRenderer.send");
 });
 '''
@@ -1229,16 +1271,17 @@ const CHANNELS = [
   "themis-host:reveal",
   "themis-host:notify",
   "themis-host:open-settings",
+  "themis-host:save-theme",
 ];
 const SECRET = "ipc-secret-" + crypto.randomBytes(8).toString("hex");
 const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:8123/app" } };
 
-test("HOST_CHANNELS 冻结且恰好六个", () => {
+test("HOST_CHANNELS 冻结且恰好七个", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS));
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("只用 ipcMain.handle 注册六个通道；来源不对回 forbidden 且不进 host", async () => {
+test("只用 ipcMain.handle 注册七个通道；来源不对回 forbidden 且不进 host", async () => {
   const handlers = {};
   let onCalled = 0;
   const ipcMain = {

@@ -121,8 +121,16 @@ WORD_RULES = (
 
 ELECTRON_ALLOWED = ("main.js", "preload.js", "shell-preload.js")
 IPC_BANS = (
-    (re.compile(r"\bipcMain\s*\.\s*on\b"), "ipcMain.on"),
     (re.compile(r"\bipcRenderer\s*\.\s*send\b"), "ipcRenderer.send"),
+)
+
+# ipcMain.on：片 A（T061）起只许出现在 main.js，且注册的通道只许那两个外观读取字面量（T061 放开的口）
+IPC_MAIN_ON_RE = re.compile(r"\bipcMain\s*\.\s*on\s*\(")
+ALLOWED_SYNC_CHANNEL_ARGS = (
+    "HOST_APPEARANCE_CHANNEL",
+    '"themis-host:get-appearance"',
+    "SHELL_APPEARANCE_CHANNEL",
+    '"themis-shell:get-appearance"',
 )
 
 
@@ -260,6 +268,19 @@ def test_s03_static_scan():
                 raise AssertionError(
                     f"desktop/shell/{rel} 出现全禁的「{what}」："
                     f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+        # ipcMain.on 只许 main.js 有，且注册的通道只许那两个外观读取字面量
+        for m in IPC_MAIN_ON_RE.finditer(text):
+            if rel != "main.js":
+                raise AssertionError(
+                    f"desktop/shell/{rel} 不许出现 ipcMain.on（只许 main.js 的外观读取）："
+                    f"…{text[max(0, m.start() - 40):m.end() + 40]}…"
+                )
+            open_at = text.find("(", m.start())
+            first_arg = text[open_at + 1:].split(",")[0].strip()
+            if first_arg not in ALLOWED_SYNC_CHANNEL_ARGS:
+                raise AssertionError(
+                    f"main.js 的 ipcMain.on 通道只许那两个外观读取字面量，却见到：{first_arg}"
                 )
 
     product_files = [SHELL / "main.js"] + sorted((SHELL / "src").rglob("*.js"))
@@ -924,21 +945,23 @@ function runShellPreload() {
 }
 
 function internalListener(p) {
-  assert.equal(p.listeners.length, 1, "模块加载时只注册一个 ipcRenderer.on：" + JSON.stringify(p.listeners.map((a) => a[0])));
-  const [channel, fn] = p.listeners[0];
+  const entry = p.listeners.find((a) => a[0] === "themis-shell:service-state");
+  assert.ok(entry, "模块加载时要注册 themis-shell:service-state 的 ipcRenderer.on");
+  assert.equal(p.listeners.length, 2, "模块级恰好两个 ipcRenderer.on（service-state 与 appearance）");
+  const [channel, fn] = entry;
   assert.equal(channel, "themis-shell:service-state");
   assert.equal(typeof fn, "function");
   return fn;
 }
 
-test("模块加载时只注册一个 ipcRenderer.on，频道是那个字面量；仍是十个成员、恰好一次 expose", () => {
+test("模块加载时注册两个 ipcRenderer.on（service-state 与 appearance）；十一个成员、恰好一次 expose", () => {
   const p = runShellPreload();
   internalListener(p);
   assert.equal(p.requires.length, 1, JSON.stringify(p.requires));
   assert.equal(p.exposes.length, 1, JSON.stringify(p.exposes.map((e) => e[0])));
   assert.equal(p.exposes[0][0], "themisShell");
   assert.equal((p.source.match(/exposeInMainWorld/g) || []).length, 1, "exposeInMainWorld 只许出现一次");
-  assert.equal(Object.keys(p.exposes[0][1]).length, 10, "暴露面仍是十个成员");
+  assert.equal(Object.keys(p.exposes[0][1]).length, 11, "暴露面共十一个成员（原十个 + getAppearance）");
 });
 
 test("页面监听只收到 state 一个实参（不把事件对象交给页面）；两个订阅都收到", () => {

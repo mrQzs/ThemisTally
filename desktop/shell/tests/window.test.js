@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
-const { partitionName, webPreferences, mainWebPreferences, isServiceUrl, trackWindow } = require("../src/window.js");
+const { partitionName, backgroundFor, webPreferences, mainWebPreferences, isServiceUrl, trackWindow } = require("../src/window.js");
 
 test("webPreferences 恰好十个键，没有 preload（凭据窗口用它）", () => {
   assert.deepEqual(webPreferences("sess-abc"), {
@@ -38,6 +38,19 @@ test("mainWebPreferences：T025 的十键加 preload，其余不变（主窗口�
   });
   assert.equal(Object.keys(prefs).length, 11);
   assert.equal(Object.keys(webPreferences("sess-abc")).length, 10);
+});
+
+test("backgroundFor：暗 #0C111A、亮 #F3F5F9、system 与非法值按 systemDark", () => {
+  assert.equal(backgroundFor("dark", false), "#0C111A");
+  assert.equal(backgroundFor("dark", true), "#0C111A");
+  assert.equal(backgroundFor("light", true), "#F3F5F9");
+  assert.equal(backgroundFor("light", false), "#F3F5F9");
+  assert.equal(backgroundFor("system", true), "#0C111A");
+  assert.equal(backgroundFor("system", false), "#F3F5F9");
+  assert.equal(backgroundFor("neon", false), "#F3F5F9", "非法值当 system 对待");
+  assert.equal(backgroundFor("neon", true), "#0C111A");
+  assert.equal(backgroundFor(undefined, true), "#0C111A", "没有外观时也当 system");
+  assert.equal(backgroundFor(undefined, false), "#F3F5F9");
 });
 
 function fakeWin() {
