@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "task_id": "t061-desktop-appearance-settings",
+  "plan_version": 2,
+  "title": "外观设置生效：每个窗口启动时用已保存的主题与密度，改了当场跟着变",
+  "repository": "ThemisTally",
+  "base_sha": "16bf543b3ba88d213c2757e868811389e555432c",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/main.js",
+      "desktop/shell/preload.js",
+      "desktop/shell/shell-preload.js",
+      "desktop/shell/README.md",
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/src/shellipc.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/hostrelay.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/tests/preload.test.js",
+      "desktop/shell/tests/ipc.test.js",
+      "desktop/shell/tests/hostrelay.test.js",
+      "desktop/shell/tests/host.test.js",
+      "desktop/shell/tests/shellpreload.test.js",
+      "desktop/shell/tests/shellipc.test.js",
+      "desktop/shell/tests/settings.test.js",
+      "desktop/shell/tests/shellapi.test.js",
+      "desktop/shell/tests/window.test.js",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t028_baseline.py",
+      "tests/test_gate_t030_baseline.py",
+      "tests/test_gate_t033_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t060_baseline.py"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t061_*.py",
+      "desktop/web/**",
+      "desktop/shell/package.json",
+      "desktop/shell/package-lock.json"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass \\d+"
+      ],
+      "output_must_not_match": [
+        "# fail [1-9]"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t060_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1800,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t061_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "tests/test_gate_t056_baseline.py",
+        "tests/test_gate_t057_baseline.py",
+        "tests/test_gate_t058_baseline.py",
+        "tests/test_gate_t059_baseline.py",
+        "tests/test_gate_t060_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3540,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "缺省主题是暗——没有 `settings.json` 时 `load()` 读出 `{theme:\"dark\", density:\"standard\"}`（设置单测与 shellapi 单测各有一条）",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "外观的缺省值与设计交接一致，别让「缺省暗」只停在页面的内存里"
+    },
+    {
+      "id": "D02",
+      "text": "两个启动分支都注册了同步外观读取（`main.js` 恰好三处 `ipcMain.on`，宿主通道两处、外壳通道一处），每个处理函数每条路径都设过 `event.returnValue`（来源不认、没有可读的外观、读出错都回 `null`），带参数分支那一处恒答 `null`；本片没有 main.js 的单测（理由见「本片没有 main.js 的单测」一节），证据是门禁的静态断言与站主在真窗口核读值",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "渲染进程在通道无人应答时会卡住，这条是首帧能读到外观的前提"
+    },
+    {
+      "id": "D03",
+      "text": "保存成功且 `theme` 或 `density` 变了才广播一次外观事件（三个发送点各写一遍：服务窗口发宿主事件、`shellWin` 与 `settingsWin` 各发外壳事件，每个发送点自己判 `isDestroyed()`）；写盘失败、外观没变、只改仓库都不广播",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "别的窗口要当场跟着变，而保存失败时不该有窗口跟着变"
+    },
+    {
+      "id": "D04",
+      "text": "`saveTheme` 的四种结局各有单测：`bad-args`（pref 非法，优先于 unavailable）、`unavailable`（没注入保存能力）、`forbidden`（没有当前 host）、成功 `{ok:true,value:{theme,density}}`（走既有 `saveSettings` 并触发广播）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "服务窗口标题栏的主题菜单要能存下来，且失败原因词固定"
+    },
+    {
+      "id": "D05",
+      "text": "建窗背景色纯函数 `backgroundFor(theme, systemDark)` 有单测（暗 `#0C111A`、亮 `#F3F5F9`、跟随系统按 `shouldUseDarkColors`），服务窗口与外壳页窗口都用它设 `backgroundColor`，凭据窗口不设",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "首帧不闪白/不闪黑"
+    },
+    {
+      "id": "D06",
+      "text": "外壳单测全过（输出有 `# pass` 且无 `# fail`）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "外壳侧的行为有回归保护"
+    },
+    {
+      "id": "D07",
+      "text": "本片改过的旧门禁全绿（T026、T028、T030、T033、T035、T060），全套回归也绿；T032 的 `UNTOUCHED_REL` 与 T012 的两条过渡断言未退役且仍绿",
+      "evidence": [
+        "V02",
+        "R01"
+      ],
+      "intent": "本片放开的 `ipcMain.on` 只是个口，不得顺手放宽别的禁令"
+    },
+    {
+      "id": "D08",
+      "text": "所有修改都在允许集合内，没有碰 `desktop/web/**`、没有新增文件、没有改依赖与锁文件",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "片 A 与片 B 的边界不越"
+    },
+    {
+      "id": "D09",
+      "text": "没有删除、跳过或弱化既有测试；唯一放宽的两处成员集合断言（T030 的 P04 与外壳单测里那条）都写明了「T063 恢复逐字相等」",
+      "evidence": [
+        "review"
+      ],
+      "intent": "门禁的强度不因拆片而悄悄下降"
+    },
+    {
+      "id": "D10",
+      "text": "README 的既有 needle 一条不少，并写清外观相关的通道字面量、信封与缺省值；几份门禁各自的 README 段断言仍绿",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "下一片照 README 就能对齐名字与字面量"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 2,
+    "max_wall_seconds_per_attempt": 1200,
+    "max_wall_seconds_total": 2400,
+    "cost_budget": null
+  }
+}
