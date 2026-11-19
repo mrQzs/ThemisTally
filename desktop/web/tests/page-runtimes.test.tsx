@@ -113,7 +113,7 @@ describe('CLI 运行时表', () => {
 });
 
 describe('就绪检查区', () => {
-  it('[运行就绪检查] 可点 secondary 带 PlayIcon，虚线空框，无按版本核验下拉', () => {
+  it('[运行就绪检查] 可点 secondary 带 PlayIcon，虚线空框，按版本记录核验是文本框加可点的 [核验]，无下拉', () => {
     const { container } = render(<RuntimesView runtimes={RUNTIMES} quizs={QUIZS} />);
     const sec = sectionNamed(container, '就绪检查');
     const b = btn(sec, '运行就绪检查');
@@ -122,6 +122,7 @@ describe('就绪检查区', () => {
     expect(b?.querySelector('svg')).not.toBeNull();
     expect(text(sec)).toContain('还没有运行过就绪检查。');
     expect(sec.querySelector('select, [role="combobox"], [role="listbox"]')).toBeNull();
-    expect(btn(container, '核验')).toBeUndefined();
+    expect(btn(container, '核验')).toBeTruthy();
+    expect(btn(container, '核验')?.disabled).toBe(false);
   });
 });

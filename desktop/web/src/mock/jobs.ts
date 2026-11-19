@@ -1,4 +1,4 @@
-// 作业接口的桩（T054，T055 加 runtime-probe 与 models 两类）：模块级作业表 + ?mock= 五开关的状态机，
+// 作业接口的桩（T054，T055 加 runtime-probe 与 models 两类，T056/T057 再加 doctor 与 doctor-record）：模块级作业表 + ?mock= 五开关的状态机，
 // 不用计时器（每次调用都回已兑现的 Promise）。loading 一直 running、error 第一次查询就落 failed、
 // data/offline/empty 第一次查询 running 第二次 succeeded；取消没结束回 200 并落 cancelled、已结束回 409；
 // 查不存在的作业号回 404。runtime-scan 那一路与 T054 一字不改。
@@ -137,6 +137,36 @@ function doctorEnvelope(odd: boolean): Envelope<unknown> {
   };
 }
 
+// 按版本记录核验的终态信封（照内核 config doctor --record=<task>.vN --json）：记录是 logs-cat.v2（合同里的例子）
+// 时给有 data 的结果——roles 只有那一行，是 doctor 的无头行再加一个 record 键；第奇数次没就绪（data.ready 为假、
+// 退出码 1，作业落 failed 但 data 照给），第偶数次就绪。别的记录内核没有版本记录：落 failed、没有 data，
+// messages 一行照内核 roles-probe.ts 报「还没有版本记录」的那句（界面只显示 messages 原文）。
+function recordEnvelope(record: string, odd: boolean): Envelope<unknown> {
+  const argv = ['config', 'doctor', `--record=${record}`, '--json'];
+  if (record !== 'logs-cat.v2') {
+    return {
+      ok: false,
+      exit_code: 1,
+      data: null,
+      output: [],
+      messages: [`ERROR: ${record} 还没有版本记录：第一次 prepare 才会建立；核验当前绑定用 config doctor`],
+      command: argv,
+      elapsed_ms: 0,
+    };
+  }
+  const ready = !odd;
+  const row = { ...doctorHeadlessRow(ready), record: '.agent/runs/logs-cat/binding-v2.json' };
+  return {
+    ok: ready,
+    exit_code: ready ? 0 : 1,
+    data: { ready, roles: [row] },
+    output: [],
+    messages: [],
+    command: argv,
+    elapsed_ms: 0,
+  };
+}
+
 // error 开关对两类新作业的失败信封：没有 data，一行示意原文。
 function kindFailedEnvelope(kind: JobKind, runtime: string | null): Envelope<unknown> {
   if (kind === 'runtime-probe') {
@@ -144,6 +174,9 @@ function kindFailedEnvelope(kind: JobKind, runtime: string | null): Envelope<unk
   }
   if (kind === 'doctor') {
     return { ok: false, exit_code: 1, data: null, output: [], messages: ['ERROR 就绪检查失败：内核报错（示意）'], command: ['config', 'doctor', '--json'], elapsed_ms: 0 };
+  }
+  if (kind === 'doctor-record') {
+    return { ok: false, exit_code: 1, data: null, output: [], messages: ['ERROR 核验失败：内核报错（示意）'], command: ['config', 'doctor', `--record=${runtime ?? ''}`, '--json'], elapsed_ms: 0 };
   }
   return { ok: false, exit_code: 1, data: null, output: [], messages: ['ERROR 列模型失败：内核报错（示意）'], command: ['config', 'models', runtime ?? '', '--json'], elapsed_ms: 0 };
 }
@@ -163,12 +196,14 @@ function isTerminalState(state: JobState): boolean {
 interface MockJob {
   view: JobView;
   queries: number;
-  // 槽里这个作业是哪个 runtime 的（探测与列模型用）。
+  // 槽里这个作业是哪个对象的（探测与列模型是 runtime id，按版本记录核验是 <task>.vN）。
   runtime: string | null;
   // 探测夹具的奇偶份：同一个 runtime 的第奇数次探测 ok 为假、第偶数次正常。
   probeOdd: boolean;
   // 就绪检查夹具的奇偶份：第奇数次执行端没就绪（落 failed 带 data）、第偶数次全部就绪。
   doctorOdd: boolean;
+  // 按版本记录核验夹具的奇偶份：第奇数次那一行没就绪（落 failed 带 data）、第偶数次就绪。
+  recordOdd: boolean;
 }
 
 const jobs = new Map<string, MockJob>();
@@ -177,11 +212,17 @@ let seq = 0;
 const probeCounts = new Map<string, number>();
 // 建过几个 doctor 作业（奇偶份按作业次序算，不看 runtime——doctor 没有 runtime）。
 const doctorCounts = new Map<string, number>();
+// 每个记录值建过几个版本记录核验作业（奇偶份按它算，与 doctor 的计数互不相干）。
+const recordCounts = new Map<string, number>();
 
 export function mockStartJob(kind: JobKind, runtime?: string): Promise<HttpReply<JobView>> {
-  // 探测与列模型必须带 runtime（服务要扁平正文里的 runtime 键，缺了回 400）；doctor 不带 runtime（正文只有 kind）。
+  // 探测与列模型必须带 runtime（服务要扁平正文里的 runtime 键，缺了回 400）；doctor 不带 runtime（正文只有 kind）；
+  // 按版本记录核验要带记录值（服务那边的键叫 record，缺了或不合 PLAN_KEY_RE 同样回 400）。
   if ((kind === 'runtime-probe' || kind === 'models') && (runtime == null || runtime === '')) {
     return Promise.resolve({ status: 400, body: errEnvelope('runtime-probe 与 models 要带 runtime') });
+  }
+  if (kind === 'doctor-record' && (runtime == null || runtime === '')) {
+    return Promise.resolve({ status: 400, body: errEnvelope('doctor-record 要带记录值（<task-id>.v<N>）') });
   }
   seq += 1;
   let probeOdd = false;
@@ -196,6 +237,12 @@ export function mockStartJob(kind: JobKind, runtime?: string): Promise<HttpReply
     doctorCounts.set('doctor', n);
     doctorOdd = n % 2 === 1;
   }
+  let recordOdd = false;
+  if (kind === 'doctor-record') {
+    const n = (recordCounts.get(runtime as string) ?? 0) + 1;
+    recordCounts.set(runtime as string, n);
+    recordOdd = n % 2 === 1;
+  }
   const view: JobView = {
     id: `mock-job-${seq}`,
     kind,
@@ -206,15 +253,17 @@ export function mockStartJob(kind: JobKind, runtime?: string): Promise<HttpReply
     finished_ms: null,
     envelope: null,
   };
-  jobs.set(view.id, { view, queries: 0, runtime: runtime ?? null, probeOdd, doctorOdd });
+  jobs.set(view.id, { view, queries: 0, runtime: runtime ?? null, probeOdd, doctorOdd, recordOdd });
   return Promise.resolve({ status: 201, body: jobEnvelope(view) });
 }
 
-// 终态信封：扫描恒 succeeded；探测照奇偶份（ok 为假时落 failed 但 data 照给）；列模型恒 succeeded；就绪检查照奇偶份。
+// 终态信封：扫描恒 succeeded；探测照奇偶份（ok 为假时落 failed 但 data 照给）；列模型恒 succeeded；就绪检查照奇偶份；
+// 版本记录核验照记录值与奇偶份（别的记录落 failed 且没有 data）。
 function terminalEnvelope(job: MockJob): Envelope<unknown> {
   if (job.view.kind === 'runtime-probe') return probeEnvelope(job.runtime ?? '', job.probeOdd);
   if (job.view.kind === 'models') return modelsEnvelope(job.runtime ?? 'pi');
   if (job.view.kind === 'doctor') return doctorEnvelope(job.doctorOdd);
+  if (job.view.kind === 'doctor-record') return recordEnvelope(job.runtime ?? '', job.recordOdd);
   return scanEnvelope();
 }
 

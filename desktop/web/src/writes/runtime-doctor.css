@@ -1,5 +1,21 @@
 /* 「就绪检查」一节的结果样式（T056）：只用设计令牌里已有的 --tt-* 变量，不声明令牌、不写死颜色、
    不写颜色函数（照探测结果卡的写法）；类名一律以 rd- 开头，不与别的样式表共用；就绪卡是无头角色的键值表。 */
+.rd-entries {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--tt-space-3);
+}
+
+.rd-record {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--tt-space-2);
+}
+
 .rd-body {
   width: 100%;
   display: flex;
@@ -98,4 +114,11 @@
 
 .rd-card__notes li {
   margin: 0;
+}
+
+.rd-record-body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--tt-space-3);
 }

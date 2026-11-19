@@ -2892,7 +2892,7 @@ describe('D10 CLI 运行时表', () => {
 });
 
 describe('D10 就绪检查区与空态', () => {
-  it('就绪检查：h2 加可点的 [运行就绪检查]（PlayIcon，secondary），虚线空框原文；没有按版本核验的下拉与 [核验]', async () => {
+  it('就绪检查：h2 加可点的 [运行就绪检查]（PlayIcon，secondary），虚线空框原文；按版本记录核验是文本框加可点的 [核验]，没有下拉', async () => {
     await mountRuntimes();
     const r = root('runtimes');
     expectAllSectionsTitled(r);
@@ -2906,7 +2906,9 @@ describe('D10 就绪检查区与空态', () => {
     expect(b.querySelector('svg'), 'PlayIcon').not.toBeNull();
     expect(textOf(sec)).toContain('还没有运行过就绪检查。就绪检查会逐个核对无头角色的命令、模型、登录、思考级别与凭据。');
     expect(sec.querySelector('select, [role="combobox"], [role="listbox"]'), '不放按版本核验的下拉').toBeNull();
-    expect(btn(r, '核验')).toBeNull();
+    const v = btn(sec, '核验');
+    expect(v, '就绪检查一节里应有 [核验]（按版本记录核验是文本框加按钮）').not.toBeNull();
+    expect(v.disabled).toBe(false);
   });
 
   it('runtimes 为空数组：空态「还没有登记的 runtime」加说明，不渲染视图', async () => {
@@ -2967,11 +2969,11 @@ describe('D11 写入口全部禁用', () => {
     expect(disabledButtons().length).toBeGreaterThan(0);
   });
 
-  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…]、T041 接上的 [手动登记…] 与 T055 接上的 [探测]、[模型] 与 T056 接上的 [运行就绪检查]', async () => {
+  it('运行时页：仍禁用的写入口悬停出「第二阶段接入」；可用按钮只有刷新、T022 接上的 [删除…]、T041 接上的 [手动登记…] 与 T055 接上的 [探测]、[模型] 与 T056 接上的 [运行就绪检查] 与 T057 接上的 [核验]', async () => {
     set('getRuntimes', runtimesMain());
     await mountApp('#/runtimes');
     expect(frame().getAttribute('data-page-state')).toBe('data');
-    expect(outsideWhitelist(['删除…', '手动登记…', '扫描 PATH', '探测', '模型', '运行就绪检查'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）；T055 接上 [探测] 与 [模型]（2026-11-16）
+    expect(outsideWhitelist(['删除…', '手动登记…', '扫描 PATH', '探测', '模型', '运行就绪检查', '核验'])).toEqual([]); // 站主按 T041 规划报告 §4.1 R2 放宽（2026-11-14）；T055 接上 [探测] 与 [模型]（2026-11-16）；T057 接上 [核验]
     expect(disabledButtons().length).toBe(0);
     tooltipTexts().forEach((t) => expect(t.split('=')[1], t).toBe('第二阶段接入'));
   });

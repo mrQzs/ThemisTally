@@ -1,5 +1,6 @@
-// 作业状态模块（T054，T055 泛化成三类）：runtime-scan / runtime-probe / models 作业的状态放在页面之外的模块里，
-// 按 kind 分开存（每类一个槽，槽里记这个作业是哪个 runtime 的；同类作业同时只许有一个）。关掉对话框再打开接着看同一个作业；
+// 作业状态模块（T054，T055 泛化成三类，T056/T057 再加 doctor 与 doctor-record 两类）：runtime-scan / runtime-probe /
+// models / doctor / doctor-record 作业的状态放在页面之外的模块里，按 kind 分开存（每类一个槽，槽里记这个作业的
+// 对象——runtime id 或 <task>.vN；同类作业同时只许有一个）。关掉对话框再打开接着看同一个作业；
 // 在途的创建大家共用；每秒轮询（setTimeout 链、卸载即停、重开先查一次、没有作业时不排计时器）；
 // 已用秒数从创建回应到达时算起；查询 404 按失败处理（错误信封并进 job.envelope、状态落 failed），其他失败当暂时的。
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
@@ -7,7 +8,7 @@ import { cancelJob as apiCancelJob, getJob, startJob, type Envelope, type JobKin
 
 interface StoreState {
   job: JobView | null;
-  // 槽里那个作业是哪个 runtime 的（扫描是 null；创建失败时是刚才想建的那个）。
+  // 槽里那个作业是哪个对象的（扫描是 null；探测与列模型是 runtime id，按版本记录核验是 <task>.vN；创建失败时是刚才想建的那个）。
   runtime: string | null;
   // 创建回应到达时的本地时间戳（毫秒）；没有作业时是 null。
   t0: number | null;
@@ -17,7 +18,7 @@ interface StoreState {
   tick: number;
 }
 
-const KINDS: readonly JobKind[] = ['runtime-scan', 'runtime-probe', 'models', 'doctor'];
+const KINDS: readonly JobKind[] = ['runtime-scan', 'runtime-probe', 'models', 'doctor', 'doctor-record'];
 
 function emptyState(): StoreState {
   return { job: null, runtime: null, t0: null, createError: null, creating: false, tick: 0 };
@@ -28,10 +29,11 @@ const snaps: Record<JobKind, StoreState> = {
   'runtime-probe': emptyState(),
   models: emptyState(),
   doctor: emptyState(),
+  'doctor-record': emptyState(),
 };
 
 const listeners = new Set<() => void>();
-const subscribers: Record<JobKind, number> = { 'runtime-scan': 0, 'runtime-probe': 0, models: 0, doctor: 0 };
+const subscribers: Record<JobKind, number> = { 'runtime-scan': 0, 'runtime-probe': 0, models: 0, doctor: 0, 'doctor-record': 0 };
 const timers: Partial<Record<JobKind, ReturnType<typeof setTimeout>>> = {};
 const inflight: Partial<Record<JobKind, Promise<JobView | null>>> = {};
 
@@ -58,14 +60,19 @@ function disconnectEnvelope(): Envelope<unknown> {
 
 // 创建作业：在途的创建记在 inflight 里让大家共用；201 且正文是合法作业才落 job 与 t0，否则记 createError。
 function doCreate(kind: JobKind, runtime?: string): Promise<JobView | null> {
+  // 槽里本来有没有作业：重新创建（上一行已经办完了）时新作业接着每秒轮询的节奏查，第一次创建时才立刻补查一次。
+  const replaced = snaps[kind].job != null;
   commit(kind, { creating: true, createError: null, job: null, runtime: runtime ?? null });
   const p = startJob(kind, runtime).then(
     (reply) => {
       const view = reply.status === 201 ? reply.body.data : null;
       if (view != null) {
         commit(kind, { job: view, t0: Date.now(), creating: false });
-        // 重新创建时旧作业已终态、轮询已停：新作业要接着轮询（有组件挂着才起；初始创建由挂载时的 startPolling 负责）。
-        if ((subscribers[kind] ?? 0) > 0) startPolling(kind);
+        // 有组件挂着才起轮询：第一次创建照挂载时的做法立刻查一次，重新创建接着每秒的节奏查（上一行的查询刚走过）。
+        if ((subscribers[kind] ?? 0) > 0) {
+          if (replaced) scheduleNext(kind);
+          else startPolling(kind);
+        }
       } else {
         commit(kind, { job: null, createError: reply.body as Envelope<unknown>, creating: false });
       }
@@ -82,8 +89,8 @@ function doCreate(kind: JobKind, runtime?: string): Promise<JobView | null> {
   return p;
 }
 
-// 没有作业也没有在途的创建时才创建；在途的创建本 runtime 的大家共用、别的 runtime 挡住（同类同时只一个）；
-// 槽里是本 runtime 的作业（排队、运行中或已结束）直接返回；槽里是别的 runtime 的未终态作业时不建。
+// 没有作业也没有在途的创建时才创建；在途的创建本对象的大家共用、别的对象挡住（同类同时只一个）；
+// 槽里是本对象的作业（排队、运行中或已结束）直接返回；槽里是别的对象的未终态作业时不建。
 export function ensureJob(kind: JobKind, runtime?: string): Promise<JobView | null> {
   const s = snaps[kind];
   const want = runtime ?? null;
