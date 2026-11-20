@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "task_id": "t063-desktop-appearance-web",
+  "plan_version": 1,
+  "title": "外观设置生效（片 B，前端侧）：页面用宿主给的外观起步、跟着事件变，紧凑密度生效",
+  "repository": "ThemisTally",
+  "base_sha": "10f1496e1775e842928769a9e42f5072020ab6b9",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/web/src/shell/theme.ts",
+      "desktop/web/src/components/Table.css",
+      "desktop/web/src/shellpages/themisShell.ts",
+      "desktop/web/src/shellpages/shellBridge.ts",
+      "desktop/web/src/live/hostSettings.ts",
+      "desktop/web/src/App.tsx",
+      "desktop/web/README.md"
+    ],
+    "allowed_new_files": [
+      "desktop/web/tests/appearance-units.test.ts",
+      "desktop/web/tests/appearance-app.test.tsx"
+    ],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t063_*.py",
+      "desktop/shell/**",
+      "desktop/web/src/shellpages/SettingsView.tsx",
+      "desktop/web/src/shellpages/shellStub.ts",
+      "desktop/web/src/shellpages/ShellWindow.tsx",
+      "desktop/web/src/shellpages/shellWindowRoute.ts",
+      "desktop/web/vite.config.ts",
+      "desktop/web/scripts/check-live-build.mjs",
+      "desktop/web/tests/shellpages-static.test.ts",
+      "desktop/web/tests/cleanup2-static.test.ts",
+      "desktop/web/tests/shellpages-stub.test.ts",
+      "desktop/web/tests/shellpages-route.test.ts",
+      "desktop/web/tests/shellpages-first-run.test.tsx",
+      "desktop/web/tests/shellpages-settings.test.tsx",
+      "desktop/web/tests/shellpages-app.test.tsx",
+      "desktop/web/tests/shellpages-isolation.test.tsx"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "Tests\\s+[1-9]\\d* passed"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "built in"
+      ]
+    },
+    {
+      "id": "V03",
+      "argv": [
+        "npm",
+        "run",
+        "check:contract"
+      ],
+      "cwd": "desktop/web",
+      "timeout_seconds": 300,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "契约检查：通过"
+      ]
+    },
+    {
+      "id": "V04",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass \\d+"
+      ],
+      "output_must_not_match": [
+        "# fail [1-9]"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t063_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "tests/test_gate_t056_baseline.py",
+        "tests/test_gate_t057_baseline.py",
+        "tests/test_gate_t058_baseline.py",
+        "tests/test_gate_t059_baseline.py",
+        "tests/test_gate_t060_baseline.py",
+        "tests/test_gate_t061_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "主题与密度各只有一个写入口——`theme.ts` 的 `applyTheme`/`applyDensity` 写属性，标准密度去掉 `data-density`、紧凑写 `compact`，不碰类、内联样式、body 与存储",
+      "evidence": [
+        "V01",
+        "V03"
+      ],
+      "intent": "密度这块「标准要去属性」的半边最容易漏，漏了就变成标准也带属性"
+    },
+    {
+      "id": "D02",
+      "text": "紧凑时数据表行高 40/44/52 变成 32/36/44，表头与没写 `data-row-height` 的表格不动，三条规则各带同行出处注释",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "紧凑要真的把数据表压下去，且不误伤表头与别的表格"
+    },
+    {
+      "id": "D03",
+      "text": "外壳页能同步读外观、能订阅外观事件——十成员齐全且 `getAppearance` 是函数才调；缺成员/非函数/抛错/回值不是对象分别回 `null` 或空退订；十成员的旧假外壳仍被认作有外壳；退订真的能退",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "别把「旧外壳」误判成「没有外壳」，也别在能力不存在时抛错"
+    },
+    {
+      "id": "D04",
+      "text": "服务窗口能同步读外观、能订阅外观事件、能保存主题——三个宿主函数在能力缺失时回 `null`/空退订/落到下一档；`saveTheme` 恰好调一次、只转交 `pref` 一个实参、信封原样",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "服务窗口标题栏的菜单要真能存下主题"
+    },
+    {
+      "id": "D05",
+      "text": "页面用宿主给的外观起步、跟着外观事件变——初值宿主优先、其次桥、都没有暗+标准；事件逐字段校验（非法字段忽略）；桩模式下根元素不多属性、标题栏只改内存、不写存储",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "外观要跨窗口一致，且开发与测试里的夹具模式行为一个字不变"
+    },
+    {
+      "id": "D06",
+      "text": "标题栏的主题菜单按三档保存——宿主保存 `ok:true` 才切、桥保存兑现后才切、都没有只切内存；保存失败保持原主题、不弹提示",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "菜单点了要有效果，失败时不假装成功"
+    },
+    {
+      "id": "D07",
+      "text": "`themisShell.ts` 只补类型、`interface ThemisShell` 仍恰好十个成员、外壳侧一个字没改；类型检查与构建通过，外壳单测全过",
+      "evidence": [
+        "V02",
+        "V04",
+        "R01"
+      ],
+      "intent": "类型文件与外壳暴露面不能被这一片弄歪"
+    },
+    {
+      "id": "D08",
+      "text": "README 改掉「偏好只存内存」，写清外壳保存、启动同步读、改了广播、紧凑 40/44/52 各降 8，并保留「主题」「标题栏」两词",
+      "evidence": [
+        "R01",
+        "review"
+      ],
+      "intent": "下一片照 README 就能对齐名字与字面量"
+    },
+    {
+      "id": "D09",
+      "text": "所有修改都在允许集合内；没有退役任何过渡断言、没有改任何既有测试文件与门禁文件",
+      "evidence": [
+        "scope",
+        "review"
+      ],
+      "intent": "本片放开的只是「前端能读外观」，别的门禁强度不因它下降"
+    },
+    {
+      "id": "D10",
+      "text": "新行为都有用例与门禁基准钉住——applyDensity、Table.css 三条规则、shellBridge 与 hostSettings 的失败分支、App 的桩模式/服务窗口/设置窗口/事件对齐/保存三档/非法取值/useLayoutEffect 静态断言",
+      "evidence": [
+        "V01",
+        "G01"
+      ],
+      "intent": "过了检查不是目标，这些行为各自有独立证据才算数"
+    },
+    {
+      "id": "D11",
+      "text": "站主真窗口冒烟三段通过（预置亮+紧凑启动后服务窗口根即 light/compact、40/44/52 量出 32/36/44；设置窗口单选显示「亮」「紧凑」；两个窗口双向改动互通；重启读回；settings.json 不写外观时两窗都暗+标准）",
+      "evidence": [
+        "review"
+      ],
+      "intent": "jsdom 不排版也不闪，首帧与真实行高只能靠真窗口看"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 1800,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
