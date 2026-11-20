@@ -564,7 +564,8 @@ describe("第 154 轮：岗位绑定", () => {
         gate: { profile: "pi-glm" }, planner: { profile: "cc-sonnet" }, coordinator: { profile: "qz-step", fallback: "pi-flash" }, exec: { profile: "pi-glm" },
       } })],
       ["pi-coordinator", JSON.stringify({ ...base, hub_roles: { coordinator: { profile: "pi-flash" }, audit: { profile: "pi-flash" } } })],
-      ["refused", JSON.stringify({ ...base, hub_roles: { gate: { profile: "qz-step" } } })],
+      // r3 第 200 轮：门禁端放开了 quizs，整份校验不过的样例换成执行端绑 quizs（执行端只许 pi）
+      ["refused", JSON.stringify({ ...base, hub_roles: { exec: { profile: "qz-step" } } })],
       ["notjson", "{不是 JSON"],
     ];
     const repos = cases.map(([name, config]) => {

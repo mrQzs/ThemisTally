@@ -42,12 +42,15 @@ export const HOST_ADAPTERS = ADAPTER_NAMES.filter((name) => ADAPTERS[name]?.host
 const RUNTIME_KEYS = ["adapter"];
 const PROFILE_KEYS = ["runtime", "model", "options", "credential_env"];
 const PRESET_KEYS = ["description", "roles"];
-/** kit_roles.HUB_POST_ADAPTERS：七端的岗位 → 这个岗位现在允许的适配器（只列已经跑过的载体；r3 第 156 轮合同端、审核端加 quizs：工具映射在假提供方上跑过，真实模型的重放跑完之前不绑）。 */
+/**
+ * kit_roles.HUB_POST_ADAPTERS：七端的岗位 → 这个岗位现在允许的适配器（只列已经跑过的载体；r3 第 156 轮合同端、审核端加 quizs：工具映射在假提供方上跑过，真实模型的重放跑完之前不绑）。
+ * r3 第 200 轮：门禁端加 quizs（GLM、工作区模式），M12 用真 GLM 重放三个门禁回合 3/3 交上。
+ */
 export const HUB_POST_ADAPTERS: Readonly<Record<string, readonly string[]>> = {
   coordinator: ["quizs", "pi"],
   planner: ["claude-code"],
   contract: ["pi", "quizs"],
-  gate: ["pi"],
+  gate: ["pi", "quizs"],
   audit: ["pi", "quizs"],
   exec: ["pi"],
 };
@@ -106,6 +109,11 @@ export const QUIZS_VIEW_BUDGETS: readonly (readonly [string, bigint])[] = [
   ["max_requests", 128n], ["max_tool_calls", 128n], ["max_input_bytes", 2097152n], ["max_response_bytes", 8388608n], ["max_object_bytes", 8388608n],
 ];
 export const QUIZS_VIEW_POSTS = ["contract", "audit"];
+/** kit_roles.QUIZS_WORKTREE_BUDGETS、QUIZS_WORKTREE_POSTS（r3 第 200 轮）：在工作区里写门禁的门禁端用工作区模式那一份。 */
+export const QUIZS_WORKTREE_BUDGETS: readonly (readonly [string, bigint])[] = [
+  ["max_requests", 160n], ["max_tool_calls", 128n], ["max_input_bytes", 2097152n], ["max_response_bytes", 8388608n], ["max_object_bytes", 8388608n],
+];
+export const QUIZS_WORKTREE_POSTS = ["gate"];
 /** claude 的 --effort 取值（claude --help，2026-11-12 核对）。 */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 /** pi_dispatch.FALLBACK_THINKING_LEVELS。 */

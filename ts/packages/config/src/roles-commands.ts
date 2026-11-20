@@ -15,7 +15,8 @@ import { DispatchError, EXIT_FAIL, EXIT_OK, EXIT_USAGE } from "@themis/dispatche
 import { joinPath } from "./decisions.ts";
 import { bindingTuple, effectiveBinding, hubLastTurn } from "./roles-binding.ts";
 import {
-  ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, HUB_TURN_LIMITS, QUIZS_TURN_BUDGETS, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_POSTS, ROLES,
+  ADAPTERS, HUB_BINDING_KEYS, HUB_DEFAULTS, HUB_POSTS, HUB_POST_ADAPTERS, HUB_TURN_LIMITS, QUIZS_TURN_BUDGETS, QUIZS_VIEW_BUDGETS, QUIZS_VIEW_POSTS,
+  QUIZS_WORKTREE_BUDGETS, QUIZS_WORKTREE_POSTS, ROLES,
   adapterOf, entries, hubBinding, hubSide, idOk, shownValue,
 } from "./roles-check.ts";
 import { LOCAL_NAME, LOCAL_REL, type LocalRepo, checkLocal, lexists, localErrors, readLocal, runtimeCommand, shownCommand } from "./roles-local.ts";
@@ -531,7 +532,9 @@ export function hubRows(config: PyDict, agentDir: string): PyDict[] {
 function hubTurn(post: string, adapter: PyValue): PyDict | null {
   const limits = HUB_TURN_LIMITS[post];
   if (limits === undefined) return null;
-  const budgets = adapter === "quizs" ? new Map<string, PyValue>(QUIZS_VIEW_POSTS.includes(post) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS) : null;
+  // r3 第 200 轮：门禁端在 quizs 上走工作区模式，预算是工作区那一份
+  const table = QUIZS_WORKTREE_POSTS.includes(post) ? QUIZS_WORKTREE_BUDGETS : QUIZS_VIEW_POSTS.includes(post) ? QUIZS_VIEW_BUDGETS : QUIZS_TURN_BUDGETS;
+  const budgets = adapter === "quizs" ? new Map<string, PyValue>(table) : null;
   return new Map<string, PyValue>([["timeout_seconds", limits[0]], ["tools", [...limits[1]]], ["budgets", budgets]]);
 }
 

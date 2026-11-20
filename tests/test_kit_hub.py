@@ -9981,6 +9981,10 @@ def test_config_defaults_for_the_posts_match_the_roster():
     assert flags(kit_roles.QUIZS_TURN_BUDGETS) == list(kh.QUIZS_TURN_BUDGETS)
     assert flags(kit_roles.QUIZS_VIEW_BUDGETS) == list(kh.QUIZS_VIEW_BUDGETS)
     assert kit_roles.QUIZS_VIEW_POSTS == kh.QUIZS_REPO_VIEW_ROLES
+    # r3 第 200 轮：门禁端可以绑 quizs 之后，界面显示的工作区预算与 hub 真传给 Quizs 的相同
+    assert flags(kit_roles.QUIZS_WORKTREE_BUDGETS) == list(kh.QUIZS_WORKTREE_BUDGETS)
+    assert kit_roles.QUIZS_WORKTREE_POSTS == kh.QUIZS_WORKTREE_ROLES
+    assert all("quizs" in kit_roles.HUB_POST_ADAPTERS[post] for post in kh.QUIZS_WORKTREE_ROLES)
 
 
 def test_config_quizs_mirrors_the_hub_quizs_constants_and_command(monkeypatch):
@@ -10047,7 +10051,8 @@ def test_the_coordinator_bound_to_pi_has_no_substitute(engine_env):
 
 def test_a_broken_config_falls_back_to_the_roster(engine_env):
     hub = engine_env
-    write_hub_config(hub.repo, {"gate": {"profile": "qz-step"}})  # quizs 不许用在门禁端：整份校验不过，当作没配
+    # quizs 不许用在执行端：整份校验不过，当作没配（r3 第 200 轮门禁端放开了 quizs，样例从门禁端换成执行端）
+    write_hub_config(hub.repo, {"exec": {"profile": "qz-step"}})
     assert kh.hub_bindings(hub) == {}
     (Path(hub.repo) / ".agent" / "dispatch.config.json").write_text("{不是 JSON", encoding="utf-8")
     assert kh.hub_bindings(hub) == {}

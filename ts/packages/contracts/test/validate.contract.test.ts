@@ -14,7 +14,8 @@ const REPO_DIR = join(ROOT, "repo");
 mkdirSync(join(REPO_DIR, ".agent"), { recursive: true });
 afterAll(() => removeDir(ROOT));
 
-const KNOWN = "allowed_executors, worktree_root, kill_grace_seconds, check_artifact_patterns, extra_protected_paths, planner_paths, commit_trailers, env_remove, env_keep, release_check, pricing, decisions, plugins, runtimes, profiles, roles, presets, active_preset";
+// r3 第 200 轮补：第 154 轮加了 hub_roles 键与 quizs 适配器，这份契约当时没跟上（之后各轮的检查都没带它），两处期望照实现补上
+const KNOWN = "allowed_executors, worktree_root, kill_grace_seconds, check_artifact_patterns, extra_protected_paths, planner_paths, commit_trailers, env_remove, env_keep, release_check, pricing, decisions, plugins, runtimes, profiles, roles, presets, active_preset, hub_roles";
 const TOKEN = `sk-${"a1".repeat(12)}`;
 
 const call = (fn: string, config: Json | string | undefined, extra: Record<string, unknown> = {}): ProbeRequest => ({
@@ -139,7 +140,7 @@ describe("validate_config：各键", () => {
       errors("plugins.enabled 不是列表：修复提示删掉这个子键", validate({ plugins: { enabled: "decisions" } }), ['plugins.enabled 必须是列表，现在是 "decisions"；不写这个子键表示不限制；修复：config unset plugins.enabled']),
       errors("plugins 不是对象：修复提示删掉整段", validate({ plugins: [1, "a"] }), ['plugins 必须是对象（子键 enabled、allowed_permissions），现在是 [1, "a"]；修复：config unset plugins']),
       errors("不要修复提示时只报格式", validate({ plugins: { enabled: 1 } }, { hints: false }), ["plugins.enabled 必须是列表，现在是 1；不写这个子键表示不限制"]),
-      errors("runtimes 的 adapter 不认识", validate({ runtimes: { pi: { adapter: "x" } } }), ["runtimes.pi.adapter 必须是 pi、claude-code、codex、opencode 之一"]),
+      errors("runtimes 的 adapter 不认识", validate({ runtimes: { pi: { adapter: "x" } } }), ["runtimes.pi.adapter 必须是 pi、claude-code、codex、opencode、quizs 之一"]),
       errors("profiles 合法", validate({ runtimes: RUNTIMES, profiles: PROFILES }), []),
       errors(
         "profiles 的几处毛病一起报（中文分号连接）",

@@ -1809,13 +1809,15 @@ class HubRoles(RolesRepo):
     def test_shapes_posts_and_allowed_adapters(self):
         self.assertEqual(self.errors(self.hub(coordinator={"profile": "qz-flash", "fallback": "pi-flash"},
                                               planner={"profile": "cc-opus"}, gate={"profile": "pi-glm"})), [])
+        # r3 第 200 轮：门禁端也能绑 quizs（工作区模式），替补照协调人的规矩
+        self.assertEqual(self.errors(self.hub(gate={"profile": "qz-flash", "fallback": "pi-glm"})), [])
         cases = [
             ({"reviewer": {"profile": "pi-glm"}}, "未知岗位：reviewer"),
             ({"gate": "pi-glm"}, "hub_roles.gate 必须是对象"),
             ({"gate": {"profile": "pi-glm", "tools": ["bash"]}}, "hub_roles.gate 有未知键：tools"),
             ({"gate": {"profile": "nope"}}, "hub_roles.gate.profile 'nope' 没有登记"),
             ({"gate": {}}, "hub_roles.gate.profile （值不显示） 没有登记"),
-            ({"gate": {"profile": "qz-flash"}}, "适配器 quizs 不能用在 gate 岗位"),
+            ({"exec": {"profile": "qz-flash"}}, "适配器 quizs 不能用在 exec 岗位"),
             ({"planner": {"profile": "pi-glm"}}, "适配器 pi 不能用在 planner 岗位"),
             ({"coordinator": {"profile": "cc-opus"}}, "适配器 claude-code 不能用在 coordinator 岗位"),
             ({"coordinator": {"profile": "pi-flash", "fallback": "pi-glm"}}, "fallback 只用于 quizs 上的岗位"),
@@ -1874,6 +1876,10 @@ class HubRoles(RolesRepo):
         self.assertIsNone(rows["exec"]["turn"])
         self.write(self.hub(coordinator={"profile": "pi-flash"}))
         self.assertIsNone(self.rows()["coordinator"]["turn"]["budgets"])  # 绑到 pi 上就没有 quizs 的预算
+        self.assertIsNone(self.rows()["gate"]["turn"]["budgets"])  # 门禁端缺省在 pi 上
+        # r3 第 200 轮：门禁端绑到 quizs 上走工作区模式，预算是 hub 传给 Quizs 的那一份（请求 160、工具调用 128）
+        self.write(self.hub(gate={"profile": "qz-flash", "fallback": "pi-glm"}))
+        self.assertEqual(self.rows()["gate"]["turn"]["budgets"], dict(kit_roles.QUIZS_TURN_BUDGETS, max_requests=160, max_tool_calls=128))
 
     def finished_turn(self, agent, name, record):
         where = self.repo / ".agent" / "mailbox" / "turns" / agent / name
@@ -1938,7 +1944,7 @@ class HubRoles(RolesRepo):
         self.write(self.hub(gate={"profile": "pi-glm"}))
         before = self.config_file.read_bytes()
         for argv, code_wanted, needle in (
-                (["hub", "set", "gate", "qz-flash"], 1, "不能用在 gate 岗位"),
+                (["hub", "set", "exec", "qz-flash"], 1, "不能用在 exec 岗位"),
                 (["hub", "set", "gate", "nope"], 1, "没有登记"),
                 (["hub", "set", "gate", "pi-glm", "--fallback", "pi-flash"], 1, "fallback 只用于 quizs 上的岗位"),
                 (["hub", "set", "reviewer", "pi-glm"], 2, "岗位只能是"),

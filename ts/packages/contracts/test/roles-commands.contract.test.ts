@@ -214,7 +214,8 @@ const SEQUENCE: readonly Command[] = [
   hubSet("coordinator", "qzp", { fallback: "qzp" }),
   hubSet("coordinator", "plain", { fallback: "exec" }),
   hubSet("coordinator", "hostp"),
-  hubSet("gate", "qzp"),
+  // r3 第 200 轮：门禁端放开了 quizs，被拒的适配器换成执行端（只许 pi）
+  hubSet("exec", "qzp"),
   hubSet("gate", "ghost"),
   hubSet("boss", "exec"),
   hubSet("planner", "hostp"),
@@ -249,6 +250,10 @@ const SEQUENCE: readonly Command[] = [
   hubSet("contract", "qzp"),
   hubShow(true),
   hubUnset("contract"),
+  // r3 第 200 轮：门禁端绑到 quizs 上（替补 plain），一回合的预算是工作区模式那一份（请求 160、工具调用 128）
+  hubSet("gate", "qzp", { fallback: "plain" }),
+  hubShow(true),
+  hubUnset("gate"),
   profileRemove("qzp"),
   profileRemove("plain"),
   hubUnset("planner"),

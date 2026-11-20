@@ -65,11 +65,13 @@ BINDING_FIELDS = ("mode", "profile", "runtime", "adapter", "provider", "model", 
 #: 七端的岗位（模型配置，r3 第 154 轮）：键是岗位，值是这个岗位现在允许的适配器。岗位的工具、时限、工作目录留在 hub 的
 #: 名册里（那是安全边界），这里只管“用哪个运行时、哪个模型、什么档位”。名册里的工具名是按载体写的：一个岗位换载体之前
 #: 要先有那个载体的工具映射并实测过，所以每个岗位只列已经跑过的载体。r3 第 156 轮：合同端、审核端加 quizs（MiniMax、仓库视图）：工具映射在假提供方上跑过；真实模型的重放（模型配置 M5）跑完之前不绑，绑定照样要站主同意。
+#: r3 第 200 轮：门禁端加 quizs（GLM、工作区模式）：第 198 轮接好内核的工作区模式，M12 用真 GLM 重放三个门禁回合 3/3 交上
+#: （只新增门禁文件、collect 都过），绑定照样要站主同意。
 HUB_POST_ADAPTERS: Dict[str, Tuple[str, ...]] = {
     "coordinator": ("quizs", "pi"),
     "planner": ("claude-code",),
     "contract": ("pi", "quizs"),
-    "gate": ("pi",),
+    "gate": ("pi", "quizs"),
     "audit": ("pi", "quizs"),
     "exec": ("pi",),
 }
@@ -114,6 +116,9 @@ QUIZS_TURN_BUDGETS: Dict[str, int] = {"max_requests": 32, "max_tool_calls": 48, 
                                       "max_response_bytes": 8388608, "max_object_bytes": 8388608}
 QUIZS_VIEW_BUDGETS: Dict[str, int] = dict(QUIZS_TURN_BUDGETS, max_requests=128, max_tool_calls=128)
 QUIZS_VIEW_POSTS = ("contract", "audit")
+#: r3 第 200 轮：在工作区里写门禁的门禁端用工作区模式那一份（抄 kit_hub 的 QUIZS_WORKTREE_BUDGETS 与 QUIZS_WORKTREE_ROLES，同一条测试核对）
+QUIZS_WORKTREE_BUDGETS: Dict[str, int] = dict(QUIZS_TURN_BUDGETS, max_requests=160, max_tool_calls=128)
+QUIZS_WORKTREE_POSTS = ("gate",)
 #: claude 的 --effort 取值（claude --help，2026-11-12 核对）
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -1273,6 +1278,8 @@ def _hub_turn(post: str, adapter: Any) -> Optional[Dict[str, Any]]:
     budgets = None
     if adapter == "quizs":
         budgets = dict(QUIZS_VIEW_BUDGETS if post in QUIZS_VIEW_POSTS else QUIZS_TURN_BUDGETS)
+        if post in QUIZS_WORKTREE_POSTS:  # r3 第 200 轮：门禁端在 quizs 上走工作区模式
+            budgets = dict(QUIZS_WORKTREE_BUDGETS)
     return {"timeout_seconds": timeout, "tools": list(tools), "budgets": budgets}
 
 

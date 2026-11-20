@@ -1,0 +1,34 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/roles-commands.contract.test.ts",
+    "-t",
+    "写命令序列",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1800,
+  "mutations": [
+    {
+      "name": "H01 TS 的门禁端又只许 pi：Python 收下的绑定 TS 拒绝",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "  gate: [\"pi\", \"quizs\"],\n",
+      "new": "  gate: [\"pi\"],\n"
+    },
+    {
+      "name": "H02 TS 的门禁端在 quizs 上显示协调人那份小预算",
+      "file": "ts/packages/config/src/roles-commands.ts",
+      "old": "QUIZS_WORKTREE_POSTS.includes(post) ? QUIZS_WORKTREE_BUDGETS : ",
+      "new": ""
+    },
+    {
+      "name": "H03 TS 的工作区预算抄错（请求 128）",
+      "file": "ts/packages/config/src/roles-check.ts",
+      "old": "  [\"max_requests\", 160n], [\"max_tool_calls\", 128n],",
+      "new": "  [\"max_requests\", 128n], [\"max_tool_calls\", 128n],"
+    }
+  ]
+}

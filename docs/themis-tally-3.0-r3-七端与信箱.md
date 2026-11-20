@@ -3353,6 +3353,58 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 门禁端换到 Quizs 之后，执行域里的命令由 Quizs 的命令策略起：python 带 -I（隔离模式，PYTHON 开头的环境变量一律不看），环境变量补了也不起作用。改绑之前在 Quizs 那边给 pytest 与 python 的命令行加 -X utf8（合进主检出要换 BUILD_ID、三份证书重签）。
   - 不在调度器、内核自己的进程里开 UTF-8 模式：它们读写文件都显式写了编码，读子进程输出按 UTF-8 解，不受影响。
 
+### 第 200 轮：门禁端放开 quizs（GLM、工作区模式）；界面显示的门禁预算与 hub 传给 Quizs 的相同
+
+- **起因**：
+  - 七端走 Quizs 二期（用户 11-16“1.七端都走quizs 2.放宽”）。第 198 轮已接好门禁在 Quizs 上的工作区模式：--worktree、受限的 bash、命令档案、root inputs。那一轮没有改绑定。
+  - 11-19 22:30Z 跑了 M12 重放：取最近三个门禁 gate-pre 回合（T060、T059、T058），在 Quizs + GLM 上照第 198 轮的接法重做。
+    - 3/3 交上，只新增门禁文件，多余改动 0，collect 都过。
+    - 用时合计 2546 秒，pi 是 2837 秒。
+    - 测试条数 11/8/7，pi 是 12/7/8。
+  - 站主随后 `config hub set gate quizs-glm --fallback pi-glm`，配置中心拒绝：kit_roles.HUB_POST_ADAPTERS 里门禁端只列 pi。
+    - 定这张表的规矩是“一个岗位换载体之前，要先有那个载体的工具映射并实测过”。
+    - 现在这两样都齐了。
+- **改法**（Python 与 TS 两份）：
+  - HUB_POST_ADAPTERS 的 gate 加 quizs。
+  - 配置中心另放一份工作区模式的预算 QUIZS_WORKTREE_BUDGETS（请求 160、工具调用 128，与 kit_hub 的同名常量相同），以及岗位表 QUIZS_WORKTREE_POSTS（只有 gate）。
+    - config hub show 给门禁端显示一回合预算时用这一份。
+    - 不改的话，门禁端绑到 quizs 上，界面会显示协调人那份 32、48，比 hub 真传给 Quizs 的小一大截。
+  - 原来那行“读仓库的岗位用大的一份”原样留着，因为两份旧变异锚在上面。门禁端另加一行覆盖；TS 那边的三元式整段留在新行里。
+- **测试**：
+  - test_kit_hub 的名册核对加三条：
+    - 配置中心的工作区预算与 hub 的相同；
+    - 配置中心的工作区岗位与 hub 的相同；
+    - 走工作区模式的岗位都允许 quizs。
+  - test_kit_roles：
+    - 门禁端绑 quizs（替补 pi-glm）能通过校验；
+    - 被拒的适配器样例从 gate 换成 exec（只许 pi），校验与 hub set 两处都换；
+    - hub show 里门禁端缺省没有预算，绑到 quizs 上是 160、128 那一份。
+  - roles-commands 契约的写命令序列：
+    - 被拒样例 hub set gate qzp 换成 hub set exec qzp；
+    - 新加一段：门禁端绑 qzp（替补 plain），hub show --json，再取消。
+    - Python、Node、Bun 三边逐步相同。
+- **第一遍检查红在哪里、怎么补**：
+  - 内核测试红 1 条：test_a_broken_config_falls_back_to_the_roster 拿“门禁端绑 quizs 档案”当整份校验不过的样例，本轮放开之后它就合法了。hub-prompt 契约的 "refused" 用例是同一个样例，而它不在第一遍的检查清单里。两处都换成执行端绑 quizs（执行端只许 pi）。
+  - 顺带修 validate 契约：第一遍 R 段红在三条报错原文上——已知键清单少 hub_roles，适配器清单少 quizs。这是第 154 轮加这两样时没跟上，之后各轮的检查都没带这份契约，与本轮无关。期望照实现补上；TS 与 Python 本来就一致。
+  - 补跑见 `r200_fix_checks.sh`：内核测试整份，加 hub-prompt、hub-turn、validate 三份契约。
+- **变异**：新写 config-gate-quizs 两份。
+  - py 3 条：门禁端又只许 pi、门禁端显示小预算、工作区预算抄错。
+  - ts 3 条：同样三种。
+  - 旧的 config-hub-turns.py 9 条重跑，锚点照旧。
+  - config-hub-turns.ts 6 条的锚点也照旧（三元式整段还在），没有重跑：每条都要跑一遍写命令序列，M01 照旧由三边逐步比对抓。
+  - 结果：config-gate-quizs py 3/3、ts 3/3，config-hub-turns.py 9/9，全抓住。
+- **检查**：
+  - 锚点 247 份规格、失效 0；类型检查 0 错；变异清单与源码卫生的元测试 5 条。
+  - pytest：配置中心单测 100 过（子测试 155）；内核测试 437 过（补样例之后，第一遍红的那条见上）。
+  - 契约：
+    - roles-commands、roles-local、config-write 19 过；
+    - validate（补期望之后）、hub-prompt、hub-turn 34 过；
+    - ui 的 hub-routes-real 6 过。
+  - 岗位界面门禁 t031、t038、t042、t045、t047、t048 补跑 88 过。第一遍红的 t047 test_p2_worktree_unchanged_by_pipeline，是站主在门禁段跑着时改了同一棵树里的契约文件，教训已记 AGENT_LEARNINGS。
+- **之后**（不在本轮）：
+  - 合入后执行 `config hub set gate quizs-glm --fallback pi-glm`。两个档案已在 11-19 23:3xZ 登记：quizs-glm（runtime quizs，glm/glm-5.3，high）、pi-glm（runtime pi，cc-switch-zhipu-glm/glm-5.3，high）。
+  - 盯头几个门禁回合，看 adapter、quizs_fallback 和 warnings。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

@@ -1,0 +1,35 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_kit_roles.py",
+    "tests/test_kit_hub.py::test_config_defaults_for_the_posts_match_the_roster",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "cwd": ".",
+  "timeout_seconds": 600,
+  "mutations": [
+    {
+      "name": "G01 门禁端又只许 pi：绑 quizs 被拒",
+      "file": "scripts/kit_roles.py",
+      "old": "    \"gate\": (\"pi\", \"quizs\"),\n",
+      "new": "    \"gate\": (\"pi\",),\n"
+    },
+    {
+      "name": "G02 门禁端绑在 quizs 上时显示的是协调人那份小预算",
+      "file": "scripts/kit_roles.py",
+      "old": "        if post in QUIZS_WORKTREE_POSTS:  # r3 第 200 轮：门禁端在 quizs 上走工作区模式\n            budgets = dict(QUIZS_WORKTREE_BUDGETS)\n",
+      "new": ""
+    },
+    {
+      "name": "G03 工作区预算抄错（请求 128，hub 传的是 160）",
+      "file": "scripts/kit_roles.py",
+      "old": "QUIZS_WORKTREE_BUDGETS: Dict[str, int] = dict(QUIZS_TURN_BUDGETS, max_requests=160, max_tool_calls=128)",
+      "new": "QUIZS_WORKTREE_BUDGETS: Dict[str, int] = dict(QUIZS_TURN_BUDGETS, max_requests=128, max_tool_calls=128)"
+    }
+  ]
+}
