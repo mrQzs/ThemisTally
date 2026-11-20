@@ -3405,6 +3405,26 @@ T004 从合同一路走到终审，终审退回执行端一处阻塞项（B1）�
   - 合入后执行 `config hub set gate quizs-glm --fallback pi-glm`。两个档案已在 11-19 23:3xZ 登记：quizs-glm（runtime quizs，glm/glm-5.3，high）、pi-glm（runtime pi，cc-switch-zhipu-glm/glm-5.3，high）。
   - 盯头几个门禁回合，看 adapter、quizs_fallback 和 warnings。
 
+### 第 201 轮：合同的检查要 node_modules 时 setup 先装依赖；基线上红在“命令找不到”是环境错；门禁探针读文件按 process.cwd() 拼路径（候选 #83）
+
+- **起因**（11-20 T063 attempt-001）：
+  - 合同 v1 的 setup 是空的，可 V01、V02 要在 desktop/web 里跑 vitest、tsc。内核的 fresh 检查树里没有 node_modules，两条都报 'vitest'、'tsc' is not recognized，结构上过不了。基线检查里它们也红，日志与 attempt 的逐字相同。
+  - 这两条本来就标着“基线上应该红”，“找不到命令”于是被当成正常的红放了过去。一审在报告里写了“基线 V01/V02 因无 node_modules 失败”，却没挡。
+  - 门禁 G01 唯一红的是单位探针用 `new URL('../src/components/Table.css', import.meta.url)` 读文件。这套 Windows + vitest 下它不是 file: 地址，读之前就抛 TypeError（The URL must be of scheme file）。门禁端交付前没真跑过这个探针，基线上走不到这一步。
+  - 执行端 1800 秒用满被掐断，没写报告。站主把候选与 T065 合起来跑真窗口冒烟，三段 25/25、8/8、9/9 全过：实现其实写完了。之后多走了一版合同，白扣一次 attempt（站主回信 --rework 2-contract --carry attempt-001）。
+- **改法**：
+  - scripts/hub/worker.md 合同端一条：检查要用到 node_modules 里的命令时，setup 先在同一个 cwd 跑一次 `npm ci --no-audit --no-fund`，照 T058 合同的 S01。
+    - 这类命令指 cwd 为 desktop/web 的 npm test、npm run build、tsc、vitest。
+    - desktop/shell 的 npm test 只跑 node --test，不算。
+  - scripts/hub/worker.md 审核端一审一条：基线检查记录里红的检查，输出是“命令找不到”（is not recognized、command not found、找不到 npm 或 node）的，是环境错，不是“基线上该红”，退回合同端。
+  - GATE_PITFALLS 加一条（Python 与 TS 两份）：探针读仓库里的文件时，按 process.cwd() 拼路径，不用 new URL(…, import.meta.url)；这一步在基线上常跑不到，交付前照第 167 轮那条放桩把探针走一遍。
+  - 没做（留在候选 #83）：合同校验里的硬规则，以及内核分诊把“命令找不到”单列。前者要读 package.json 的脚本才能分清 desktop/shell 那种不需要依赖的 npm test，规则写粗了会误报；后者要动 Python 与 TS 两边的分诊写法。先靠两个岗位的说明，再出现一次再做硬规则。
+- **测试**：
+  - test_kit_hub 新增 `test_worker_rules_from_t063`：两条规矩各在自己岗位的提示里、不在另外两个岗位的提示里（role_prompt 按角色切段）。
+  - 门禁热修补回合的提示用例加一句断言（新坑的关键句与“T063 的 probe:units”）；hub-prompt 契约三边重放。
+- **变异**：新写 hub-worker-rules-t063.py（2 条）、hub-gate-pitfall-fileurl.py（1 条）、hub-gate-pitfall-fileurl.ts（1 条）；第 189 轮的 hub-worker-rules.py、第 197 轮的 hub-gate-pitfall-remount.py 照跑（同一个文件、同一张表）。新写 4 条、旧的 5 条全部抓住。
+- **检查**：锚点 250 份规格、失效 0；类型检查 0 错；变异清单与源码卫生的元测试 5 条；内核测试 438 过；hub-prompt 契约 21 过（Python、Node、Bun 三边）。
+
 ## 11. 已知缺口与下一步
 
 **用户评审（`docs/优化.md`）的四条建议：**

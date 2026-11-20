@@ -1,0 +1,20 @@
+{
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "packages/contracts/test/hub-prompt.contract.test.ts",
+    "--bail",
+    "1"
+  ],
+  "cwd": "ts",
+  "timeout_seconds": 1200,
+  "mutations": [
+    {
+      "name": "T01 TS 的门禁坑少了“探针读文件按 process.cwd() 拼路径”",
+      "file": "ts/packages/hub/src/constants.ts",
+      "old": "探针读仓库里的文件时按 process.cwd() 拼路径",
+      "new": "探针读仓库里的文件时按 import.meta.url 拼路径"
+    }
+  ]
+}

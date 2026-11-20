@@ -229,6 +229,8 @@ export const GATE_PITFALLS: readonly string[] = [
   "卸载再挂载之后，组件自己的状态是新的（受控文本框的内容、没保存的选择都回到初值）：合同没写预填或记住上次的值时，重挂载之后要操作就先重新输入；交付前把每一步期望发出的请求与合同的“不做”、“值不合格不发请求”对一遍（T057 的 (h) 重挂载后没输入就点 [核验]，却期望发出上一次的记录值：实现只能记住上次的值，正好是合同写明不做的；执行端为凑它写了回退，自己按合同写的测试随即红了）。",
   // 第 197 轮：T057 的门禁探针在换值再点之后才把假服务改成 failed，作业库创建后立刻查一次，这个答案查不到（候选 #79）
   "探针要改假服务的答案（作业状态、返回的信封）时，放在触发请求的那次点击之前：作业库重新创建之后会立刻（0 毫秒）查一次，新作业当场落定、轮询随即停止，点击之后才改的答案永远查不到；合同不许改作业库的查询节奏时更要如此（T057 的 (h) 换值再点之后才改成 failed，执行端只好改 jobStore 的查询节奏来迁就）。",
+  // 第 201 轮：T063 的单位探针用 new URL(…, import.meta.url) 读 Table.css，这套 Windows + vitest 下一读就抛 TypeError（候选 #83）
+  "探针读仓库里的文件时按 process.cwd() 拼路径（探针在 desktop/web 下跑，例如 path.resolve(process.cwd(), 'src/components/Table.css')），不要用 new URL('…', import.meta.url)：这套 Windows + vitest 下 import.meta.url 不是 file: 地址，readFileSync 读之前就抛 TypeError（The URL must be of scheme file）。这一步在基线上常常跑不到，交付前照上面“放一份最小的桩文件让夹具完整走一遍”那条把探针跑一遍（T063 的 probe:units 就红在这里，执行端 1800 秒用满、白扣一次 attempt）。",
 ];
 /** 第 38 轮：pi 的模型接口限流时扣信退避（秒），连着限流太多次就照旧按接口报错交给站主。 */
 export const THROTTLE_BACKOFF_SECONDS = 300;

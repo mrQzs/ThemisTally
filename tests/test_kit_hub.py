@@ -706,6 +706,14 @@ def test_worker_rules_from_t051_and_t052():
     assert "只用于本次核验，不进仓库" in audit and "只用于本次核验，不进仓库" not in contract + gate
 
 
+def test_worker_rules_from_t063():
+    # 第 201 轮：T063 的合同 setup 漏了 npm ci，fresh 检查树里 V01、V02 结构性必红；基线上也红，被当成“基线上该红”，
+    # 一审看到了没挡（候选 #83）
+    contract, gate, audit = (kh.role_prompt(agent) for agent in ("contract-glm", "gate-sonnet", "audit-sonnet"))
+    assert "在同一个 cwd 跑一次" in contract and "在同一个 cwd 跑一次" not in gate + audit
+    assert "命令找不到" in audit and "命令找不到" not in contract + gate
+
+
 def test_first_review_report_must_map_every_dod(tmp_path, monkeypatch):
     _repo, _head, hub, ts, _plans, _calls = gate_setup(tmp_path, monkeypatch)
     problems = kh.dod_coverage_problems(hub, ts, "| D01 | test_a | assert x |\n| D11 | 只能人工审阅 |")
@@ -8368,6 +8376,8 @@ def test_the_gate_hotfix_turn_carries_the_executors_words(engine_env):
     # 第 197 轮：T057 的门禁探针重挂载后没重新输入就点按钮，期望发出上一次的值，与合同“不记住上次的值”打架（候选 #79）
     assert "重挂载之后要操作就先重新输入" in prompt and "T057 的 (h)" in prompt
     assert "放在触发请求的那次点击之前" in prompt and "换值再点之后才改成 failed" in prompt
+    # 第 201 轮：T063 的单位探针用 import.meta.url 读文件，这套 Windows + vitest 下一读就抛 TypeError（候选 #83）
+    assert "按 process.cwd() 拼路径" in prompt and "T063 的 probe:units" in prompt
     post = kh.turn_prompt(hub, ts, "gate-sonnet", "T001-6-gate-post", [], hub.repo)
     assert "## 门禁测试撞过的坑" in post and "热修补：执行端说" not in post
     del ts["hotfix"]
