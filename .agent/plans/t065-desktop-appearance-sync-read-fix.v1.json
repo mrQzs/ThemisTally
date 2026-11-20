@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "task_id": "t065-desktop-appearance-sync-read-fix",
+  "plan_version": 1,
+  "title": "同步外观读取修正：主进程处理函数只给 event.returnValue 赋一次，页面首帧读到真实外观",
+  "repository": "ThemisTally",
+  "base_sha": "2fe5d38d261813248f690c599faa9a374798e16b",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/main.js",
+      "desktop/shell/README.md",
+      "tests/test_gate_t061_baseline.py"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t065_*.py",
+      "src/**",
+      "desktop/web/**",
+      "desktop/shell/tests/**",
+      "desktop/shell/package.json",
+      "desktop/shell/package-lock.json"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass \\d+"
+      ],
+      "output_must_not_match": [
+        "# fail [1-9]"
+      ]
+    },
+    {
+      "id": "V02",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t061_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t065_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "tests/test_gate_t056_baseline.py",
+        "tests/test_gate_t057_baseline.py",
+        "tests/test_gate_t058_baseline.py",
+        "tests/test_gate_t059_baseline.py",
+        "tests/test_gate_t060_baseline.py",
+        "tests/test_gate_t061_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "`desktop/shell/main.js` 的三处处理函数里，`event.returnValue` 恰好各赋一次——外壳两处先在局部变量 `answer` 里算好、最后一句 `event.returnValue = answer;` 锚在函数体末尾，带参数分支那处只有 `event.returnValue = null;` 一句；来源判断条件、通道、注册位置、`ipcMain.on` 的个数（仍恰好三处）逐字不变",
+      "evidence": [
+        "V02",
+        "review"
+      ],
+      "intent": "Electron 的 `returnValue` 第一次赋值就是回复，多一次赋值页面就永远读到 `null`"
+    },
+    {
+      "id": "D02",
+      "text": "改过的 T061 S07 在候选上通过，且能挡住四种退化写法（先赋 `null` 再覆盖、`catch` 里赋值、赋值挪到 `try` 之前、带参数分支赋两次）；T061 门禁其余用例（S01–S06、S08–S10 与 P01–P07）照旧全绿",
+      "evidence": [
+        "V02",
+        "G01"
+      ],
+      "intent": "门禁是本片唯一的自动化证据，它必须真的钉住「恰好一次」而不是走过场"
+    },
+    {
+      "id": "D03",
+      "text": "`desktop/shell/README.md` 的同步读取那一句改成「每条路径恰好给 `event.returnValue` 赋一次」并带上原因（第一次赋值即回复、之后的赋值被丢掉），该行其余内容与 README 的既有 needle 一条不少",
+      "evidence": [
+        "V02",
+        "R01"
+      ],
+      "intent": "下一片照 README 就能对齐写法"
+    },
+    {
+      "id": "D04",
+      "text": "外壳单测全绿（tap 输出有 `# pass` 且无 `# fail`）",
+      "evidence": [
+        "V01"
+      ],
+      "intent": "外壳侧既有行为没有被这次改写碰坏"
+    },
+    {
+      "id": "D05",
+      "text": "全套回归门禁（含 T025/T026/T028/T030/T033/T035/T060 钉 `main.js` 的断言、T032 的 `UNTOUCHED_REL`、T012 的过渡断言）全绿",
+      "evidence": [
+        "R01"
+      ],
+      "intent": "本次放开的只是赋值写法，别顺手放宽别的禁令"
+    },
+    {
+      "id": "D06",
+      "text": "本片新门禁 `tests/test_gate_t065_baseline.py` 在候选上通过（该文件由门禁端写，执行端不许碰）",
+      "evidence": [
+        "G01"
+      ],
+      "intent": "新旧两套门禁一起把「恰好一次」钉住"
+    },
+    {
+      "id": "D07",
+      "text": "所有修改都在允许集合内（只有 `desktop/shell/main.js`、`desktop/shell/README.md`、`tests/test_gate_t061_baseline.py`），没有新增文件、没有改依赖与锁文件、没有碰 `src/**`、`desktop/web/**`、`desktop/shell/tests/**`、`desktop/shell/package*.json`",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "本片的边界是三个文件，不越"
+    },
+    {
+      "id": "D08",
+      "text": "没有删除、跳过或弱化既有测试；被改写的只有 T061 S07 的那三条断言与相关说明文字，且新判定严格于旧判定",
+      "evidence": [
+        "review"
+      ],
+      "intent": "门禁强度不因修 bug 而悄悄下降"
+    },
+    {
+      "id": "D09",
+      "text": "页面首帧读到真实外观（服务窗口、外壳页窗口、设置窗口的 `getAppearance()` 拿到 `currentAppearance`）——**这条的运行期证据在仓库外**，由站主落地后跑真窗口冒烟（落地前站主已在冒烟树用同样两处改动跑过三轮：19/19、1/1、4/4）；候选里没有这份证据，验收按「静态门禁 + 站主冒烟」判",
+      "evidence": [
+        "review"
+      ],
+      "intent": "这是本片要修的现象本身，但它只能靠真窗口证明"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 4,
+    "max_wall_seconds_per_attempt": 2700,
+    "max_wall_seconds_total": 10800,
+    "cost_budget": null
+  }
+}
