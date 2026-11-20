@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "task_id": "t064-desktop-repo-switch-shell",
+  "plan_version": 1,
+  "title": "仓库切换与单实例（外壳侧）：只开一份应用；宿主接口能列出、切换、添加仓库",
+  "repository": "ThemisTally",
+  "base_sha": "1cd1fbbcf85c823c1dc85b67f295c0eb3cbeaa55",
+  "risk_level": "medium",
+  "authorization": {
+    "executor": [
+      "local_edit",
+      "local_test"
+    ],
+    "integration": [
+      "local_branch",
+      "merge"
+    ]
+  },
+  "executor": {
+    "provider": "cc-switch-step-fun",
+    "model": "step-5-preview",
+    "thinking": "high",
+    "tools": [
+      "read",
+      "grep",
+      "find",
+      "ls",
+      "edit",
+      "write",
+      "bash"
+    ],
+    "context_files": "project"
+  },
+  "scope": {
+    "allowed_modified_files": [
+      "desktop/shell/src/settings.js",
+      "desktop/shell/src/shellapi.js",
+      "desktop/shell/src/serviceflow.js",
+      "desktop/shell/src/host.js",
+      "desktop/shell/src/hostrelay.js",
+      "desktop/shell/src/ipc.js",
+      "desktop/shell/preload.js",
+      "desktop/shell/main.js",
+      "desktop/shell/README.md",
+      "desktop/shell/tests/settings.test.js",
+      "desktop/shell/tests/shellapi.test.js",
+      "desktop/shell/tests/serviceflow.test.js",
+      "desktop/shell/tests/host.test.js",
+      "desktop/shell/tests/preload.test.js",
+      "desktop/shell/tests/ipc.test.js",
+      "desktop/shell/tests/hostrelay.test.js",
+      "tests/test_gate_t026_baseline.py",
+      "tests/test_gate_t035_baseline.py",
+      "tests/test_gate_t060_baseline.py",
+      "tests/test_gate_t061_baseline.py"
+    ],
+    "allowed_new_files": [],
+    "allowed_deleted_files": [],
+    "forbidden_paths": [
+      "tests/test_gate_t064_*.py",
+      "desktop/web/**",
+      "ts/**",
+      "docs/**",
+      "desktop/shell/package.json",
+      "desktop/shell/package-lock.json",
+      "desktop/shell/shell-preload.js",
+      "desktop/shell/src/shellipc.js",
+      "desktop/shell/src/shellprotocol.js",
+      "desktop/shell/src/window.js",
+      "desktop/shell/src/detect.js",
+      "desktop/shell/src/core.js",
+      "desktop/shell/src/service.js",
+      "desktop/shell/src/control.js",
+      "desktop/shell/src/hostcheck.js",
+      "desktop/shell/src/launch.js",
+      "desktop/shell/src/args.js",
+      "desktop/shell/src/handshake.js",
+      "desktop/shell/src/python.js"
+    ],
+    "dependency_changes": "forbidden"
+  },
+  "setup": [],
+  "checks": [
+    {
+      "id": "V01",
+      "argv": [
+        "npm",
+        "test"
+      ],
+      "cwd": "desktop/shell",
+      "timeout_seconds": 900,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "# pass"
+      ]
+    },
+    {
+      "id": "G01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t064_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "fail"
+    },
+    {
+      "id": "R01",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_gate_t001_baseline.py",
+        "tests/test_gate_t002_baseline.py",
+        "tests/test_gate_t003_baseline.py",
+        "tests/test_gate_t004_baseline.py",
+        "tests/test_gate_t005_baseline.py",
+        "tests/test_gate_t006_baseline.py",
+        "tests/test_gate_t007_baseline.py",
+        "tests/test_gate_t008_baseline.py",
+        "tests/test_gate_t009_baseline.py",
+        "tests/test_gate_t010_baseline.py",
+        "tests/test_gate_t011_baseline.py",
+        "tests/test_gate_t012_baseline.py",
+        "tests/test_gate_t013_baseline.py",
+        "tests/test_gate_t014_baseline.py",
+        "tests/test_gate_t015_baseline.py",
+        "tests/test_gate_t016_baseline.py",
+        "tests/test_gate_t017_baseline.py",
+        "tests/test_gate_t018_baseline.py",
+        "tests/test_gate_t019_baseline.py",
+        "tests/test_gate_t020_baseline.py",
+        "tests/test_gate_t021_baseline.py",
+        "tests/test_gate_t022_baseline.py",
+        "tests/test_gate_t023_baseline.py",
+        "tests/test_gate_t024_baseline.py",
+        "tests/test_gate_t025_baseline.py",
+        "tests/test_gate_t026_baseline.py",
+        "tests/test_gate_t027_baseline.py",
+        "tests/test_gate_t028_baseline.py",
+        "tests/test_gate_t030_baseline.py",
+        "tests/test_gate_t031_baseline.py",
+        "tests/test_gate_t032_baseline.py",
+        "tests/test_gate_t033_baseline.py",
+        "tests/test_gate_t034_baseline.py",
+        "tests/test_gate_t035_baseline.py",
+        "tests/test_gate_t036_baseline.py",
+        "tests/test_gate_t037_baseline.py",
+        "tests/test_gate_t038_baseline.py",
+        "tests/test_gate_t039_baseline.py",
+        "tests/test_gate_t040_baseline.py",
+        "tests/test_gate_t041_baseline.py",
+        "tests/test_gate_t042_baseline.py",
+        "tests/test_gate_t043_baseline.py",
+        "tests/test_gate_t044_baseline.py",
+        "tests/test_gate_t045_baseline.py",
+        "tests/test_gate_t046_baseline.py",
+        "tests/test_gate_t047_baseline.py",
+        "tests/test_gate_t048_baseline.py",
+        "tests/test_gate_t049_baseline.py",
+        "tests/test_gate_t050_baseline.py",
+        "tests/test_gate_t051_baseline.py",
+        "tests/test_gate_t052_baseline.py",
+        "tests/test_gate_t053_baseline.py",
+        "tests/test_gate_t054_baseline.py",
+        "tests/test_gate_t055_baseline.py",
+        "tests/test_gate_t056_baseline.py",
+        "tests/test_gate_t057_baseline.py",
+        "tests/test_gate_t058_baseline.py",
+        "tests/test_gate_t059_baseline.py",
+        "tests/test_gate_t060_baseline.py",
+        "tests/test_gate_t061_baseline.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 3600,
+      "required": true,
+      "expected_exit_code": 0,
+      "output_must_match": [
+        "\\d+ passed"
+      ],
+      "expect_on_base": "pass"
+    }
+  ],
+  "definition_of_done": [
+    {
+      "id": "D01",
+      "text": "宿主接口多三个函数——`window.themisHost` 十二个成员、`HOST_METHODS` 十项、`src/ipc.js` 三张表十项、`createHost` 返回十个成员，三条新通道名与实参个数如上",
+      "evidence": [
+        "V01",
+        "G01",
+        "R01"
+      ],
+      "intent": "T062 的前端能直接调 `listRepos`/`switchRepo`/`addRepo`，既有七个宿主函数的形状一个字没变"
+    },
+    {
+      "id": "D02",
+      "text": "`settings.selectRepo` 是纯函数——只改 `currentRepo` 与目标条目的 `lastOpened`，入参不变，未知 id 回 `unknown-repo`",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "切换的存盘动作可单测、不会顺手改别的仓库（用例写在 `desktop/shell/tests/settings.test.js`）"
+    },
+    {
+      "id": "D03",
+      "text": "shellapi 的两个内部函数经注入回调交给 main.js，`createShellApi` 仍十个成员、外壳 IPC 仍九条",
+      "evidence": [
+        "V01",
+        "R01",
+        "review"
+      ],
+      "intent": "T028 :1499-1502 与 T030/T033 冻结的外壳接口面不被破坏"
+    },
+    {
+      "id": "D04",
+      "text": "`serviceflow.reset()` 只在 `exited` 时回 `idle` 并以 `{byShell:false}` 通知，`moveTo` 一字不改，全文件无 `afterRunning: false`",
+      "evidence": [
+        "V01",
+        "R01"
+      ],
+      "intent": "切换后首次启动页能自动起新仓库的服务（T039 的 `afterRunning` 约定不被破坏）"
+    },
+    {
+      "id": "D05",
+      "text": "host 的三个新成员按 Behavior contract 编排——`unavailable`、`bad-args`、`addRepo` 四种映射、结果不带路径与 state",
+      "evidence": [
+        "V01",
+        "review"
+      ],
+      "intent": "失败原因是固定词，页面能照词表显示（用例写在 `desktop/shell/tests/host.test.js`）"
+    },
+    {
+      "id": "D06",
+      "text": "同一 userData 下只开一份——拿不到锁的那份在建任何窗口、起任何子进程之前以 0 退出；持锁那份收到 `second-instance` 后先 restore 再 focus；带参数分支不拿锁",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "同一仓库起两份服务撞锁的老问题不再发生"
+    },
+    {
+      "id": "D07",
+      "text": "切换次序固定为「存盘 → `relay.clear()` 且 `serviceWindow = null` → `flow.stop()` → `flow.reset()` → 开首次启动页 → 关设置窗口与旧服务窗口」；校验或存盘失败原样回且什么都不动；`switchRepo` 在存盘过了就回 `{ok:true}` 不等收尾；收尾自己接住错误；首次启动页开不出来写一行 `ERROR:` 并以 1 退出",
+      "evidence": [
+        "G01",
+        "review"
+      ],
+      "intent": "切换过程中任何时刻至少有一个窗口、不出现服务状态页、应用不退出"
+    },
+    {
+      "id": "D08",
+      "text": "选目录对话框的父窗口是 `shellWin` → `settingsWin` → `serviceWindow` → 不带窗口；`chooseFile` 与 `confirmExternal` 不变",
+      "evidence": [
+        "G01"
+      ],
+      "intent": "服务窗口里点「添加仓库」时对话框挂在正确的父窗口上"
+    },
+    {
+      "id": "D09",
+      "text": "README 第 5 行不再把单实例与多仓库切换列进「仍没有」（「托盘」留着、「外壳页在本片就位」留着），宿主接口表首句改成十二个函数并加三行，退出码表补 0/1 两种新情形，冒烟加单实例与切换两条",
+      "evidence": [
+        "R01",
+        "review"
+      ],
+      "intent": "文档与实际行为一致、站主能照 README 冒烟（T026/T030/T035/T039/T060/T061 的 README 断言由 R01 覆盖）"
+    },
+    {
+      "id": "D10",
+      "text": "所有修改都在 Scope 的允许集合内，没有新增测试文件、没有改 `desktop/shell/package.json`",
+      "evidence": [
+        "scope"
+      ],
+      "intent": "候选补丁可被独立复跑（依赖清单与锁文件一字不动）"
+    },
+    {
+      "id": "D11",
+      "text": "没有删除、跳过或弱化既有测试；旧门禁只改个数与清单，用例一条没删",
+      "evidence": [
+        "review"
+      ],
+      "intent": "回归保护仍在（改动前后的断言强度可比）"
+    }
+  ],
+  "budget": {
+    "max_attempts_total": 3,
+    "max_wall_seconds_per_attempt": 2400,
+    "max_wall_seconds_total": 7200,
+    "cost_budget": null
+  }
+}
