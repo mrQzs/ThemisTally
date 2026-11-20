@@ -133,8 +133,8 @@ ALLOWED_SYNC_CHANNEL_ARGS = (
 
 ELECTRON_ALLOWED = ("main.js", "preload.js", "shell-preload.js")
 
-# host 的七个方法名（合同 Behavior contract；片 A 末尾加 saveTheme）
-HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme")
+# host 的十个方法名（合同 Behavior contract；T064 末尾加 listRepos/switchRepo/addRepo）
+HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme", "listRepos", "switchRepo", "addRepo")
 
 
 def _shell_read(rel: str) -> str:
@@ -869,7 +869,7 @@ const { createServiceFlow } = require("@SHELL@/src/serviceflow.js");
 const FAKE = path.join("@SHELL@", "tests", "fixtures", "fake-service.js");
 const FAKE_EXIT = path.join("@SHELL@", "tests", "fixtures", "fake-service-exit.js");
 
-const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme"];
+const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme", "listRepos", "switchRepo", "addRepo"];
 
 function makeHost(tag) {
   const calls = {};
@@ -897,13 +897,13 @@ async function waitFor(what, predicate, timeoutMs) {
   }
 }
 
-test("形状：{host, senderAllowed, use, clear}，host 是那七个方法", () => {
+test("形状：{host, senderAllowed, use, clear}，host 是那十个方法", () => {
   const relay = createHostRelay();
   assert.deepEqual(Object.keys(relay).sort(), ["clear", "host", "senderAllowed", "use"]);
   assert.deepEqual(Object.keys(relay.host).sort(), [...METHODS].sort());
 });
 
-test("没有当前 host：七个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
+test("没有当前 host：十个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
   const relay = createHostRelay();
   for (const name of METHODS) {
     assert.deepEqual(await relay.host[name]("a", 2), { ok: false, reason: "forbidden" }, name + " 不许抛错");
@@ -945,7 +945,7 @@ test("senderAllowed 的检查抛错按 false", () => {
   assert.equal(relay.senderAllowed({}), false);
 });
 
-test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 7、调用进第二个 host", async () => {
+test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 10、调用进第二个 host", async () => {
   const handlers = new Map();
   let registrations = 0;
   const im = {
@@ -957,8 +957,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   };
   const relay = createHostRelay();
   registerHostIpc(im, relay.host, relay.senderAllowed);
-  assert.equal(registrations, 7, "registerHostIpc 注册七条通道");
-  assert.equal(handlers.size, 7);
+  assert.equal(registrations, 10, "registerHostIpc 注册十条通道");
+  assert.equal(handlers.size, 10);
   // 还没有当前 host：调用经来源检查回 forbidden
   assert.deepEqual(
     await handlers.get("themis-host:notify")({ tag: "x" }, "attempt-finished"),
@@ -997,8 +997,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   );
   assert.equal(flow.state().kind, "running");
   // registerHostIpc 没有被第二次调用（否则 im.handle 早就抛错了）
-  assert.equal(registrations, 7, "第二次起服务不许再注册宿主 IPC");
-  assert.equal(handlers.size, 7);
+  assert.equal(registrations, 10, "第二次起服务不许再注册宿主 IPC");
+  assert.equal(handlers.size, 10);
   assert.deepEqual(
     await handlers.get("themis-host:reveal")(ev, "runs/x/summary.md"),
     { ok: true, value: "host2:reveal" },

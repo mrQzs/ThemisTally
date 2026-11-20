@@ -105,10 +105,12 @@ SHELL_CHANNELS = (
     "themis-shell:restart-service",
     "themis-shell:open-external",
 )
-HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme")
+HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme", "listRepos", "switchRepo", "addRepo")
 # Object.keys(...).sort() 之后的逐字键表（JS 默认排序，UTF-16 码元序）
 HOST_KEYS_SORTED = [
+    "addRepo",
     "getAppearance",
+    "listRepos",
     "notify",
     "onAppearance",
     "openExternal",
@@ -117,6 +119,7 @@ HOST_KEYS_SORTED = [
     "reauth",
     "reveal",
     "saveTheme",
+    "switchRepo",
 ]
 SHELL_KEYS_SORTED = [
     "getAppearance",
@@ -811,10 +814,11 @@ function makeHost(over) {
   }, over || {}));
 }
 
-test("暴露面：七个函数，saveTheme 排在最后，前六个照旧", () => {
+test("暴露面：十个函数，listRepos/switchRepo/addRepo 依次在旧七项之后", () => {
   const host = makeHost({ saveTheme: async () => ({ ok: true }) });
   assert.deepEqual(Object.keys(host), [
     "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme",
+    "listRepos", "switchRepo", "addRepo",
   ]);
   for (const name of Object.keys(host)) {
     assert.equal(typeof host[name], "function", name + " 必须是函数");
@@ -863,9 +867,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHostRelay, HOST_METHODS } = require("@SHELL@/src/hostrelay.js");
 
-test("HOST_METHODS 恰好七项，saveTheme 在末尾", () => {
+test("HOST_METHODS 恰好十项，addRepo 在末尾", () => {
   assert.deepEqual([...HOST_METHODS], [
     "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme",
+    "listRepos", "switchRepo", "addRepo",
   ]);
 });
 
@@ -912,6 +917,9 @@ const HOST_LIST = [
   "themis-host:notify",
   "themis-host:open-settings",
   "themis-host:save-theme",
+  "themis-host:list-repos",
+  "themis-host:switch-repo",
+  "themis-host:add-repo",
 ];
 const SHELL_LIST = [
   "themis-shell:get-state",
@@ -925,7 +933,7 @@ const SHELL_LIST = [
   "themis-shell:open-external",
 ];
 
-test("HOST_CHANNELS 恰好七条、冻结、顺序固定（save-theme 在末尾）", () => {
+test("HOST_CHANNELS 恰好十条、冻结、顺序固定（add-repo 在末尾）", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS), "HOST_CHANNELS 必须冻结");
   assert.deepEqual([...HOST_CHANNELS], HOST_LIST);
 });
@@ -937,7 +945,7 @@ test("宿主外观常量逐字，且不进 HOST_CHANNELS（同步读不是 invok
   assert.ok(!HOST_CHANNELS.includes(HOST_APPEARANCE_EVENT), "事件推送不进 invoke 表");
 });
 
-test("registerHostIpc：七个通道都用 handle 注册；save-theme 转交 saveTheme、多余实参丢掉；来源不对回 forbidden；host 抛错回 internal", async () => {
+test("registerHostIpc：十个通道都用 handle 注册；save-theme 转交 saveTheme、多余实参丢掉；来源不对回 forbidden；host 抛错回 internal", async () => {
   const handlers = {};
   const registered = [];
   const ipcMain = {
@@ -956,7 +964,7 @@ test("registerHostIpc：七个通道都用 handle 注册；save-theme 转交 sav
   };
   let allowed = true;
   registerHostIpc(ipcMain, host, () => allowed);
-  assert.deepEqual(registered, HOST_LIST, "只许注册这七个通道、顺序照表");
+  assert.deepEqual(registered, HOST_LIST, "只许注册这十个通道、顺序照表");
   const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:1/x" } };
   assert.deepEqual(await handlers["themis-host:save-theme"](EV, "dark"),
     { ok: true, value: { theme: "dark", density: "standard" } });
@@ -1039,15 +1047,15 @@ function runPreload() {
   return { source, requires, exposes, invokes, syncs, listeners };
 }
 
-test("真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰好九个（原六个 + 三个新成员）", () => {
+test("真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰好十二个（原九个 + 三个新成员）", () => {
   const run = runPreload();
   assert.deepEqual(run.requires, ["electron"]);
   assert.equal(run.exposes.length, 1, "exposeInMainWorld 必须恰好调一次");
   const [name, api] = run.exposes[0];
   assert.equal(name, "themisHost");
   assert.deepEqual(Object.keys(api).sort(), [
-    "getAppearance", "notify", "onAppearance", "openExternal", "openSecretWindow",
-    "openSettings", "reauth", "reveal", "saveTheme",
+    "addRepo", "getAppearance", "listRepos", "notify", "onAppearance", "openExternal",
+    "openSecretWindow", "openSettings", "reauth", "reveal", "saveTheme", "switchRepo",
   ]);
   for (const key of Object.keys(api)) {
     assert.equal(typeof api[key], "function", key + " 必须是函数");

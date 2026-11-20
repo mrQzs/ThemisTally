@@ -63,7 +63,7 @@ function createServiceFlow(options) {
 
   // 状态变化通知全部订阅者；info 只带给主进程的订阅者，不进状态、不进事件负载。
   // 只前进不后退：同一个 run 里已经是 exited 就不再变（重复的 exited 不覆盖已有的）。
-  // 唯一的例外是新 run 的 starting：exited 之后要能再 start
+  // 例外有两个：新 run 的 starting（exited 之后要能再 start），以及 reset（exited → idle，见下面 reset）
   function moveTo(next, newRun) {
     if (current.kind === "exited" && newRun !== true) return;
     // 只有「进过 running 之后的退出」才带 afterRunning: true：服务自己退出、跑起来之后外壳自己 stop、
@@ -196,7 +196,16 @@ function createServiceFlow(options) {
     };
   }
 
-  return { start, stop, abort, state, subscribe };
+  // reset：第二个例外（exited → idle）。只在 current 是 exited 时置回 idle 并以 {byShell:false} 通知，
+  // 不经 moveTo；idle/starting/running 下什么都不做、不发通知。run 计数、child、stopping、aborting
+  // 都不动——下一次 start 自己会重置。切换仓库后首次启动页靠它回到 idle 才能自动起新仓库的服务
+  function reset() {
+    if (current.kind !== "exited") return;
+    current = { kind: "idle" };
+    for (const listener of [...listeners]) listener(current, { byShell: false });
+  }
+
+  return { start, stop, abort, state, subscribe, reset };
 }
 
 module.exports = { createServiceFlow };

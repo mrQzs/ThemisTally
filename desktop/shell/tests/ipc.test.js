@@ -13,6 +13,9 @@ const CHANNELS = [
   "themis-host:notify",
   "themis-host:open-settings",
   "themis-host:save-theme",
+  "themis-host:list-repos",
+  "themis-host:switch-repo",
+  "themis-host:add-repo",
 ];
 const SECRET = "ipc-secret-" + crypto.randomBytes(8).toString("hex");
 const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:8123/app" } };
@@ -62,10 +65,22 @@ function okHost(calls) {
       calls.push(["saveTheme", [pref]]);
       return { ok: true };
     },
+    listRepos: async (...args) => {
+      calls.push(["listRepos", args]);
+      return { ok: true };
+    },
+    switchRepo: async (...args) => {
+      calls.push(["switchRepo", args]);
+      return { ok: true };
+    },
+    addRepo: async (...args) => {
+      calls.push(["addRepo", args]);
+      return { ok: true };
+    },
   };
 }
 
-test("HOST_CHANNELS 冻结且恰好七个，save-theme 在末尾；外观常量逐字且不进 invoke 表", () => {
+test("HOST_CHANNELS 冻结且恰好十个，add-repo 在末尾；外观常量逐字且不进 invoke 表", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS));
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
   assert.equal(HOST_APPEARANCE_CHANNEL, "themis-host:get-appearance");
@@ -74,7 +89,7 @@ test("HOST_CHANNELS 冻结且恰好七个，save-theme 在末尾；外观常量�
   assert.ok(!HOST_CHANNELS.includes(HOST_APPEARANCE_EVENT), "事件推送不进 invoke 表");
 });
 
-test("只用 ipcMain.handle 注册七个通道；来源不对回 forbidden 且不进 host", async () => {
+test("只用 ipcMain.handle 注册十个通道；来源不对回 forbidden 且不进 host", async () => {
   const { ipcMain, handlers, onCalls } = fakeIpcMain();
   const calls = [];
   let allowed = false;
@@ -105,6 +120,18 @@ test("来源对：转交 host，多余的实参丢掉", async () => {
   assert.deepEqual(calls[3], ["openSettings", []], "多余的实参要丢掉");
   assert.deepEqual(await handlers["themis-host:save-theme"](EV, "dark", "EXTRA"), { ok: true });
   assert.deepEqual(calls[4], ["saveTheme", ["dark"]], "save-theme 转交 saveTheme、多余实参丢掉");
+});
+
+test("三个新通道（T064）转交对应宿主函数、实参个数照 HOST_ARITY（0/1/0）", async () => {
+  const { ipcMain, handlers } = fakeIpcMain();
+  const calls = [];
+  registerHostIpc(ipcMain, okHost(calls), () => true);
+  assert.deepEqual(await handlers["themis-host:list-repos"](EV, "EXTRA"), { ok: true });
+  assert.deepEqual(calls[calls.length - 1], ["listRepos", []], "list-repos 零实参（多余实参丢掉）");
+  assert.deepEqual(await handlers["themis-host:switch-repo"](EV, "b", "EXTRA"), { ok: true });
+  assert.deepEqual(calls[calls.length - 1], ["switchRepo", ["b"]], "switch-repo 只转交一个实参");
+  assert.deepEqual(await handlers["themis-host:add-repo"](EV, "EXTRA"), { ok: true });
+  assert.deepEqual(calls[calls.length - 1], ["addRepo", []], "add-repo 零实参");
 });
 
 test("host 抛错（同步与异步）：回 internal，错误消息不外传", async () => {

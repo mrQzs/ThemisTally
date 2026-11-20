@@ -49,17 +49,17 @@ test("preload 只 require electron，且恰好一次 exposeInMainWorld(\"themisH
   assert.equal(exposes[0][0], "themisHost");
 });
 
-test("暴露面恰好九个函数、含 openSettings 与三个新成员", () => {
+test("暴露面恰好十二个函数、含 openSettings 与三个新成员", () => {
   const { exposes } = runPreload();
   const api = exposes[0][1];
   assert.deepEqual(Object.keys(api).sort(), [
-    "getAppearance", "notify", "onAppearance", "openExternal", "openSecretWindow",
-    "openSettings", "reauth", "reveal", "saveTheme",
+    "addRepo", "getAppearance", "listRepos", "notify", "onAppearance", "openExternal",
+    "openSecretWindow", "openSettings", "reauth", "reveal", "saveTheme", "switchRepo",
   ]);
   assert.equal(typeof api.openSettings, "function");
 });
 
-test("七个通道与 src/ipc.js 的 HOST_CHANNELS 逐字一致", () => {
+test("十个通道与 src/ipc.js 的 HOST_CHANNELS 逐字一致", () => {
   const { source } = runPreload();
   for (const channel of HOST_CHANNELS) {
     assert.ok(source.includes(`"${channel}"`) || source.includes(`'${channel}'`), "preload 缺通道 " + channel);
@@ -101,6 +101,25 @@ test("每个函数只把声明的实参原样转交给固定通道，多余实�
     ["themis-host:save-theme", "dark"],
     ["themis-host:save-theme", "light"],
   ]);
+});
+
+test("三个新成员（T064）：只把声明的实参转交固定通道，实参个数 0/1/0、多余实参丢掉", async () => {
+  const { exposes, invokes } = runPreload();
+  const api = exposes[0][1];
+  await api.listRepos();
+  await api.listRepos("EXTRA");
+  await api.switchRepo("repo-b");
+  await api.switchRepo("repo-b", "EXTRA");
+  await api.addRepo();
+  await api.addRepo("EXTRA");
+  assert.deepEqual(invokes.slice(-6), [
+    ["themis-host:list-repos"],
+    ["themis-host:list-repos"],
+    ["themis-host:switch-repo", "repo-b"],
+    ["themis-host:switch-repo", "repo-b"],
+    ["themis-host:add-repo"],
+    ["themis-host:add-repo"],
+  ], "实参个数照声明：0 / 1 / 0，多余的丢掉");
 });
 
 test("saveTheme：只转交这一个实参到固定通道，返回信封不拆", async () => {

@@ -1,7 +1,7 @@
 "use strict";
 
 const path = require("node:path");
-const { applyPatch, addRepo, addTranscriptDir, appearanceOf } = require("./settings.js");
+const { applyPatch, addRepo, addTranscriptDir, appearanceOf, selectRepo: selectRepoSettings } = require("./settings.js");
 const { checkRepo, probePython, probeKit, detectPython, detectKit } = require("./detect.js");
 const { isExternalUrl } = require("./hostcheck.js");
 // 起服务的命令形状只此一处：外壳页与带参数那条路用同一个 serviceCommand
@@ -44,6 +44,8 @@ function createShellApi(options) {
   const assets = typeof opts.assets === "string" ? opts.assets : "";
   // 外观变化回调：saveSettings 写盘成功且 theme/density 变了才调一次；不注入就不调
   const onAppearanceChange = typeof opts.onAppearanceChange === "function" ? opts.onAppearanceChange : null;
+  // 仓库操作回调：建好时同步调一次，把 listRepos/selectRepo 两个内部函数交出去（不进返回对象、不进外壳 IPC）
+  const onRepoOps = typeof opts.onRepoOps === "function" ? opts.onRepoOps : null;
 
   // 内存设置：给了 initialSettings 就用它当初值（深拷贝，一次都不再 store.load 起步），
   // 否则第一次用到时从存盘读入；写盘成功后才更新它
@@ -314,6 +316,32 @@ function createShellApi(options) {
       listener(state);
     });
   }
+
+  // 仓库列表（不带路径）：current 为 id === runningId；runningId 不是字符串时没有哪一条 current 为 true
+  function listRepos(runningId) {
+    const source = current();
+    const running = typeof runningId === "string" ? runningId : null;
+    return source.repos.map((entry) => ({ id: entry.id, name: entry.name, current: entry.id === running }));
+  }
+
+  // 切换当前仓库：依次 bad-args → unknown-repo → current-repo → 纯函数 → 清缓存 → 存盘。
+  // 写盘失败内存保持原样（persist 只在成功时更新内存设置）；at 不是有限数字用 Date.now() 兜底
+  async function selectRepo(id, runningId, at) {
+    if (typeof id !== "string" || id.length === 0) return { ok: false, reason: "bad-args" };
+    const source = current();
+    if (!source.repos.some((entry) => entry.id === id)) return { ok: false, reason: "unknown-repo" };
+    if (id === runningId) return { ok: false, reason: "current-repo" };
+    const at2 = Number.isFinite(at) ? at : Date.now();
+    const applied = selectRepoSettings(source, id, at2);
+    if (!applied.ok) return { ok: false, reason: "unknown-repo" };
+    dropCache();
+    const written = await persist(applied.settings);
+    if (!written.ok) return { ok: false, reason: "write-failed" };
+    return { ok: true };
+  }
+
+  // 建好时同步交出两个内部函数（调用方据此接到 main.js 的切换编排）；不注入就不调
+  if (onRepoOps !== null) onRepoOps({ listRepos, selectRepo });
 
   return {
     getState,

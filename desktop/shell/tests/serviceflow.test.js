@@ -533,3 +533,94 @@ test("afterRunning 按 run 算：run1 跑起来之后退出（带键），run2 �
   assert.equal(run2[1].exitCode, 2);
   assert.equal("afterRunning" in run2[1], false, "run2 是启动阶段的失败，不继承上一 run 的键");
 });
+
+// ---- reset（T064） ----
+
+test("reset：exited → idle，订阅者收到 {kind:\"idle\"} 与 info.byShell === false", async () => {
+  const rec = recordingSpawn();
+  const seen = collect();
+  const flow = createServiceFlow({ spawn: rec.fn });
+  seen.subscribe(flow);
+  await flow.start({
+    repo: "r-reset",
+    command: [process.execPath, FAKE],
+    env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+  });
+  await flow.stop();
+  await waitFor("stop 之后的 exited", () => flow.state().kind === "exited");
+  const before = seen.states.length;
+  flow.reset();
+  assert.deepEqual(flow.state(), { kind: "idle" }, "exited 是唯一能回 idle 的状态");
+  assert.equal(seen.states.length, before + 1, "reset 要通知订阅者");
+  assert.deepEqual(seen.states[before], { kind: "idle" });
+  assert.equal(seen.infos[before].byShell, false, "reset 的通知带 {byShell:false}");
+});
+
+test("reset：idle/starting/running 下状态不变、不发通知", async () => {
+  {
+    const seen = collect();
+    const flow = createServiceFlow({});
+    seen.subscribe(flow);
+    flow.reset();
+    assert.deepEqual(flow.state(), { kind: "idle" });
+    assert.deepEqual(seen.states, [], "idle 下 reset 不发通知");
+  }
+  {
+    const rec = recordingSpawn();
+    const seen = collect();
+    const flow = createServiceFlow({ spawn: rec.fn });
+    seen.subscribe(flow);
+    await flow.start({
+      repo: "r-run",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+    });
+    const running = flow.state();
+    const before = seen.states.length;
+    flow.reset();
+    assert.equal(flow.state(), running, "running 下状态不变");
+    assert.equal(seen.states.length, before, "running 下不发通知");
+    await flow.stop();
+  }
+  {
+    const seen = collect();
+    const flow = createServiceFlow({ timeoutMs: 800 });
+    seen.subscribe(flow);
+    const pending = flow.start({
+      repo: "r-start",
+      command: [process.execPath, FAKE],
+      env: envWith({ FAKE_SERVICE_MODE: "silent" }),
+    });
+    await waitFor("starting", () => flow.state().kind === "starting");
+    flow.reset();
+    assert.equal(flow.state().kind, "starting", "starting 下状态不变");
+    assert.equal(seen.states.filter((s) => s.kind === "idle").length, 0, "starting 下不发通知");
+    await pending;
+    await waitFor("exited", () => flow.state().kind === "exited");
+  }
+});
+
+test("reset 之后能再 start 一个新 run（exited → idle → starting → running）", async () => {
+  const rec = recordingSpawn();
+  const seen = collect();
+  const flow = createServiceFlow({ spawn: rec.fn });
+  seen.subscribe(flow);
+  await flow.start({
+    repo: "first",
+    command: [process.execPath, FAKE],
+    env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+  });
+  await flow.stop();
+  await waitFor("exited", () => flow.state().kind === "exited");
+  flow.reset();
+  assert.equal(flow.state().kind, "idle");
+  const again = await flow.start({
+    repo: "second",
+    command: [process.execPath, FAKE],
+    env: envWith({ FAKE_SERVICE_MODE: "ok" }),
+  });
+  assert.deepEqual(again, { ok: true, value: null });
+  assert.equal(flow.state().kind, "running");
+  assert.equal(flow.state().repo, "second");
+  await flow.stop();
+});

@@ -296,6 +296,18 @@ function addTranscriptDir(settings, dirPath) {
   return addEntry(settings, "transcriptDirs", dirPath, "dir", (id, value) => ({ id, path: value }));
 }
 
+// 切换当前仓库的纯函数：只改 currentRepo 与目标条目的 lastOpened，其余一字不动。
+// id 不是非空字符串或不在 repos 里 → unknown-repo，入参不被修改；at 是毫秒数，纯函数不读当前时间
+function selectRepo(settings, id, at) {
+  if (typeof id !== "string" || !settings.repos.some((entry) => entry.id === id)) {
+    return { ok: false, reason: "unknown-repo" };
+  }
+  const next = copySettings(settings);
+  next.currentRepo = id;
+  next.repos.find((entry) => entry.id === id).lastOpened = new Date(at).toISOString();
+  return { ok: true, settings: next };
+}
+
 module.exports = {
   DEFAULT_SETTINGS,
   SETTINGS_FILE_KEYS,
@@ -308,4 +320,5 @@ module.exports = {
   applyPatch,
   addRepo,
   addTranscriptDir,
+  selectRepo,
 };

@@ -37,7 +37,7 @@ function readBootstrap(response, origin) {
   return bootstrap;
 }
 
-// 六个宿主函数的编排：系统能力与本机服务全部由注入物承担，控制令牌只在这个闭包里
+// 十个宿主函数的编排：系统能力与本机服务全部由注入物承担，控制令牌只在这个闭包里
 function createHost(options) {
   const {
     origin,
@@ -53,6 +53,9 @@ function createHost(options) {
     now,
     controlTimeoutMs,
     saveTheme: saveThemeImpl,
+    listRepos: listReposImpl,
+    switchRepo: switchRepoImpl,
+    addRepo: addRepoImpl,
   } = options;
 
   const limiter = createRateLimiter({ now });
@@ -191,6 +194,35 @@ function createHost(options) {
     }
   }
 
+  // 仓库列表：注入项不是函数 → unavailable；否则调注入项，只取 {id,name,current} 三键（带了 path 也剥掉）。
+  // 注入项回非 ok 信封（main.js 里 repoOps 为 null 时）原样回，不另外包成 internal
+  async function listRepos() {
+    if (typeof listReposImpl !== "function") return { ok: false, reason: "unavailable" };
+    const result = await listReposImpl();
+    if (result.ok !== true) return result;
+    return { ok: true, repos: result.repos.map((entry) => ({ id: entry.id, name: entry.name, current: entry.current })) };
+  }
+
+  // 切换仓库：id 不是非空字符串 → bad-args（不进注入项）；注入项不是函数 → unavailable；
+  // 否则原样回注入项的结果（{ok:true} 或 {ok:false, reason}）。注入项抛错不在这里包
+  async function switchRepo(id) {
+    if (typeof id !== "string" || id.length === 0) return { ok: false, reason: "bad-args" };
+    if (typeof switchRepoImpl !== "function") return { ok: false, reason: "unavailable" };
+    return switchRepoImpl(id);
+  }
+
+  // 添加仓库：注入项不是函数 → unavailable；否则把外壳信封的四种内层形状映射成宿主信封，
+  // 不认识的回 internal。注入项抛错不在这里包（src/ipc.js 的外层会回 internal）
+  async function addRepo() {
+    if (typeof addRepoImpl !== "function") return { ok: false, reason: "unavailable" };
+    const result = await addRepoImpl();
+    if (result.kind === "cancelled") return { ok: false, reason: "cancelled" };
+    if (result.kind === "rejected") return { ok: false, reason: result.problem };
+    if (result.ok === false && result.reason === "write-failed") return result;
+    if (result.kind === "saved") return { ok: true, id: result.id };
+    return { ok: false, reason: "internal" };
+  }
+
   return {
     reauth,
     openSecretWindow,
@@ -199,6 +231,9 @@ function createHost(options) {
     notify,
     openSettings,
     saveTheme,
+    listRepos,
+    switchRepo,
+    addRepo,
   };
 }
 

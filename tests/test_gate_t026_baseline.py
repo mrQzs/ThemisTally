@@ -104,6 +104,11 @@ HOST_CHANNELS = (
     "themis-host:open-external",
     "themis-host:reveal",
     "themis-host:notify",
+    "themis-host:open-settings",
+    "themis-host:save-theme",
+    "themis-host:list-repos",
+    "themis-host:switch-repo",
+    "themis-host:add-repo",
 )
 
 REQUIRE_ELECTRON_RE = re.compile(r"require\(\s*['\"]electron['\"]\s*\)")
@@ -378,14 +383,17 @@ const CHANNELS = [
   "themis-host:notify",
   "themis-host:open-settings",
   "themis-host:save-theme",
+  "themis-host:list-repos",
+  "themis-host:switch-repo",
+  "themis-host:add-repo",
 ];
 
-test("HOST_CHANNELS 恰好七个通道、冻结", () => {
+test("HOST_CHANNELS 恰好十个通道、冻结", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS), "HOST_CHANNELS 必须冻结");
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWorld、键恰好九个", async () => {
+test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWorld、键恰好十二个", async () => {
   const source = fs.readFileSync(path.join(SHELL, "preload.js"), "utf8");
   const requires = [];
   const exposes = [];
@@ -410,8 +418,8 @@ test("preload 真跑一遍：只 require electron、恰好一次 exposeInMainWor
   const [name, api] = exposes[0];
   assert.equal(name, "themisHost");
   assert.deepEqual(Object.keys(api).sort(), [
-    "getAppearance", "notify", "onAppearance", "openExternal", "openSecretWindow",
-    "openSettings", "reauth", "reveal", "saveTheme",
+    "addRepo", "getAppearance", "listRepos", "notify", "onAppearance", "openExternal",
+    "openSecretWindow", "openSettings", "reauth", "reveal", "saveTheme", "switchRepo",
   ]);
   assert.equal(typeof api.openSettings, "function", "openSettings 必须是函数");
   const u = "http://127.0.0.1:8123/abcdefghijklmnopqrstuv";
@@ -1272,16 +1280,19 @@ const CHANNELS = [
   "themis-host:notify",
   "themis-host:open-settings",
   "themis-host:save-theme",
+  "themis-host:list-repos",
+  "themis-host:switch-repo",
+  "themis-host:add-repo",
 ];
 const SECRET = "ipc-secret-" + crypto.randomBytes(8).toString("hex");
 const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:8123/app" } };
 
-test("HOST_CHANNELS 冻结且恰好七个", () => {
+test("HOST_CHANNELS 冻结且恰好十个", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS));
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("只用 ipcMain.handle 注册七个通道；来源不对回 forbidden 且不进 host", async () => {
+test("只用 ipcMain.handle 注册十个通道；来源不对回 forbidden 且不进 host", async () => {
   const handlers = {};
   let onCalled = 0;
   const ipcMain = {

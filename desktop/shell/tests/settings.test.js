@@ -19,6 +19,7 @@ const {
   applyPatch,
   addRepo,
   addTranscriptDir,
+  selectRepo,
 } = settings;
 
 const DEFAULTS = {
@@ -443,4 +444,39 @@ test("addTranscriptDir：id 基名 dir、撞了 -2、同路径 reused", () => {
   assert.equal(r3.id, "dir");
   assert.equal(r3.settings.transcriptDirs.length, 2);
   assert.equal(addTranscriptDir(r2.settings, d1).settings.currentRepo, null, "加目录不动 currentRepo");
+});
+
+test("selectRepo：未知 id 与非字符串 id → {ok:false, reason:\"unknown-repo\"}，入参深比较不变", () => {
+  for (const bad of ["ghost", "", 123, null, undefined, {}, ["r1"]]) {
+    const s = withRepos();
+    const snap = clone(s);
+    assert.deepEqual(selectRepo(s, bad, 1700000000000), { ok: false, reason: "unknown-repo" }, JSON.stringify(bad));
+    assert.deepEqual(s, snap, "拒绝时入参不被修改：" + JSON.stringify(bad));
+  }
+});
+
+test("selectRepo：命中 → 只改 currentRepo 与目标条目的 lastOpened，别的条目与键一字不动，入参不变", () => {
+  const s = withRepos();
+  const snap = clone(s);
+  const at = Date.UTC(2026, 0, 2, 3, 4, 5, 678);
+  const r = selectRepo(s, "r2", at);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const next = r.settings;
+  assert.notEqual(next, s, "返回的是新对象，不是入参本身");
+  assert.equal(next.currentRepo, "r2");
+  assert.equal(next.repos.find((e) => e.id === "r2").lastOpened, new Date(at).toISOString());
+  assert.equal(next.repos.find((e) => e.id === "r1").lastOpened, null, "别的条目的 lastOpened 不动");
+  assert.equal(next.repos.find((e) => e.id === "r1").path, "C:/nowhere/alpha", "别的条目的其他字段不动");
+  assert.equal(next.theme, "dark");
+  assert.equal(next.density, "standard");
+  assert.deepEqual(next.transcriptDirs, [{ id: "d1", path: "C:/nowhere/d1" }]);
+  assert.equal(next.pythonPath, "C:/py/python.exe");
+  assert.equal(next.kitPath, "C:/kit");
+  assert.equal(next.version, 1);
+  assert.deepEqual(s, snap, "入参不被修改");
+});
+
+test("selectRepo：lastOpened 是 new Date(at).toISOString()，不读当前时间（at=0 → 1970）", () => {
+  const r = selectRepo(withRepos(), "r1", 0);
+  assert.equal(r.settings.repos.find((e) => e.id === "r1").lastOpened, "1970-01-01T00:00:00.000Z");
 });

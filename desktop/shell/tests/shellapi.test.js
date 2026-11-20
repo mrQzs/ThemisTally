@@ -64,10 +64,12 @@ function makeHarness(over) {
       };
     },
   };
+  const ops = { captured: null, calls: 0 };
   const api = createShellApi({
     store,
     initialSettings: opts.initialSettings,
     onAppearanceChange: opts.onAppearanceChange,
+    onRepoOps: (handed) => { ops.captured = handed; ops.calls += 1; },
     chooseDirectory: async () => chooser.dir,
     chooseFile: async () => chooser.file,
     confirmExternal: async (url) => {
@@ -99,7 +101,7 @@ function makeHarness(over) {
     mutate(s);
     realStore.save(s);
   };
-  return { b, api, store, chooser, confirm, opener, probeState, gitRepo, plainDir, bytes, writeSettings };
+  return { b, api, store, chooser, confirm, opener, probeState, gitRepo, plainDir, bytes, writeSettings, ops };
 }
 
 test("getState：信封与缺省设置（五个字段）、app、service、没有 pythonPath/kitPath", async () => {
@@ -913,4 +915,100 @@ test("十个成员：名字与个数照合同", () => {
     "openExternal",
     "on",
   ]);
+});
+
+test("onRepoOps：建好时同步调一次、恰好一次，交出 {listRepos, selectRepo} 两个函数（D03）", () => {
+  const h = makeHarness();
+  assert.equal(h.ops.calls, 1, "createShellApi 建好时同步调一次");
+  assert.deepEqual(Object.keys(h.ops.captured).sort(), ["listRepos", "selectRepo"]);
+  for (const name of Object.keys(h.ops.captured)) {
+    assert.equal(typeof h.ops.captured[name], "function", name + " 必须是函数");
+  }
+});
+
+function twoRepos(h) {
+  h.writeSettings((s) => {
+    s.repos = [
+      { id: "a", name: "alpha", path: "/x/a", lastOpened: null },
+      { id: "b", name: "beta", path: "/x/b", lastOpened: null },
+    ];
+    s.currentRepo = "a";
+  });
+}
+
+test("listRepos：只回 {id,name,current}、不带 path，只有 runningId 那一条 current 为 true", async () => {
+  const h = makeHarness();
+  twoRepos(h);
+  const repos = await h.ops.captured.listRepos("a");
+  assert.deepEqual(repos, [
+    { id: "a", name: "alpha", current: true },
+    { id: "b", name: "beta", current: false },
+  ]);
+  assert.ok(!repos.some((entry) => "path" in entry), "不许带 path");
+  const flipped = await h.ops.captured.listRepos("b");
+  assert.equal(flipped.find((e) => e.id === "b").current, true);
+  assert.equal(flipped.find((e) => e.id === "a").current, false);
+});
+
+test("listRepos：runningId 不是字符串 → 没有哪一条 current 为 true", async () => {
+  const h = makeHarness();
+  twoRepos(h);
+  for (const weird of [null, undefined, 123, {}, ""]) {
+    const repos = await h.ops.captured.listRepos(weird);
+    assert.ok(repos.every((entry) => entry.current === false), "runningId=" + JSON.stringify(weird));
+  }
+});
+
+test("selectRepo 依次拒：bad-args → unknown-repo → current-repo，都不写盘", async () => {
+  const h = makeHarness();
+  twoRepos(h);
+  const before = h.bytes();
+  assert.deepEqual(await h.ops.captured.selectRepo(undefined, "a", 1), { ok: false, reason: "bad-args" });
+  assert.deepEqual(await h.ops.captured.selectRepo("", "a", 1), { ok: false, reason: "bad-args" });
+  assert.deepEqual(await h.ops.captured.selectRepo(123, "a", 1), { ok: false, reason: "bad-args" });
+  assert.deepEqual(await h.ops.captured.selectRepo({}, "a", 1), { ok: false, reason: "bad-args" });
+  assert.deepEqual(await h.ops.captured.selectRepo("ghost", "a", 1), { ok: false, reason: "unknown-repo" });
+  assert.deepEqual(await h.ops.captured.selectRepo("a", "a", 1), { ok: false, reason: "current-repo" });
+  assert.deepEqual(h.bytes(), before, "拒绝都不写盘");
+});
+
+test("selectRepo 成功：存盘 currentRepo 与 lastOpened、回 {ok:true}、内存换成新的、缓存已清", async () => {
+  const h = makeHarness();
+  twoRepos(h);
+  await h.api.getState();
+  const detectsBefore = h.probeState.autoPythonCalls.length;
+  const at = 1765830000456;
+  assert.deepEqual(await h.ops.captured.selectRepo("b", "a", at), { ok: true });
+  const onDisk = JSON.parse(fs.readFileSync(h.store.filePath, "utf8"));
+  assert.equal(onDisk.currentRepo, "b", "存盘写的是新 currentRepo");
+  assert.equal(onDisk.repos.find((e) => e.id === "b").lastOpened, new Date(at).toISOString());
+  const after = await h.api.getState();
+  assert.equal(after.value.settings.currentRepo, "b", "内存设置也换成新的");
+  assert.equal(h.probeState.autoPythonCalls.length, detectsBefore + 1, "成功之后下次 getState 重新探测（dropCache）");
+});
+
+test("selectRepo 写盘失败：回 write-failed，内存里的 currentRepo 仍是旧值", async () => {
+  const h = makeHarness({ failingSave: true });
+  twoRepos(h);
+  assert.deepEqual(await h.ops.captured.selectRepo("b", "a", 1765830000456), { ok: false, reason: "write-failed" });
+  const after = await h.api.getState();
+  assert.equal(after.value.settings.currentRepo, "a", "写盘失败后内存还是旧值");
+});
+
+test("selectRepo 的 at 不是有限数字 → 用 Date.now() 兜底", async () => {
+  const h = makeHarness();
+  twoRepos(h);
+  const realNow = Date.now;
+  const fixed = 1765840000789;
+  Date.now = () => fixed;
+  try {
+    for (const weird of [null, "not-a-number", NaN, Infinity]) {
+      const r = await h.ops.captured.selectRepo("b", "a", weird);
+      assert.equal(r.ok, true, "at=" + JSON.stringify(weird));
+    }
+    const onDisk = JSON.parse(fs.readFileSync(h.store.filePath, "utf8"));
+    assert.equal(onDisk.repos.find((e) => e.id === "b").lastOpened, new Date(fixed).toISOString());
+  } finally {
+    Date.now = realNow;
+  }
 });

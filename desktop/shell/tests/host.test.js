@@ -630,11 +630,17 @@ test("openSettings 加载失败：关窗并回 load-failed，之后能再开", a
 
 // ---- saveTheme ----
 
-test("saveTheme 暴露面：七个函数，saveTheme 排在最后，前六个照旧", () => {
+test("暴露面：十个函数，listRepos/switchRepo/addRepo 依次在旧七项之后（顺序逐名相等）", () => {
   resetAll();
-  const host = makeHost({ saveTheme: async () => ({ ok: true }) });
+  const host = makeHost({
+    saveTheme: async () => ({ ok: true }),
+    listRepos: async () => ({ ok: true, repos: [] }),
+    switchRepo: async () => ({ ok: true }),
+    addRepo: async () => ({ kind: "cancelled" }),
+  });
   assert.deepEqual(Object.keys(host), [
     "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme",
+    "listRepos", "switchRepo", "addRepo",
   ]);
   for (const name of Object.keys(host)) {
     assert.equal(typeof host[name], "function", name + " 必须是函数");
@@ -687,6 +693,84 @@ test("saveTheme internal：注入实现抛错 → internal，不外传异常", a
     throw new Error("boom");
   } });
   assert.deepEqual(await host.saveTheme("dark"), { ok: false, reason: "internal" });
+});
+
+// ---- listRepos / switchRepo / addRepo（T064） ----
+
+test("三个新函数没注入 → unavailable（带参数起服务那条分支就是这样）", async () => {
+  resetAll();
+  const host = makeHost();
+  assert.deepEqual(await host.listRepos(), { ok: false, reason: "unavailable" });
+  assert.deepEqual(await host.switchRepo("b"), { ok: false, reason: "unavailable" });
+  assert.deepEqual(await host.addRepo(), { ok: false, reason: "unavailable" });
+});
+
+test("listRepos：只取 {id,name,current} 三键，注入物带了 path 也剥掉", async () => {
+  resetAll();
+  const host = makeHost({ listRepos: async () => ({ ok: true, repos: [
+    { id: "a", name: "a", current: true, path: "C:/secret/a" },
+    { id: "b", name: "b", current: false, path: "C:/secret/b" },
+  ] }) });
+  const r = await host.listRepos();
+  assert.deepEqual(r, { ok: true, repos: [
+    { id: "a", name: "a", current: true },
+    { id: "b", name: "b", current: false },
+  ] });
+  assert.ok(!JSON.stringify(r).includes("C:/secret"), "结果里不许带路径");
+});
+
+test("switchRepo：bad-args（undefined/空串/数字/对象）→ 不进注入项", async () => {
+  resetAll();
+  const calls = [];
+  const host = makeHost({ switchRepo: async (...args) => { calls.push(args); return { ok: true }; } });
+  for (const bad of [undefined, "", 123, {}]) {
+    assert.deepEqual(await host.switchRepo(bad), { ok: false, reason: "bad-args" }, JSON.stringify(bad));
+  }
+  assert.deepEqual(calls, [], "bad-args 根本不进注入项");
+});
+
+test("switchRepo：注入了 → 结果原样回，只转交 id 这一个实参", async () => {
+  resetAll();
+  let answer = { ok: true };
+  const seen = [];
+  const host = makeHost({ switchRepo: async (id) => { seen.push(id); return answer; } });
+  assert.deepEqual(await host.switchRepo("b"), { ok: true });
+  answer = { ok: false, reason: "current-repo" };
+  assert.deepEqual(await host.switchRepo("b"), { ok: false, reason: "current-repo" });
+  answer = { ok: false, reason: "write-failed" };
+  assert.deepEqual(await host.switchRepo("b"), { ok: false, reason: "write-failed" });
+  assert.deepEqual(seen, ["b", "b", "b"], "只转交 id 这一个实参");
+});
+
+test("addRepo：外壳信封四种内层形状逐一映射成宿主信封；不认识的形状回 internal", async () => {
+  resetAll();
+  let answer;
+  const host = makeHost({ addRepo: async () => answer });
+  answer = { kind: "cancelled" };
+  assert.deepEqual(await host.addRepo(), { ok: false, reason: "cancelled" });
+  answer = { kind: "rejected", problem: "not-git" };
+  assert.deepEqual(await host.addRepo(), { ok: false, reason: "not-git" });
+  answer = { kind: "rejected", problem: "no-agent" };
+  assert.deepEqual(await host.addRepo(), { ok: false, reason: "no-agent" });
+  answer = { ok: false, reason: "write-failed" };
+  assert.deepEqual(await host.addRepo(), { ok: false, reason: "write-failed" });
+  answer = { kind: "saved", id: "repo-2" };
+  assert.deepEqual(await host.addRepo(), { ok: true, id: "repo-2" });
+  answer = { kind: "mystery" };
+  assert.deepEqual(await host.addRepo(), { ok: false, reason: "internal" });
+});
+
+test("addRepo：结果不带 path、不带 state（注入物带了也剥掉）", async () => {
+  resetAll();
+  const host = makeHost({ addRepo: async () => ({
+    kind: "saved",
+    id: "repo-3",
+    path: "C:/secret/repo",
+    state: { settings: { repos: [{ id: "a", path: "C:/other" }] } },
+  }) });
+  const r = await host.addRepo();
+  assert.ok(!JSON.stringify(r).includes("C:/secret") && !JSON.stringify(r).includes("C:/other"), "不带路径与 state");
+  assert.deepEqual(r, { ok: true, id: "repo-3" });
 });
 
 // ---- 令牌不外泄 ----

@@ -11,7 +11,7 @@ const { createServiceFlow } = require("../src/serviceflow.js");
 const FAKE = path.join(__dirname, "fixtures", "fake-service.js");
 const FAKE_EXIT = path.join(__dirname, "fixtures", "fake-service-exit.js");
 
-const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme"];
+const METHODS = ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme", "listRepos", "switchRepo", "addRepo"];
 
 function makeHost(tag) {
   const calls = {};
@@ -40,13 +40,13 @@ async function waitFor(what, predicate, timeoutMs) {
   }
 }
 
-test("形状：{host, senderAllowed, use, clear}，host 是那七个方法", () => {
+test("形状：{host, senderAllowed, use, clear}，host 是那十个方法", () => {
   const relay = createHostRelay();
   assert.deepEqual(Object.keys(relay).sort(), ["clear", "host", "senderAllowed", "use"]);
   assert.deepEqual(Object.keys(relay.host).sort(), [...METHODS].sort());
 });
 
-test("没有当前 host：七个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
+test("没有当前 host：十个方法都回 forbidden 不抛错；senderAllowed 为 false", async () => {
   const relay = createHostRelay();
   for (const name of METHODS) {
     assert.deepEqual(await relay.host[name]("a", 2), { ok: false, reason: "forbidden" }, name + " 不许抛错");
@@ -83,6 +83,25 @@ test("use 替换不叠加：实参原样转给当前 host；clear 之后回到 f
   assert.equal(b.calls.notify.length, 1, "clear 之后的调用不进当前 host（计数不涨）");
 });
 
+test("三个新方法（T064）转给当前 host、实参照传；没有当前 host 回 forbidden", async () => {
+  const relay = createHostRelay();
+  assert.deepEqual(await relay.host.listRepos(), { ok: false, reason: "forbidden" }, "没有当前 host 不抛错");
+  assert.deepEqual(await relay.host.switchRepo("b"), { ok: false, reason: "forbidden" });
+  assert.deepEqual(await relay.host.addRepo(), { ok: false, reason: "forbidden" });
+  const calls = [];
+  relay.use({
+    listRepos: async () => { calls.push("listRepos"); return { ok: true, repos: [{ id: "a", name: "a", current: true }] }; },
+    switchRepo: async (id) => { calls.push(["switch", id]); return { ok: true }; },
+    addRepo: async () => { calls.push("addRepo"); return { ok: false, reason: "cancelled" }; },
+  }, () => true);
+  assert.deepEqual(await relay.host.listRepos(), { ok: true, repos: [{ id: "a", name: "a", current: true }] });
+  assert.deepEqual(await relay.host.switchRepo("b"), { ok: true });
+  assert.deepEqual(await relay.host.addRepo(), { ok: false, reason: "cancelled" });
+  assert.deepEqual(calls, ["listRepos", ["switch", "b"], "addRepo"], "实参原样转给当前 host");
+  relay.clear();
+  assert.deepEqual(await relay.host.switchRepo("b"), { ok: false, reason: "forbidden" }, "clear 之后回到没有 host");
+});
+
 test("senderAllowed 的检查抛错按 false", () => {
   const relay = createHostRelay();
   relay.use(makeHost("C").host, () => {
@@ -93,7 +112,7 @@ test("senderAllowed 的检查抛错按 false", () => {
 
 // 重入：同一个外壳进程里第二次起服务。宿主 IPC 只注册一次，否则 Electron 对同一通道第二次
 // handle 会抛错——假 im 的 handle 遇到重复通道就抛错，照 Electron 的行为
-test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 7、调用进第二个 host", async () => {
+test("重入：第一次意外退出、第二次起服务成功，注册次数仍是 10、调用进第二个 host", async () => {
   const handlers = new Map();
   let registrations = 0;
   const im = {
@@ -105,8 +124,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   };
   const relay = createHostRelay();
   registerHostIpc(im, relay.host, relay.senderAllowed);
-  assert.equal(registrations, 7, "registerHostIpc 注册七条通道");
-  assert.equal(handlers.size, 7);
+  assert.equal(registrations, 10, "registerHostIpc 注册十条通道");
+  assert.equal(handlers.size, 10);
   // 还没有当前 host：调用经来源检查回 forbidden
   assert.deepEqual(await handlers.get("themis-host:notify")({ tag: "x" }, "attempt-finished"), {
     ok: false,
@@ -144,8 +163,8 @@ test("重入：第一次意外退出、第二次起服务成功，注册次数�
   );
   assert.equal(flow.state().kind, "running");
   // 没有第二次注册（否则 im.handle 早就抛错了）
-  assert.equal(registrations, 7, "第二次起服务不许再注册宿主 IPC");
-  assert.equal(handlers.size, 7);
+  assert.equal(registrations, 10, "第二次起服务不许再注册宿主 IPC");
+  assert.equal(handlers.size, 10);
   assert.deepEqual(await handlers.get("themis-host:reveal")(event, "runs/x/summary.md"), {
     ok: true,
     value: "host2:reveal",

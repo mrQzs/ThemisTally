@@ -48,6 +48,24 @@ function guardedWindow({ partition, prefs, options, allowNavigation }) {
 // 页面调 startService(repo) 之后由这里起真服务：握手成功先开服务窗口、再关外壳页窗口。
 // 服务在 running 期间自己退出时回到服务状态页：同一个外壳进程里能第二次起服务。
 async function runShellPage() {
+  // 单实例：同一 userData 只开一份。拿不到锁就在建任何窗口、起任何子进程之前以 0 退出
+  if (!app.requestSingleInstanceLock()) {
+    app.exit(0);
+    return;
+  }
+  // 拿到锁：第二份被拉起时聚焦还活着的那一个窗口（优先服务窗口，其次外壳页窗口），先 restore 再 focus
+  app.on("second-instance", () => {
+    const target =
+      serviceWindow !== null && !serviceWindow.isDestroyed()
+        ? serviceWindow
+        : shellWin !== null && !shellWin.isDestroyed()
+          ? shellWin
+          : null;
+    if (target !== null) {
+      if (target.isMinimized()) target.restore();
+      target.focus();
+    }
+  });
   const root = path.join(__dirname, "..", "web", "dist");
   if (!fs.existsSync(path.join(root, "index.html"))) {
     process.stderr.write(`ERROR: 找不到外壳页产物 index.html：${path.join(root, "index.html")}\n`);
@@ -80,6 +98,8 @@ async function runShellPage() {
   // 按 run 记：新服务窗口开起来就复位（onRunning 里），收尾回调再比对当前 serviceWindow 是不是自己
   // 那一个窗口——重启之后旧窗口迟到的 closed 被身份检查挡掉，不会误停新 run 的服务、也不会误退出
   let serviceGone = false;
+  // 仓库操作（listRepos/selectRepo）：createShellApi 建好时经 onRepoOps 同步交出来，切换编排与宿主注入都读它
+  let repoOps = null;
 
   // 宿主外观同步读取：只认当前服务窗口的 webContents（窗口为 null 或已销毁一律不认），
   // 来源被认才答当前外观对象，其余路径（来源不认、读出错）一律回 null。
@@ -213,6 +233,21 @@ async function runShellPage() {
           if (result.ok !== true) return { ok: false, reason: result.reason };
           return { ok: true, value: { theme: result.value.settings.theme, density: result.value.settings.density } };
         },
+        // 仓库三函数（T064）：listRepos 带正在跑的服务的仓库 id；switchRepo 走切换编排；addRepo 先拆外壳信封再交 host 映射
+        listRepos: async () => {
+          if (repoOps === null) return { ok: false, reason: "unavailable" };
+          return { ok: true, repos: await repoOps.listRepos(repo) };
+        },
+        switchRepo: async (id) => {
+          if (repoOps === null) return { ok: false, reason: "unavailable" };
+          return switchRepoEntry(id, repo);
+        },
+        addRepo: async () => {
+          const result = await api.pickRepo();
+          // 先拆外壳信封：成功回内层 value（四种形状交给 host.js 映射），失败原样回 {ok:false, reason}
+          if (result.ok === true) return result.value;
+          return result;
+        },
       });
       // 来源检查：只有服务窗口、且它当前显示的确实是服务 origin 下的页面，才准调宿主接口
       const senderAllowed = (event) => {
@@ -296,10 +331,46 @@ async function runShellPage() {
       },
     );
   });
+
+  // 切换仓库的编排（独立函数，不进订阅回调、不进服务窗口收尾）：先存盘，成功了才动窗口与服务。
+  // 校验或存盘失败原样回、什么都不动；存盘过了立刻回 {ok:true}，收尾在后台跑、自己接住错误
+  async function switchRepoEntry(id, runningId) {
+    const result = await repoOps.selectRepo(id, runningId, Date.now());
+    if (result.ok !== true) return result;
+    // 记下旧服务窗口：收尾关的是这一个，不读之后会被清掉的 serviceWindow 变量
+    const previousServiceWindow = serviceWindow;
+    relay.clear();
+    serviceWindow = null;
+    // 后台收尾：不等它，先回 {ok:true}。次序固定 stop → reset → 开首次启动页 → 关设置窗口与旧服务窗口
+    (async () => {
+      try {
+        await flow.stop();
+      } catch {
+        // 收服务失败也继续收尾：不影响已经回给调用方的 {ok:true}
+      }
+      flow.reset();
+      try {
+        await openShellWindow(SHELL_START_URL);
+      } catch {
+        // 切换后首次启动页开不出来：写一行 ERROR 并以 1 退出
+        process.stderr.write("ERROR: 切换仓库后首次启动页开不出来\n");
+        app.exit(1);
+        return;
+      }
+      if (settingsWin !== null && !settingsWin.isDestroyed()) settingsWin.close();
+      if (previousServiceWindow !== null && !previousServiceWindow.isDestroyed()) previousServiceWindow.close();
+    })().catch(() => {});
+    return { ok: true };
+  }
+
   // 选择框与外部链接确认框挂在当前外壳窗口上
   const api = createShellApi({
     store,
     initialSettings,
+    // 建好时同步交出 {listRepos, selectRepo}：切换编排与宿主注入都经 repoOps 调它们
+    onRepoOps: (handed) => {
+      repoOps = handed;
+    },
     service: flow,
     assets: root,
     // 外观变化：更新主进程持有的当前外观，并当场广播给还开着的窗口——服务窗口收宿主事件，
@@ -312,13 +383,15 @@ async function runShellPage() {
     },
     chooseDirectory: async ({ title }) => {
       const options = { title, properties: ["openDirectory"] };
-      // 当前外壳窗口不在（换页的间隙）就退到设置窗口；两个都不在就不带窗口调用
+      // 父窗口依次取 shellWin → settingsWin → serviceWindow；都不在就不带窗口调用
       const owner =
         shellWin !== null && !shellWin.isDestroyed()
           ? shellWin
           : settingsWin !== null && !settingsWin.isDestroyed()
             ? settingsWin
-            : null;
+            : serviceWindow !== null && !serviceWindow.isDestroyed()
+              ? serviceWindow
+              : null;
       const result = owner === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(owner, options);
       if (result.canceled || result.filePaths.length === 0) return null;
       return result.filePaths[0];

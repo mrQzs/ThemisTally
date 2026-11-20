@@ -9,6 +9,9 @@ const HOST_CHANNELS = Object.freeze([
   "themis-host:notify",
   "themis-host:open-settings",
   "themis-host:save-theme",
+  "themis-host:list-repos",
+  "themis-host:switch-repo",
+  "themis-host:add-repo",
 ]);
 
 // 宿主外观读取（同步读）与外观事件（主进程 → 页面推送，webContents.send）：
@@ -25,6 +28,9 @@ const HOST_METHOD = {
   "themis-host:notify": "notify",
   "themis-host:open-settings": "openSettings",
   "themis-host:save-theme": "saveTheme",
+  "themis-host:list-repos": "listRepos",
+  "themis-host:switch-repo": "switchRepo",
+  "themis-host:add-repo": "addRepo",
 };
 const HOST_ARITY = {
   "themis-host:reauth": 0,
@@ -34,6 +40,9 @@ const HOST_ARITY = {
   "themis-host:notify": 1,
   "themis-host:open-settings": 0,
   "themis-host:save-theme": 1,
+  "themis-host:list-repos": 0,
+  "themis-host:switch-repo": 1,
+  "themis-host:add-repo": 0,
 };
 
 // 处理器一律不抛错（invoke 的处理器抛错时错误可能被打到日志，也顺带把地址与令牌带出去），

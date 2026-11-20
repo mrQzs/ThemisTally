@@ -84,8 +84,12 @@ HOST_CHANNELS = (
     "themis-host:reveal",
     "themis-host:notify",
     "themis-host:open-settings",
+    "themis-host:save-theme",
+    "themis-host:list-repos",
+    "themis-host:switch-repo",
+    "themis-host:add-repo",
 )
-HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings")
+HOST_METHODS = ("reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme", "listRepos", "switchRepo", "addRepo")
 SETTINGS_URL = "themis-shell://app/index.html#/settings"
 OLD_PAGE_DESC = "设置保存在桌面应用自己的用户数据目录里，不写进仓库的配置"
 
@@ -287,7 +291,7 @@ def test_s01_host_interface_wiring():
     preload = _shell_read("preload.js")
     assert "openSettings" in preload, "preload.js 要暴露 openSettings"
     assert '"themis-host:open-settings"' in preload, "preload.js 缺通道字面量 themis-host:open-settings"
-    assert "九个函数" in preload, "preload.js 的注释要写「九个函数」（第六个扩成第九个）"
+    assert "十二个函数" in preload, "preload.js 的注释要写「十二个函数」（T064 扩成第十二个）"
     assert not _requires_beyond_electron(preload), "preload.js 仍只许 require electron（T025 门禁 S03）"
     ipc = _shell_read("src/ipc.js")
     assert '"themis-host:open-settings"' in ipc, "src/ipc.js 的 HOST_CHANNELS 要加新通道"
@@ -539,11 +543,11 @@ function reset() {
 const tick = () => new Promise((r) => setImmediate(r));
 
 
-test("暴露面：七个函数，saveTheme 排在最后，前六个照旧", () => {
+test("暴露面：十个函数，listRepos/switchRepo/addRepo 依次在旧七项之后", () => {
   const host = makeHost({ createSettingsWindow });
   assert.deepEqual(
     Object.keys(host),
-    ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme"],
+    ["reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme", "listRepos", "switchRepo", "addRepo"],
   );
   for (const name of Object.keys(host)) {
     assert.equal(typeof host[name], "function", name + " 必须是函数");
@@ -643,6 +647,9 @@ const CHANNELS = [
   "themis-host:notify",
   "themis-host:open-settings",
   "themis-host:save-theme",
+  "themis-host:list-repos",
+  "themis-host:switch-repo",
+  "themis-host:add-repo",
 ];
 const SETTINGS_URL = "themis-shell://app/index.html#/settings";
 
@@ -654,12 +661,12 @@ test("SHELL_SETTINGS_URL：常量逐字、isShellPageUrl 认它、加在 SHELL_S
   assert.ok(src.indexOf("SHELL_STATUS_URL") < src.indexOf("SHELL_SETTINGS_URL"), "常量要加在 SHELL_STATUS_URL 之后");
 });
 
-test("HOST_CHANNELS 恰好七条、冻结、顺序固定（save-theme 在末尾）", () => {
+test("HOST_CHANNELS 恰好十条、冻结、顺序固定（add-repo 在末尾）", () => {
   assert.ok(Object.isFrozen(HOST_CHANNELS), "HOST_CHANNELS 必须冻结");
   assert.deepEqual([...HOST_CHANNELS], CHANNELS);
 });
 
-test("ipc：七个通道都注册；新通道转交 openSettings、多余实参丢掉；来源不对回 forbidden 不进 host", async () => {
+test("ipc：十个通道都注册；新通道转交 openSettings、多余实参丢掉；来源不对回 forbidden 不进 host", async () => {
   const handlers = {};
   const calls = [];
   const host = {
@@ -677,7 +684,7 @@ test("ipc：七个通道都注册；新通道转交 openSettings、多余实参�
   for (const ch of CHANNELS) {
     assert.equal(typeof handlers[ch], "function", "通道没注册：" + ch);
   }
-  assert.equal(Object.keys(handlers).length, CHANNELS.length, "只许注册这七个通道");
+  assert.equal(Object.keys(handlers).length, CHANNELS.length, "只许注册这十个通道");
   const EV = { sender: {}, senderFrame: { url: "http://127.0.0.1:1/x" } };
   assert.deepEqual(await handlers["themis-host:open-settings"](EV), { ok: true });
   assert.deepEqual(await handlers["themis-host:open-settings"](EV, "EXTRA", "MORE"), { ok: true });
@@ -688,9 +695,10 @@ test("ipc：七个通道都注册；新通道转交 openSettings、多余实参�
   assert.deepEqual(calls, [], "来源不对根本不进 host");
 });
 
-test("hostrelay：HOST_METHODS 恰好七项（saveTheme 在末尾）；openSettings 转给当前 host、没有 host 回 forbidden", async () => {
+test("hostrelay：HOST_METHODS 恰好十项（addRepo 在末尾）；openSettings 转给当前 host、没有 host 回 forbidden", async () => {
   assert.deepEqual([...HOST_METHODS], [
     "reauth", "openSecretWindow", "openExternal", "reveal", "notify", "openSettings", "saveTheme",
+    "listRepos", "switchRepo", "addRepo",
   ]);
   const relay = createHostRelay();
   assert.deepEqual(await relay.host.openSettings(), { ok: false, reason: "forbidden" }, "没有当前 host 不抛错");
@@ -702,7 +710,7 @@ test("hostrelay：HOST_METHODS 恰好七项（saveTheme 在末尾）；openSetti
   assert.deepEqual(await relay.host.openSettings(), { ok: false, reason: "forbidden" }, "clear 之后回到没有 host");
 });
 
-test("preload 真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰好九个、openSettings 无参转交、恰好一个 on", () => {
+test("preload 真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰好十二个、openSettings 无参转交、恰好一个 on", () => {
   const source = fs.readFileSync(path.join(SHELL, "preload.js"), "utf8");
   const requires = [];
   const exposes = [];
@@ -726,8 +734,8 @@ test("preload 真跑一遍：恰好一次 exposeInMainWorld(themisHost)、键恰
   const [name, api] = exposes[0];
   assert.equal(name, "themisHost");
   assert.deepEqual(Object.keys(api).sort(), [
-    "getAppearance", "notify", "onAppearance", "openExternal", "openSecretWindow",
-    "openSettings", "reauth", "reveal", "saveTheme",
+    "addRepo", "getAppearance", "listRepos", "notify", "onAppearance", "openExternal",
+    "openSecretWindow", "openSettings", "reauth", "reveal", "saveTheme", "switchRepo",
   ]);
   assert.equal(typeof api.openSettings, "function", "openSettings 必须是函数");
   api.openSettings();
