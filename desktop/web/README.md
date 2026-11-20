@@ -56,7 +56,7 @@ desktop/web/
 
 - 所有颜色、字体、圆角、时长一律取 `--tt-*` 令牌，不写死十六进制、颜色函数或命名颜色。
 - 基础重置（`base.css` 里的元素重置）一律包进 `:where()`，特异性降到 0，避免盖过组件的单类规则；`tests/base-reset.test.ts` 与门禁都会核查这条约定。
-- 主题缺省为**暗色**；亮色 `data-theme="light"`，跟随系统 `data-theme="system"`；由标题栏的主题菜单切换（`src/shell/theme.ts` 的 `applyTheme` 是唯一写 `data-theme` 的地方，偏好只存内存）。
+- 主题缺省为**暗色**；亮色 `data-theme="light"`，跟随系统 `data-theme="system"`；由标题栏的主题菜单切换（`src/shell/theme.ts` 的 `applyTheme` 是唯一写 `data-theme` 的地方，`applyDensity` 是唯一写 `data-density` 的地方）。外观由桌面外壳保存：服务窗口经宿主 `saveTheme`，外壳页（设置、首启、服务状态）经外壳桥的 `saveSettings`；启动时同步读一次当前外观（宿主优先，其次外壳桥），任何一次成功保存后外壳会把新外观广播给所有开着的窗口，页面跟着变。紧凑密度下数据表的行高 40/44/52 各降 8，变成 32/36/44（表头 32 不动）。
 - `npm run check:contract` 扫描 `src/**/*.{css,ts,tsx}`（排除 `tokens.css` 与 `*.test.*`）：
   - 规则 1（未定义变量）：出现的每个 `--tt-…` 都必须在 `tokens.css` 定义。
   - 规则 2（写死颜色）：十六进制、颜色函数、作为颜色属性取值的命名颜色一律判违规。

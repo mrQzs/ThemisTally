@@ -64,6 +64,12 @@ export interface SettingsPatch {
   resetKit?: true;
 }
 
+/** 外观：主题与密度的当前取值。来源有三处且形状一致：宿主同步读、外壳桥同步读、外观事件实参。 */
+export interface ShellAppearance {
+  theme: 'system' | 'light' | 'dark';
+  density: 'standard' | 'compact';
+}
+
 export interface ThemisShell {
   getState(): Promise<ShellState>;
   pickRepo(): Promise<PickOutcome>;

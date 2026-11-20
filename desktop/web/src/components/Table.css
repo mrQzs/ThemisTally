@@ -33,6 +33,9 @@
 .tt-table[data-row-height="40"] td { height: 40px; } /* 任务页 :367 行高 40 */
 .tt-table[data-row-height="44"] td { height: 44px; } /* 行高 44 */
 .tt-table[data-row-height="52"] td { height: 52px; } /* 行高 52 */
+:root[data-density="compact"] .tt-table[data-row-height="40"] td { height: 32px; } /* 紧凑：行高 32，40 各降 8（设置页 :360、handoff :142） */
+:root[data-density="compact"] .tt-table[data-row-height="44"] td { height: 36px; } /* 紧凑：行高 36，44 各降 8（设置页 :360、handoff :142） */
+:root[data-density="compact"] .tt-table[data-row-height="52"] td { height: 44px; } /* 紧凑：行高 44，52 各降 8（设置页 :360、handoff :142） */
 .tt-table tbody tr:hover { background: var(--tt-surface-3); }
 .tt-table tbody tr[data-selected] {
   background: var(--tt-surface-selected);

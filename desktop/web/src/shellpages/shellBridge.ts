@@ -4,7 +4,7 @@
 // 包装只做转发、不拆信封：外壳页 preload 自己拆信封（ok 为真 resolve value，否则 reject new Error(reason)），
 // 前端不判断返回值像不像信封。被拒的 Promise 过桥后只剩 Error.message，所以错误文案只取 message、不自己拼前缀。
 // openExternal 被用户取消时 reject 的 message 逐字是 cancelled，前端当作正常结束、不显示错误。
-import type { SettingsPatch, ShellState, ThemisShell } from './themisShell';
+import type { SettingsPatch, ShellAppearance, ShellState, ThemisShell } from './themisShell';
 
 declare global {
   interface Window {
@@ -98,4 +98,56 @@ export function unavailableShell(): ThemisShell {
 // 清掉包装缓存，给测试用（不清单例；原对象失效后 WeakMap 的键自然失效）。
 export function resetShellBridge(): void {
   wrappers = new WeakMap();
+}
+
+// 外观能力的判据：十成员齐全（仍是「有外壳」的判据）且另有 getAppearance 函数。
+// 只有十个成员的旧外壳仍被认作有外壳，但外观能力按没有处理。
+function shellWithAppearance(): Record<string, unknown> | null {
+  const value = window.themisShell;
+  if (!isCompleteShell(value)) return null;
+  if (typeof (value as Record<string, unknown>).getAppearance !== 'function') return null;
+  return value as Record<string, unknown>;
+}
+
+// 逐字段校验：theme 只认三种，非法取缺省暗；density 只认两种，非法取缺省标准。
+function readAppearance(value: unknown): ShellAppearance | null {
+  if (value === null || typeof value !== 'object') return null;
+  const raw = value as { theme?: unknown; density?: unknown };
+  const theme = raw.theme === 'light' || raw.theme === 'system' ? raw.theme : 'dark';
+  const density = raw.density === 'compact' ? 'compact' : 'standard';
+  return { theme, density };
+}
+
+// 外壳页的当前外观：同步读一次。没有外观能力、抛错、回值不是对象都回 null，不抛到调用方。
+export function shellAppearanceNow(): ShellAppearance | null {
+  const shell = shellWithAppearance();
+  if (shell === null) return null;
+  try {
+    return readAppearance((shell.getAppearance as () => unknown)());
+  } catch {
+    return null;
+  }
+}
+
+// 订阅外壳的外观广播：经原对象的 on('appearance', listener)（Electron 的事件对象不过桥，监听只收外观一个实参）。
+// 退订不是函数、on 抛错都回空退订函数；退订函数真的能退——调过之后监听不再收到事件。
+export function shellOnAppearance(listener: (appearance: ShellAppearance) => void): () => void {
+  const shell = shellWithAppearance();
+  if (shell === null) return () => {};
+  let live = true;
+  const forward = (appearance: ShellAppearance): void => {
+    if (live) listener(appearance);
+  };
+  try {
+    const off = (shell.on as (event: 'appearance', fn: (appearance: ShellAppearance) => void) => unknown)(
+      'appearance',
+      forward,
+    );
+    return () => {
+      live = false;
+      if (typeof off === 'function') (off as () => void)();
+    };
+  } catch {
+    return () => {};
+  }
 }
