@@ -35,8 +35,9 @@
   ``settingsWin``（``SHELL_APPEARANCE_EVENT``），每个窗口发之前查 ``isDestroyed()``；``saveTheme`` 只在
   外壳分支的 ``createHost`` 注入（实现是 ``api.saveSettings({ theme: pref })`` 转成信封），带参数分支不
   注入；两个分支各注册同步外观读取——外壳分支两个（宿主 + 外壳通道）、带参数分支一个（宿主通道，恒答
-  ``null``）——共三处 ``ipcMain.on``，通道只许那两个读取字面量，每个处理函数先设
-  ``event.returnValue = null`` 再 ``try/catch``，每条路径都设过 ``returnValue``；``desktop/shell`` 下除
+  ``null``）——共三处 ``ipcMain.on``，通道只许那两个读取字面量，每个处理函数每条路径恰好给
+  ``event.returnValue`` 赋一次（外壳两处先在局部变量 ``answer`` 里算好、末尾赋一次，带参数分支那处
+  只有一句 ``= null``）；``desktop/shell`` 下除
   ``main.js`` 外任何 ``.js``（含 tests/**）都不许出现 ``ipcMain.on``。
 - ``desktop/shell/README.md``：新增「外观」相关段落（缺省暗、外观对象、五个通道字面量、``saveTheme`` 的
   信封与 ``reason`` 词表、同步读取「没有可读的外观就是 ``null``」、背景色取值）；既有 needle 由
@@ -54,9 +55,9 @@
 - 静态断言（``test_s*``，不用流水线）：settings 缺省值与 ``appearanceOf``（S01）；``backgroundFor``
   导出（S02）；ipc/shellipc 的通道表与新常量（S03）；host 与 hostrelay 的记号（S04）；shellapi 的注入项
   （S05）；两份 preload 的形状（恰好一次 exposeInMainWorld、``ipcRenderer.on`` 的个数与频道、sendSync、
-  自包含）（S06）；main.js 的同步读取（三处、通道白名单、每条路径都设 returnValue、ipcMain.on 只许
-  main.js）（S07）；main.js 的外观接线（initialSettings / currentAppearance / 广播 / saveTheme 注入）
-  （S08）；建窗背景色与形状计数（S09）；README 外观段（S10）。
+  自包含）（S06）；main.js 的同步读取（三处、通道白名单、每条路径恰好给 returnValue 赋一次、
+  ipcMain.on 只许 main.js）（S07）；main.js 的外观接线（initialSettings / currentAppearance / 广播 /
+  saveTheme 注入）（S08）；建窗背景色与形状计数（S09）；README 外观段（S10）。
 - 外壳探针断言（``test_p01`` … ``test_p07``，跑 node --test，不需要依赖）：
   - P01 / D01、D05：settings 缺省值与 ``appearanceOf``；``backgroundFor`` 的纯函数取值。
   - P02 / D03：shellapi 的 ``onAppearanceChange``——改 theme/density 且写盘成功回调一次；写盘失败、
@@ -154,6 +155,17 @@ IPC_RENDERER_SEND_RE = re.compile(r"ipcRenderer\s*\.\s*send\s*\(")
 EXPOSE_RE = re.compile(r"exposeInMainWorld\s*\(")
 RETURN_VALUE_NULL_RE = re.compile(r"event\s*\.\s*returnValue\s*=\s*null")
 RETURN_VALUE_NON_NULL_RE = re.compile(r"event\s*\.\s*returnValue\s*=\s*(?!\s*null\b)")
+# T065 起 S07 的新判定（取代「先设 null 再 try/catch、每条路径都设过」的旧写法）：
+# 一次给 returnValue 赋值（== / === 这类比较不算）
+RETURN_VALUE_ASSIGN_RE = re.compile(r"event\s*\.\s*returnValue\s*=(?!=)")
+# 外壳两处的尾锚：赋值是处理函数体的最后一句，右边是标识符，后面只剩 } 与 )
+RETURN_VALUE_TAIL_RE = re.compile(
+    r"event\s*\.\s*returnValue\s*=\s*(?P<rhs>[A-Za-z_$][\w$]*)\s*;?\s*\}\s*\)\s*$"
+)
+# 带参数起服务分支的处理函数体：只有 event.returnValue = null; 一句（形参仍叫 event）
+RETURN_VALUE_ONLY_NULL_RE = re.compile(
+    r"\(\s*event\s*\)\s*=>\s*\{\s*event\s*\.\s*returnValue\s*=\s*null\s*;?\s*\}\s*\)\s*$"
+)
 REQUIRE_BEYOND_ELECTRON_RE = re.compile(r"""require\(\s*['"](\.|node:)""")
 
 
@@ -446,8 +458,9 @@ ALLOWED_SYNC_CHANNEL_ARGS = (
 
 def test_s07_main_sync_reads():
     """S07 / D02：main.js 的同步外观读取——恰好三处 ipcMain.on、通道只许那两个读取字面量、
-    每个处理函数先设 event.returnValue = null 再 try/catch 且 catch 里也设 null；
-    带参数分支那一处一律答 null；desktop/shell 下别的 .js 一处 ipcMain.on 都不许有。"""
+    每个处理函数给 event.returnValue 赋值恰好一次；外壳两处先在局部变量 answer 里算好、末尾赋一次，
+    catch 块里不碰 returnValue；带参数分支那一处只有一句 = null；
+    desktop/shell 下别的 .js 一处 ipcMain.on 都不许有。"""
     code = _main_code()
     calls = _ipc_main_on_calls(code)
     assert len(calls) == 3, \
@@ -461,10 +474,32 @@ def test_s07_main_sync_reads():
     assert len(host_reads) == 2, "宿主同步读取要注册两处（外壳分支 + 带参数分支）"
     assert len(shell_reads) == 1, "外壳同步读取只在外壳分支注册一处"
     for span, _ in calls:
-        assert RETURN_VALUE_NULL_RE.search(span), "处理函数要先把 event.returnValue 设成 null（缺省）"
-        assert len(RETURN_VALUE_NULL_RE.findall(span)) >= 2, \
-            "catch 里也要把 event.returnValue 设回 null（每条路径都设过 returnValue）"
-        assert "try" in span and "catch" in span, "处理函数要先设缺省再 try/catch"
+        assigned = len(RETURN_VALUE_ASSIGN_RE.findall(span))
+        assert assigned == 1, \
+            f"每个处理函数给 event.returnValue 赋值要恰好一次（这段跨度里有 {assigned} 次）：\n{span}"
+    # 外壳两处（赋非 null 值的那两处）：先在局部变量 answer 里算好，最后一句 event.returnValue = answer; 锚在末尾
+    shell_two = [span for span, _ in calls if RETURN_VALUE_NON_NULL_RE.search(span)]
+    for span in shell_two:
+        tail = RETURN_VALUE_TAIL_RE.search(span)
+        assert tail, f"外壳两处的赋值要是处理函数体的最后一句（后面只剩 }} 与 )）：\n{span}"
+        assert tail.group("rhs") == "answer", \
+            f"右边要是局部变量 answer（逐字），却见到：{tail.group('rhs')}"
+        assert re.search(r"let\s+answer\s*=\s*null\s*;", span), \
+            "外壳两处要有 let answer = null;（来源不认 / 读出错时 answer 就是 null）"
+        assert re.search(r"\btry\b", span) and re.search(r"\bcatch\b", span), \
+            "外壳两处读设置 / 窗口状态要包在 try/catch 里（出错按 null 答）"
+        catch_block = _block_span(span, "catch")
+        assert catch_block is not None, "外壳两处的 catch 块要配得平"
+        assert "returnValue" not in catch_block, \
+            f"catch 块里不许再给 returnValue 赋值（先算好再赋一次才有意义）：\n{catch_block}"
+        assert re.search(r"\banswer\s*=\s*null\s*;", catch_block), "catch 块里要把 answer 设回 null"
+    # 带参数起服务分支那一处：没有设置存储，函数体只有 event.returnValue = null; 一句，不需要 try/catch
+    with_args = [span for span, _ in calls if RETURN_VALUE_NULL_RE.search(span)]
+    for span in with_args:
+        assert not re.search(r"\btry\b", span) and not re.search(r"\bcatch\b", span), \
+            f"带参数起服务分支没有设置存储，不需要 try/catch：\n{span}"
+        assert RETURN_VALUE_ONLY_NULL_RE.search(span), \
+            f"带参数分支的处理函数体要只有 event.returnValue = null; 一句：\n{span}"
     answering = [span for span, _ in calls if RETURN_VALUE_NON_NULL_RE.search(span)]
     always_null = [span for span, _ in calls if not RETURN_VALUE_NON_NULL_RE.search(span)]
     assert len(answering) == 2, \

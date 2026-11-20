@@ -212,7 +212,7 @@ Electron 本体没有 postinstall，第一次运行才下载；自动化测试�
 
 - 宿主侧（服务页经 `window.themisHost`）：`getAppearance()` 走 `ipcRenderer.sendSync("themis-host:get-appearance")`，**同步**返回外观对象；主进程答 `null` 表示「此刻没有可读的外观」，页面据此用缺省暗、标准。
 - 外壳侧（外壳页经 `window.themisShell`）：`getAppearance()` 走 `ipcRenderer.sendSync("themis-shell:get-appearance")`，语义相同。
-- 两个读取通道都由 `ipcMain.on` 注册（只此三处，全在 `main.js`）：外壳分支注册宿主与外壳两条，带参数起服务分支只注册宿主那条且恒答 `null`（没有设置存储）。处理函数每条路径都设过 `event.returnValue`——来源不认、没有可读的外观、读出错一律回 `null`（发到没有监听的通道渲染进程会卡住，所以主进程必须保证有监听就一定答）。
+- 两个读取通道都由 `ipcMain.on` 注册（只此三处，全在 `main.js`）：外壳分支注册宿主与外壳两条，带参数起服务分支只注册宿主那条且恒答 `null`（没有设置存储）。处理函数每条路径恰好给 `event.returnValue` 赋一次——Electron 的 `returnValue` 第一次赋值就是给渲染进程的回复，之后的赋值不会报错、直接被丢掉，所以主进程先在局部变量里算好、只赋一次；来源不认、没有可读的外观、读出错一律回 `null`（发到没有监听的通道渲染进程会卡住，所以主进程必须保证有监听就一定答）。
 
 任何一次成功保存只要改了主题或密度，所有还开着的窗口当场收到外观事件（负载只有外观对象一个实参）：服务窗口收 `"themis-host:appearance"`（`onAppearance(cb)` 订阅），外壳页窗口与设置窗口各收 `"themis-shell:appearance"`（`on('appearance', cb)` 订阅）。保存失败、外观没变（同值重写、空补丁）、只改仓库等情况不广播。
 

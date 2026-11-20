@@ -103,30 +103,33 @@ async function runShellPage() {
 
   // 宿主外观同步读取：只认当前服务窗口的 webContents（窗口为 null 或已销毁一律不认），
   // 来源被认才答当前外观对象，其余路径（来源不认、读出错）一律回 null。
+  // returnValue 的第一次赋值就是给渲染进程的回复，之后的赋值不报错、直接被丢掉，所以先在局部变量里算好、只赋一次
   ipcMain.on(HOST_APPEARANCE_CHANNEL, (event) => {
-    event.returnValue = null;
+    let answer = null;
     try {
       if (serviceWindow !== null && !serviceWindow.isDestroyed() && event.sender === serviceWindow.webContents) {
-        event.returnValue = currentAppearance;
+        answer = currentAppearance;
       }
     } catch {
-      event.returnValue = null;
+      answer = null;
     }
+    event.returnValue = answer;
   });
   // 外壳外观同步读取：只认当前外壳页窗口或设置窗口的 webContents（窗口为 null 或已销毁不认），
   // 来源被认才答当前外观对象，其余路径一律回 null。
   ipcMain.on(SHELL_APPEARANCE_CHANNEL, (event) => {
-    event.returnValue = null;
+    let answer = null;
     try {
       if (
         (shellWin !== null && !shellWin.isDestroyed() && event.sender === shellWin.webContents) ||
         (settingsWin !== null && !settingsWin.isDestroyed() && event.sender === settingsWin.webContents)
       ) {
-        event.returnValue = currentAppearance;
+        answer = currentAppearance;
       }
     } catch {
-      event.returnValue = null;
+      answer = null;
     }
+    event.returnValue = answer;
   });
 
   // 外壳页窗口的底层建窗：新分区、在该 session 上注册一次协议 handler、用 shell-preload 建窗。
@@ -464,12 +467,6 @@ app.whenReady().then(async () => {
   // 带参数起服务分支没有设置存储：宿主外观同步读取恒答 null（来源不认也是 null）
   ipcMain.on(HOST_APPEARANCE_CHANNEL, (event) => {
     event.returnValue = null;
-    try {
-      // 这条分支没有设置存储，没有可读的外观
-      event.returnValue = null;
-    } catch {
-      event.returnValue = null;
-    }
   });
 
   // 来源检查：只有主窗口、且它当前显示的确实是服务 origin 下的页面，才准调宿主接口
